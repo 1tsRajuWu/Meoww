@@ -224,6 +224,27 @@ def _repair_sentence(repaired: dict) -> str:
         said.append(
             f"**{repaired['failed']}** could not be repaired — I need **Manage Channels** there"
         )
+    freed = int(repaired.get("freed", 0) or 0)
+    if freed:
+        said.append(
+            f"took back **{freed}** `@everyone` overwrite(s) this bot wrote that "
+            "nothing held any more"
+        )
+    recorded_adopted = int(repaired.get("recorded_adopted", 0) or 0)
+    if recorded_adopted:
+        said.append(
+            f"wrote the ledger row for **{recorded_adopted}** lock(s) this bot wrote "
+            "and nothing held, so `/unlock` can take them back"
+        )
+    recorded_refused = int(repaired.get("recorded_refused", 0) or 0)
+    if recorded_refused:
+        said.append(
+            f"left **{recorded_refused}** overwrite(s) of mine where they are — "
+            + (
+                repaired.get("recorded_reason")
+                or "I need **Manage Channels** there to change them"
+            )
+        )
     strays_refused = int(repaired.get("strays_refused", 0) or 0)
     if strays_refused:
         said.append(
@@ -247,6 +268,8 @@ def _repair_sentence(repaired: dict) -> str:
         or repaired["adopted"]
         or repaired["failed"]
         or released
+        or freed
+        or recorded_adopted
     ):
         # A refusal is not a repair, and opening the sentence with *Repaired* would
         # say one had happened. An undo of the old unlock *is* a repair, and the only
@@ -640,6 +663,33 @@ class ServerControl(commands.Cog):
                 relocked += 1
             else:
                 failed += 1
+        freed = 0
+        recorded_adopted = 0
+        recorded_refused = 0
+        recorded_reason = ""
+        for channel in list(getattr(report, "recorded_grants", None) or []):
+            done, why = await server_control.release_recorded_overwrite(guild, channel, actor)
+            if done:
+                freed += 1
+            else:
+                recorded_refused += 1
+                recorded_reason = recorded_reason or why
+                print(
+                    f"[CHECK] left #{getattr(channel, 'name', '?')} alone: {why}",
+                    flush=True,
+                )
+        for channel in list(getattr(report, "recorded_locks", None) or []):
+            done, why = await server_control.adopt_recorded_overwrite(guild, channel, actor)
+            if done:
+                recorded_adopted += 1
+            else:
+                recorded_refused += 1
+                recorded_reason = recorded_reason or why
+                print(
+                    f"[CHECK] could not hand #{getattr(channel, 'name', '?')} to the "
+                    f"ledger: {why}",
+                    flush=True,
+                )
         released = 0
         strays_refused = 0
         # The first refusal, kept for the card: *I left one alone* without the reason
@@ -673,8 +723,9 @@ class ServerControl(commands.Cog):
         # outside the server.
         print(
             f"[CHECK] guild {getattr(guild, 'id', 0)}: relocked {relocked}, failed "
-            f"{failed}, released {released}, strays refused {strays_refused}, adopted "
-            f"{len(adopted)} of "
+            f"{failed}, released {released}, strays refused {strays_refused}, freed "
+            f"{freed}, recorded locks adopted {recorded_adopted}, recorded refused "
+            f"{recorded_refused}, adopted {len(adopted)} of "
             f"{len(getattr(report, 'orphans', []) or [])} old lock(s) considered.",
             flush=True,
         )
@@ -684,6 +735,10 @@ class ServerControl(commands.Cog):
             "released": released,
             "strays_refused": strays_refused,
             "stray_reason": stray_reason,
+            "freed": freed,
+            "recorded_adopted": recorded_adopted,
+            "recorded_refused": recorded_refused,
+            "recorded_reason": recorded_reason,
             "adopted": len(adopted),
             # What the pass looked at and did not claim, from the audit's own list:
             # the card explains a refusal instead of reporting silence.

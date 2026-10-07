@@ -954,6 +954,110 @@ class TheCommandAndItsRepair(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
             "undone a stray unlock by rewriting the lockdown ledger",
         )
 
+    async def _record(self, channel, *, allow=0, deny=0, reason="a command since rewritten"):
+        """Write down an overwrite as one this bot wrote, the way a writer would have."""
+        await db.record_overwrites(
+            self.guild.id,
+            [(channel.id, self.guild.default_role.id, allow, deny, reason, 0)],
+            at=1_760_000_000.0,
+        )
+
+    async def test_an_overwrite_this_bot_wrote_is_named_and_taken_back(self):
+        """The record's own finding: nothing holds it, and the card says what will."""
+        from cogs.server_control import ServerControl
+
+        # A grant today's code never writes — not the old unlock's mark, which the
+        # stray readers already speak for. This is the case the record exists for.
+        reactions = Bits.NAMES["add_reactions"]
+        self.guild.default_role.permissions = Perms(
+            manage_channels=False, send_messages=True, add_reactions=True
+        )
+        self.channel.overwrites[self.guild.default_role] = Overwrite(allow=reactions)
+        await self._record(self.channel, allow=reactions, reason="unlock by ICE")
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            rows = [
+                finding
+                for finding in report.findings
+                if "nothing holds" in finding.title and "this bot wrote" in finding.title
+            ]
+            self.assertTrue(rows, "the record's own leftover was not named")
+            self.assertEqual(rows[0].level, security_check.WARNING)
+            self.assertIn("Add Reactions", rows[0].detail)
+            self.assertIn(" on 20", rows[0].detail, "the card does not say when it was written")
+            self.assertIn("UTC", rows[0].detail)
+            self.assertIn("unlock by ICE", rows[0].detail)
+            self.assertEqual(
+                [channel.name for channel in report.recorded_grants], [self.channel.name]
+            )
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        self.assertIn("took back **1**", self._said())
+        self.assertNotIn(self.guild.default_role, self.channel.overwrites)
+
+    async def test_a_deny_this_bot_wrote_with_no_row_is_handed_to_the_ledger(self):
+        """The other half: a lock nothing holds is a lock nobody can undo."""
+        from cogs.server_control import ServerControl
+
+        self.channel.overwrites[self.guild.default_role] = Overwrite(
+            deny=Bits.NAMES["send_messages"]
+        )
+        await self._record(self.channel, deny=Bits.NAMES["send_messages"], reason="lockdown by ICE")
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            self.assertEqual(
+                [channel.name for channel in report.recorded_locks], [self.channel.name]
+            )
+            self.assertEqual(report.recorded_grants, [])
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        self.assertIn("wrote the ledger row for **1** lock(s)", self._said())
+        self.assertTrue(
+            self.channel.overwrites[self.guild.default_role].pair()[1].send_messages,
+            "the deny this bot wrote was removed by its own repair",
+        )
+
+    async def test_a_channel_the_ledger_holds_is_left_to_the_ledger(self):
+        """A recorded write a lock still owns is not a leftover — `/unlock` is its undo."""
+        await self._lock()
+
+        with self._quiet_settings():
+            recorded = await security_check.audit(self.guild, bot=self.bot)
+
+        self.assertEqual(recorded.recorded_locks, [])
+        self.assertEqual(recorded.recorded_grants, [])
+        self.assertFalse(
+            [
+                finding
+                for finding in recorded.findings
+                if "nothing holds" in finding.title and "this bot wrote" in finding.title
+            ],
+            "a lock the ledger holds was reported as an orphan of the record",
+        )
+
+    async def test_the_stray_readers_speak_for_the_mark_they_own(self):
+        """One room is one finding, even when two readers can both see it."""
+        room = Channel(72, "general-ish")
+        room.overwrites[self.guild.default_role] = Overwrite(
+            allow=Bits.NAMES["send_messages"]
+        )
+        self.guild.channels.append(room)
+        room.guild = self.guild
+        await self._record(room, allow=Bits.NAMES["send_messages"])
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+
+        rows = [finding for finding in report.findings if "general-ish" in finding.where]
+        self.assertEqual(len(rows), 1, "the same overwrite was reported twice")
+        self.assertEqual(report.recorded_grants, [], "a claimed room was listed twice")
+        self.assertEqual(
+            [channel.name for channel in report.strays], ["general-ish"],
+            "the stray reader stopped speaking for its own mark",
+        )
+
     async def test_the_leftover_on_a_public_room_is_named_and_taken_back(self):
         """The live `#general`: the mark with no category hiding anything — yet.
 

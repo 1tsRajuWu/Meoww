@@ -341,6 +341,7 @@ async def setup():
         # makes a second claim impossible.
         for statement in CLAIM_SCHEMA:
             await db.execute(statement)
+        await db.execute(OVERWRITE_SCHEMA)
         await db.execute('''CREATE TABLE IF NOT EXISTS custom_quotes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER,
@@ -2166,6 +2167,89 @@ async def clear_warnings(guild_id: int, user_id: int) -> int:
         )
         await db.commit()
         return int(cursor.rowcount or 0)
+
+
+# ── What the bot itself wrote on a channel ───────────────────────────────────
+#
+# The lockdown ledger records what was on a channel *before* a lock, because that is
+# the undo. This is the other half: what this bot actually **wrote**, recorded at the
+# moment it wrote it, so an overwrite of ours is recognised by its own history long
+# after the command that made it has been rewritten or deleted. That history is the
+# bug this table exists for — `/unlock` opened rooms by *allowing* `@everyone` to
+# talk, the command was rewritten to remove the overwrite instead, and the rooms it
+# had already touched kept the allow with nothing anywhere saying whose it was.
+
+OVERWRITE_SCHEMA: str = '''CREATE TABLE IF NOT EXISTS overwrite_writes (
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            target_id INTEGER NOT NULL,
+            allow INTEGER NOT NULL DEFAULT 0,
+            deny INTEGER NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT '',
+            wrote_at REAL NOT NULL DEFAULT 0,
+            removed INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, channel_id, target_id)
+        )'''
+
+
+async def ensure_overwrite_schema(db) -> None:
+    """Create the record on a database that predates it, as the lock ledger does."""
+    await db.execute(OVERWRITE_SCHEMA)
+
+
+async def record_overwrites(guild_id, rows: list[tuple], at: float = 0.0) -> int:
+    """Remember what this bot just wrote on a channel.
+
+    ``rows`` is ``(channel_id, target_id, allow, deny, reason, removed)`` per
+    overwrite, and the latest write for a (channel, target) wins: the record answers
+    *what of ours is sitting there now*, not the history of the room. A **removal**
+    is a row of its own (``removed=1``) rather than a delete, so an overwrite this
+    bot took back is still distinguishable from a channel it never wrote to — the
+    two would otherwise read the same, and it is the second the readers speak about.
+    """
+    if not rows:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_overwrite_schema(db)
+        await db.executemany(
+            'INSERT OR REPLACE INTO overwrite_writes '
+            '(guild_id, channel_id, target_id, allow, deny, reason, wrote_at, removed) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                (
+                    int(guild_id), int(channel_id), int(target_id), int(allow),
+                    int(deny), str(reason or ""), float(at or 0.0),
+                    1 if removed else 0,
+                )
+                for channel_id, target_id, allow, deny, reason, removed in rows
+            ],
+        )
+        await db.commit()
+    return len(rows)
+
+
+async def overwrite_rows(guild_id) -> list[tuple]:
+    """``(channel_id, target_id, allow, deny, reason, wrote_at)`` we wrote and kept.
+
+    Rows this bot already took back stay in the table and are left out here: the
+    question being asked is *what of this bot's is still on a channel*, and a write
+    that has been removed is not an answer to it.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await ensure_overwrite_schema(db)
+        async with db.execute(
+            'SELECT channel_id, target_id, allow, deny, reason, wrote_at '
+            'FROM overwrite_writes WHERE guild_id = ? AND removed = 0',
+            (int(guild_id),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        (
+            int(row[0]), int(row[1]), int(row[2] or 0), int(row[3] or 0),
+            str(row[4] or ""), float(row[5] or 0),
+        )
+        for row in rows
+    ]
 
 
 # ── A lockdown's ledger ──────────────────────────────────────────────────────

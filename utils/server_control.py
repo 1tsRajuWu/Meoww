@@ -661,12 +661,12 @@ async def _apply_lock(
     reason += actor.label if actor else "the website"
     written = closed = 0
     for change in changes:
+        denied = _denied(change.overwrite, change.names)
         try:
-            await channel.set_permissions(
-                change.target, overwrite=_denied(change.overwrite, change.names), reason=reason,
-            )
+            await channel.set_permissions(change.target, overwrite=denied, reason=reason)
         except Exception as exc:  # noqa: BLE001 — one overwrite must not stop the rest
             return written, closed, f"{type(exc).__name__}: {exc}"[:200]
+        await _remember_overwrite(guild, channel, change.target, denied, reason)
         written += 1
         if change.target is not everyone:
             closed += 1
@@ -698,6 +698,7 @@ async def _restore(guild, channel, previous: str, actor: moderation_actions.Acto
             await channel.set_permissions(everyone, overwrite=None, reason=reason)
         except Exception as exc:  # noqa: BLE001
             return False, f"{type(exc).__name__}: {exc}"[:200]
+        await _remember_overwrite(guild, channel, everyone, None, reason)
         return True, ""
     refused = []
     for key, described in recorded.items():
@@ -714,15 +715,18 @@ async def _restore(guild, channel, previous: str, actor: moderation_actions.Acto
                 if current is None:
                     continue
                 await channel.set_permissions(target, overwrite=None, reason=reason)
+                await _remember_overwrite(guild, channel, target, None, reason)
                 continue
             allow, deny = parsed
-            await channel.set_permissions(
-                target,
-                overwrite=discord.PermissionOverwrite.from_pair(
-                    discord.Permissions(allow), discord.Permissions(deny)
-                ),
-                reason=reason,
+            restored = discord.PermissionOverwrite.from_pair(
+                discord.Permissions(allow), discord.Permissions(deny)
             )
+            await channel.set_permissions(target, overwrite=restored, reason=reason)
+            # A restore is whatever was **there before the lock**, which is the
+            # server's own overwrite rather than this bot's — so the record says
+            # *nothing of ours is here*, which is the row that keeps a later
+            # restore from being mistaken for a leftover.
+            await _remember_overwrite(guild, channel, target, None, reason)
         except Exception as exc:  # noqa: BLE001 — one refusal must not stop the rest
             refused.append(f"{key}: {type(exc).__name__}")
     if refused:
@@ -937,6 +941,165 @@ async def lock_channel(
     return report
 
 
+async def _remember_overwrite(
+    guild, channel, target, overwrite, reason: str, *, removed: bool = False
+) -> None:
+    """Write down one overwrite this bot just put on — or took off — a channel.
+
+    Called from the writers a lock has rather than from each command, so the record
+    is a fact about what happened instead of a second opinion about what today's
+    code looks like. **A failure here is printed and swallowed on purpose**: the
+    permission change is what the caller asked for, and a record that will not
+    write must not turn a successful `/lockdown` into an error — the same trade the
+    adoption pass makes about Discord's audit log.
+    """
+    allow, deny = _pair(overwrite) if overwrite is not None else (None, None)
+    row = (
+        int(getattr(channel, "id", 0) or 0),
+        int(getattr(target, "id", 0) or 0),
+        _mask(allow),
+        _mask(deny),
+        reason,
+        removed or overwrite is None,
+    )
+    try:
+        await db.record_overwrites(report_guild_id(guild), [row], at=_now())
+    except Exception as exc:  # noqa: BLE001 — the write is the point; this is the note
+        print(
+            f"[CONTROL] could not write down an overwrite it wrote on "
+            f"#{getattr(channel, 'name', '?')}: {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+
+
+async def recorded_overwrites(guild, channels) -> list[tuple]:
+    """This bot's `@everyone` overwrites that are **still exactly** what it wrote.
+
+    ``(channel, allow, deny, reason, wrote_at)`` per match. The record is read
+    against the channel rather than trusted: a row matches only while the live
+    `@everyone` overwrite holds the same pair, because one that has been edited since
+    is no longer the thing this bot put there, and undoing it would be undoing
+    somebody's change. `@everyone`'s rows only — an overwrite on a role is that
+    role's business and the ledger it was written with already holds its undo, while
+    this one changes what *every* member sees, which is the class of bug the record
+    exists for.
+    """
+    try:
+        rows = await db.overwrite_rows(report_guild_id(guild))
+    except Exception as exc:  # noqa: BLE001 — an unreadable record is named, not guessed
+        print(f"[CONTROL] could not read what this bot wrote: {exc}", flush=True)
+        return []
+    everyone_id = int(getattr(getattr(guild, "default_role", None), "id", 0) or 0)
+    by_id = {int(getattr(channel, "id", 0) or 0): channel for channel in channels}
+    found = []
+    for channel_id, target_id, allow, deny, reason, wrote_at in rows:
+        channel = by_id.get(channel_id)
+        if channel is None or target_id != everyone_id:
+            continue
+        live_allow, live_deny = _pair(everyone_overwrite(channel))
+        if (_mask(live_allow), _mask(live_deny)) != (allow, deny):
+            continue
+        # Handed out as Discord's own permission objects rather than as the two
+        # integers the row stores, so every caller reads this exactly the way it
+        # reads a live overwrite's `pair()` — one shape for the reader and the
+        # channels it describes, and no name-by-name question answered wrongly
+        # because an integer has no `send_messages` on it.
+        found.append(
+            (channel, discord.Permissions(allow), discord.Permissions(deny), reason, wrote_at)
+        )
+    return found
+
+
+#: Every permission Discord has, by the name a role's permissions and an overwrite's
+#: both carry it under — read off discord.py's own table rather than typed out, so a
+#: permission added to Discord is compared by :func:`_grants_nothing_new` too.
+PERMISSION_NAMES: tuple[str, ...] = tuple(discord.Permissions.VALID_FLAGS)
+
+
+def _grants_nothing_new(guild, allow) -> bool:
+    """Whether `@everyone`'s own role already grants everything this allow grants.
+
+    The floor test, name by name rather than as one bitfield, because the two things
+    being compared are the same Discord object with the same attribute names — and
+    because a bitfield comparison would answer nothing about a stand-in that carries
+    the names instead of the value. An allow that grants anything the role does not
+    is a room's only source of that permission, and taking it away would be a
+    permission change rather than an undo.
+    """
+    role = getattr(getattr(guild, "default_role", None), "permissions", None)
+    for name in PERMISSION_NAMES:
+        if bool(getattr(allow, name, False)) and not bool(getattr(role, name, False)):
+            return False
+    return True
+
+
+async def release_recorded_overwrite(
+    guild, channel, actor: moderation_actions.Actor | None = None
+) -> tuple[bool, str]:
+    """Take back an `@everyone` overwrite **because the record says this bot wrote it**.
+
+    This is the record's whole point: no shape to recognise and no audit log to
+    ask, because *we* are the ones who say we wrote it — and the reader has already
+    checked that what is on the channel is still exactly what was recorded. A deny
+    is refused here on purpose: taking a deny away *grants* what it held, which is
+    the opposite of an undo, and such a channel is handed to the ledger instead
+    (:func:`adopt_recorded_overwrite`), where `/unlock` can put it back by name.
+    """
+    overwrite = everyone_overwrite(channel)
+    if overwrite is None:
+        return True, ""
+    allow, deny = _pair(overwrite)
+    if _mask(deny):
+        return False, (
+            "that overwrite denies something, so removing it would grant what it "
+            "holds — it is adopted into the ledger instead, where `/unlock` can "
+            "take it back"
+        )
+    if not _grants_nothing_new(guild, allow):
+        return False, (
+            "`@everyone` holds a permission in that room *only* through this "
+            "overwrite, so removing it would take the permission away rather than "
+            "put one back"
+        )
+    everyone = getattr(guild, "default_role", None)
+    if everyone is None:
+        return False, "that server has no default role to change"
+    label = actor.label if actor else "the website"
+    reason = f"an overwrite of mine from before the record was taken back by {label}"
+    try:
+        await channel.set_permissions(everyone, overwrite=None, reason=reason)
+    except Exception as exc:  # noqa: BLE001 — a refusal is reported, not raised
+        return False, f"{type(exc).__name__}: {exc}"[:200]
+    await _remember_overwrite(guild, channel, everyone, None, reason)
+    return True, ""
+
+
+async def adopt_recorded_overwrite(
+    guild, channel, actor: moderation_actions.Actor | None = None
+) -> tuple[bool, str]:
+    """Hand a recorded lock to the ledger, so `/unlock` can take it back by name.
+
+    The row written is the shape a lock older than the ledger gets: an empty
+    ``previous``, which `/unlock` reads as *there was nothing there* and therefore
+    removes the overwrite rather than putting one back. What this bot knows about
+    such a channel is what it **wrote**, never what was there before the write — and
+    the record is proof enough to act on, which is where this beats the audit-log
+    pass: no asking Discord who touched it, and no refusal for want of an entry that
+    has aged out of the log.
+    """
+    channel_id = int(getattr(channel, "id", 0) or 0)
+    guild_id = report_guild_id(guild)
+    try:
+        await db.save_lockdown(
+            guild_id, [(channel_id, "")], int(getattr(actor, "id", 0) or 0), _now()
+        )
+    except Exception as exc:  # noqa: BLE001 — a repair that fails is named, not raised
+        return False, f"the ledger would not take the row: {type(exc).__name__}: {exc}"[:200]
+    forget_lock_cache(guild_id)
+    forget_spam(guild_id)
+    return True, ""
+
+
 async def undo_stray_unlock(
     guild, channel, actor: moderation_actions.Actor | None = None
 ) -> tuple[bool, str]:
@@ -976,14 +1139,12 @@ async def undo_stray_unlock(
     if everyone is None:
         return False, "that server has no default role to change"
     label = actor.label if actor else "the website"
+    reason = f"a stray unlock from before the ledger removed by {label}"
     try:
-        await channel.set_permissions(
-            everyone,
-            overwrite=None,
-            reason=f"a stray unlock from before the ledger removed by {label}",
-        )
+        await channel.set_permissions(everyone, overwrite=None, reason=reason)
     except Exception as exc:  # noqa: BLE001 — a refusal is reported, not raised
         return False, f"{type(exc).__name__}: {exc}"[:200]
+    await _remember_overwrite(guild, channel, everyone, None, reason)
     forget_lock_cache(report_guild_id(guild))
     return True, ""
 

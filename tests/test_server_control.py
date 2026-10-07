@@ -1324,6 +1324,164 @@ class TheListenerRemovesWhatWasPostedWhileLocked(
         self.assertEqual(message.deleted, 0)
 
 
+class TheOverwritesWeWrote(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """The record of what this bot wrote — the half the ledger never had.
+
+    A ledger says *what was here before a lock*; this says *what we put here*, written
+    at the moment of the write, so an overwrite of ours is recognised by its own
+    history after the command that made it has been rewritten. That history is not
+    hypothetical: `/unlock` used to open rooms by **allowing** `@everyone` to talk,
+    the command was rewritten to remove the overwrite instead, and the rooms it had
+    already touched kept the allow with nothing anywhere saying whose it was.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database()
+        await db.setup()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def tearDown(self):
+        self.release_temp_database()
+        server_control.forget_lock_cache()
+        server_control.forget_spam()
+
+    def _guild(self, *channels):
+        guild = Guild(channels=list(channels))
+        for channel in channels:
+            channel.guild = guild
+        return guild
+
+    async def test_a_lock_writes_down_what_it_wrote(self):
+        channel = Channel(1, "quiet")
+        guild = self._guild(channel)
+
+        await server_control.lock_channel(guild, channel, Actor())
+
+        rows = await db.overwrite_rows(guild.id)
+        self.assertEqual(len(rows), 1, "the lock left no record of its own write")
+        channel_id, target_id, allow, deny, reason, wrote_at = rows[0]
+        self.assertEqual((channel_id, target_id), (1, guild.default_role.id))
+        self.assertTrue(deny & Bits.NAMES["send_messages"])
+        self.assertEqual(allow, 0)
+        self.assertIn("lockdown", reason)
+        self.assertGreater(wrote_at, 0, "the record has no date to read back")
+
+    async def test_taking_an_overwrite_back_is_recorded_as_a_removal(self):
+        """A row of its own rather than a delete: *taken back* is not *never ours*."""
+        channel = Channel(1, "quiet")
+        guild = self._guild(channel)
+        await server_control.lock_channel(guild, channel, Actor())
+
+        await server_control.unlock_channel(guild, channel, Actor())
+
+        self.assertEqual(await db.overwrite_rows(guild.id), [])
+        self.assertNotIn(guild.default_role, channel.overwrites)
+        self.assertEqual(await server_control.recorded_overwrites(guild, [channel]), [])
+
+    async def test_the_record_is_read_against_the_channel_not_trusted(self):
+        """An overwrite edited since is no longer the thing this bot put there."""
+        channel = Channel(1, "quiet")
+        guild = self._guild(channel)
+        await server_control.lock_channel(guild, channel, Actor())
+        self.assertEqual(len(await server_control.recorded_overwrites(guild, [channel])), 1)
+
+        channel.overwrites[guild.default_role] = Overwrite(
+            deny=Bits.NAMES["send_messages"], allow=1 << 10
+        )
+
+        self.assertEqual(
+            await server_control.recorded_overwrites(guild, [channel]), [],
+            "an edited overwrite was still reported as this bot's write",
+        )
+
+    async def test_a_recorded_grant_is_taken_back_where_that_takes_nothing_away(self):
+        channel = Channel(1, "general")
+        guild = self._guild(channel)
+        channel.overwrites[guild.default_role] = Overwrite(allow=Bits.NAMES["send_messages"])
+        await db.record_overwrites(
+            guild.id,
+            [(1, guild.default_role.id, Bits.NAMES["send_messages"], 0, "unlock by a person", 0)],
+            at=1.0,
+        )
+
+        done, why = await server_control.release_recorded_overwrite(guild, channel, Actor())
+
+        self.assertTrue(done, why)
+        self.assertNotIn(guild.default_role, channel.overwrites)
+
+    async def test_a_recorded_grant_that_speaks_for_the_room_is_left_alone(self):
+        """The floor test, per permission: taking it back would remove a permission."""
+        channel = Channel(1, "general")
+        guild = self._guild(channel)
+        guild.default_role.permissions = Perms(manage_channels=False, send_messages=False)
+        channel.overwrites[guild.default_role] = Overwrite(allow=Bits.NAMES["send_messages"])
+
+        done, why = await server_control.release_recorded_overwrite(guild, channel, Actor())
+
+        self.assertFalse(done, "a room's only way to talk was taken away")
+        self.assertIn("only", why)
+        self.assertIn(guild.default_role, channel.overwrites)
+
+    async def test_a_recorded_deny_is_handed_to_the_ledger_rather_than_removed(self):
+        """Removing a deny would *grant* what it held — so it becomes undoable instead."""
+        channel = Channel(1, "quiet")
+        guild = self._guild(channel)
+        await db.record_overwrites(
+            guild.id,
+            [(1, guild.default_role.id, 0, Bits.NAMES["send_messages"], "lockdown by a person", 0)],
+            at=1.0,
+        )
+        channel.overwrites[guild.default_role] = Overwrite(deny=Bits.NAMES["send_messages"])
+
+        released, why = await server_control.release_recorded_overwrite(guild, channel, Actor())
+        adopted, detail = await server_control.adopt_recorded_overwrite(guild, channel, Actor())
+
+        self.assertFalse(released, "a deny was removed as if it were a grant")
+        self.assertIn("denies something", why)
+        self.assertTrue(adopted, detail)
+        rows = await db.lockdown_rows(guild.id)
+        self.assertEqual([row[0] for row in rows], [1])
+        self.assertEqual(
+            rows[0][1], "",
+            "the row claims to know what was here before the write, which nobody does",
+        )
+
+        # And the row it wrote is the undo `/unlock` needs: an empty previous reads
+        # as *there was nothing here*, so the lock is taken back by **removing** the
+        # overwrite rather than by putting one back.
+        report = await server_control.unlock_channel(guild, channel, Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertNotIn(guild.default_role, channel.overwrites)
+
+    async def test_the_record_recognises_a_write_today_s_code_never_writes(self):
+        """What the record is for: a write whose shape today's code never writes.
+
+        The record is read on its own — no audit log, no fingerprint that today's
+        `looks_like_our_lock` would recognise — because the row is the proof.
+        """
+        channel = Channel(1, "general")
+        guild = self._guild(channel)
+        reactions = Bits.NAMES["add_reactions"]
+        channel.overwrites[guild.default_role] = Overwrite(allow=reactions)
+
+        self.assertFalse(server_control.looks_like_our_lock(channel.overwrites[guild.default_role]))
+        self.assertFalse(server_control.is_stray_unlock(channel.overwrites[guild.default_role]))
+        await db.record_overwrites(
+            guild.id,
+            [(1, guild.default_role.id, reactions, 0, "a command since rewritten", 0)],
+            at=1.0,
+        )
+
+        found = await server_control.recorded_overwrites(guild, [channel])
+
+        self.assertEqual(len(found), 1, "the record did not recognise its own write")
+        _channel, allow, deny, reason, _at = found[0]
+        self.assertTrue(allow.add_reactions)
+        self.assertEqual(deny.value, 0)
+        self.assertIn("rewritten", reason)
+
+
 class TheStaffTalkThroughAWholeServerLockdown(
     TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
 ):

@@ -57,6 +57,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import discord
+
 from . import db, modlog, server_control
 
 #: The levels, worst first: the order the card draws them and the order to read.
@@ -154,6 +156,13 @@ class Audit:
     #: *nothing needed repairing* beside a screen still full of unenforced locks is
     #: read as a bug, and *nothing I may adopt* is a different answer.
     orphans: list = field(default_factory=list)
+    #: Rooms carrying an `@everyone` overwrite this bot wrote that denies nothing
+    #: and that no lock holds — `fix` takes the overwrite back (unless removing it
+    #: would take a permission away, which the finding says so on the card).
+    recorded_grants: list = field(default_factory=list)
+    #: Rooms carrying a deny this bot wrote with no ledger row any more: `fix`
+    #: writes the row, because a lock nothing owns is a lock nobody can undo.
+    recorded_locks: list = field(default_factory=list)
     #: Rooms carrying the **exact** mark an old `/unlock` left — *allow Send
     #: Messages, deny nothing* on `@everyone` — where removing it is an undo.
     #: This is the one hole a `fix` may undo rather than re-lock, and it can undo it
@@ -561,6 +570,155 @@ def channel_power(guild, channels) -> list:
     return found
 
 
+async def recorded_findings(
+    guild, channels, held, claimed=frozenset()
+) -> tuple[list, list, list]:
+    """What this bot left on the server, from the record of its own writes.
+
+    ``held`` is the lockdown ledger's channel ids and ``claimed`` the channels the
+    stray readers already speak for, so one room is one finding. Returns
+    ``(findings, grants, locks)``: ``grants`` is a room carrying an `@everyone`
+    overwrite this bot wrote that denies nothing — a permission nobody asked for —
+    and ``locks`` one whose recorded overwrite **is** a deny with no ledger row any
+    more, which nothing enforces and no `/unlock` can find. Both are repair lists.
+
+    This is the record doing what shape-guessing cannot: the row was written at the
+    moment of the write, so it survives the command that made it being rewritten,
+    renamed or deleted — which is the history of `/unlock` exactly, and the reason
+    the five leftovers on the live server are reported by their *shape* instead.
+    """
+    found: list = []
+    grants: list = []
+    locks: list = []
+    for channel, allow, deny, reason, wrote_at in await server_control.recorded_overwrites(
+        guild, channels
+    ):
+        channel_id = int(getattr(channel, "id", 0) or 0)
+        if channel_id in held or channel in claimed:
+            # The ledger holds it, so `/unlock` is its undo — or another reader
+            # already reports it. This list is for the overwrites nothing owns.
+            continue
+        where = f"#{getattr(channel, 'name', '?')}"
+        written = _written_at(wrote_at)
+        if _mask_of(deny):
+            locks.append(channel)
+            said = ", ".join(_named(deny)) or "permissions this card has no words for"
+            found.append(
+                Finding(
+                    level=WARNING,
+                    where=where,
+                    title="carries a deny this bot wrote that the ledger has no row for",
+                    detail=(
+                        f"I wrote this `@everyone` overwrite{written} — it denies "
+                        f"**{said}** — and nothing holds the channel now: the sweep "
+                        "reads the ledger rather than the overwrite, so this room is "
+                        "not enforced and `/unlock` cannot find it. `/check fix:True` "
+                        "writes the row that makes it undoable, and the undo of a lock "
+                        "nobody recorded is **removing** the overwrite, because what "
+                        "was here before I wrote it was never written down."
+                    ),
+                )
+            )
+            continue
+        grants.append(channel)
+        said = ", ".join(_named(allow)) or "nothing it has words for"
+        if server_control._grants_nothing_new(guild, allow):
+            repair = (
+                "Nothing is taken away by removing it — `@everyone`'s own role already "
+                "grants what it grants — which is why `/check fix:True` removes it."
+            )
+        else:
+            repair = (
+                "I will not remove it: `@everyone` holds a permission here *only* "
+                "through this overwrite, so taking it back would remove a permission "
+                "rather than put one back."
+            )
+        found.append(
+            Finding(
+                level=WARNING,
+                where=where,
+                title="carries an `@everyone` overwrite this bot wrote and nothing holds",
+                detail=(
+                    f"I wrote this overwrite{written} — it allows **{said}** and "
+                    "denies nothing — and no lock holds the channel, so it is a "
+                    f"permission nobody asked for.{_why(reason)} {repair}"
+                ),
+            )
+        )
+    return found, grants, locks
+
+
+def _mask_of(permissions) -> int:
+    """A permission half as an int, whether it is Discord's or a stand-in's."""
+    return int(getattr(permissions, "value", 0) or 0) or sum(
+        bit for name, bit in _NAMED_PERMISSIONS if bool(getattr(permissions, name, False))
+    )
+
+
+#: The permissions worth naming on a card, in the client's own vocabulary. The lock's
+#: own bits come first, because a deny this bot wrote is one of those.
+_NAMED_PERMISSIONS: tuple[tuple[str, int], ...] = tuple(
+    (name, int(getattr(discord.Permissions, name).flag))
+    for name in (
+        "view_channel",
+        "send_messages",
+        "add_reactions",
+        "create_public_threads",
+        "manage_webhooks",
+        "create_instant_invite",
+        "manage_channels",
+        "manage_roles",
+        "manage_messages",
+        "connect",
+        "speak",
+    )
+)
+
+
+def _named(permissions) -> list:
+    """The permissions of one overwrite half that this card has words for."""
+    labels = {
+        "view_channel": "View Channels",
+        "send_messages": "Send Messages",
+        "add_reactions": "Add Reactions",
+        "create_public_threads": "Create Public Threads",
+        "manage_webhooks": "Manage Webhooks",
+        "create_instant_invite": "Create Invite",
+        "manage_channels": "Manage Channels",
+        "manage_roles": "Manage Roles",
+        "manage_messages": "Manage Messages",
+        "connect": "Connect",
+        "speak": "Speak",
+    }
+    return [labels[name] for name, _bit in _NAMED_PERMISSIONS if bool(getattr(permissions, name, False))]
+
+
+def _why(reason: str) -> str:
+    """What the record says the write was for, when it says anything."""
+    said = str(reason or "").strip()
+    return f" I wrote it as *{said}*." if said else ""
+
+
+def _written_at(wrote_at) -> str:
+    """When the record says one of our overwrites was written, if it knows.
+
+    Named rather than left out, because *the bot left this behind* reads differently
+    with a date beside it — one September evening is a bug, this morning is a command
+    somebody ran — and an unreadable stamp is left unsaid rather than printed as
+    ``1970``.
+    """
+    try:
+        stamp = float(wrote_at or 0)
+    except (TypeError, ValueError):
+        return ""
+    if stamp <= 0:
+        return ""
+    import datetime
+
+    when = datetime.datetime.fromtimestamp(stamp, datetime.timezone.utc)
+    return f" on {when.strftime('%Y-%m-%d at %H:%M')} UTC"
+
+
 def lockdown_findings(guild, channels, held, *, orphans=None) -> tuple[list, list, list]:
     """What the lockdown ledger looks like from outside, and which locks need repair.
 
@@ -937,6 +1095,15 @@ async def audit(guild, *, bot=None) -> Audit:
     report.strays = [
         channel for channel in channels if server_control.stray_unlock_is_undoable(guild, channel)
     ]
+    # What the bot itself wrote, from its own record: the rooms carrying an
+    # `@everyone` overwrite of ours that nothing holds any more. One room is one
+    # finding, so every channel the stray readers already speak for is claimed here.
+    recorded, grants, locks = await recorded_findings(
+        guild, channels, set(held), {channel for channel in channels if _is_an_old_unlock(channel)}
+    )
+    report.findings.extend(recorded)
+    report.recorded_grants = grants
+    report.recorded_locks = locks
     report.findings.extend(everyone_power(guild))
     report.findings.extend(channel_power(guild, channels))
     # Asked once and handed to the findings rather than asked twice: what a `fix` may
