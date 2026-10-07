@@ -1019,6 +1019,44 @@ class TheCommandAndItsRepair(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase
             "the deny this bot wrote was removed by its own repair",
         )
 
+    async def test_a_room_created_with_an_overwrite_of_its_own_is_not_ours_here(self):
+        """The record speaks about **changes to a room**, never a room's creation.
+
+        A ticket channel is born denying `@everyone` `View Channel` — the shape the
+        stray readers would call a hand-made hide and the record could call an
+        orphan lock of ours if creation wrote rows. It does not: the deny is that
+        channel's own configuration, there is nothing stale to catch and nothing to
+        undo, and a row would put a warning on every ticket ever opened. This law
+        pins both halves: every reader stays quiet, and `fix` changes nothing.
+        """
+        from cogs.server_control import ServerControl
+
+        room = Channel(73, "ticket-0042")
+        room.overwrites[self.guild.default_role] = Overwrite(
+            deny=Bits.NAMES["view_channel"]
+        )
+        self.guild.channels.append(room)
+        room.guild = self.guild
+
+        with self._quiet_settings():
+            report = await security_check.audit(self.guild, bot=self.bot)
+            self.assertEqual(report.recorded_locks, [], "creation was read as a lock of ours")
+            self.assertEqual(report.recorded_grants, [])
+            self.assertFalse(
+                [
+                    finding
+                    for finding in report.findings
+                    if "ticket-0042" in finding.where and "this bot wrote" in finding.title
+                ],
+                "a ticket channel's own deny was reported as a leftover of this bot's",
+            )
+            await ServerControl.check.callback(self.cog, self.interaction, True)
+
+        self.assertIn(
+            self.guild.default_role, room.overwrites,
+            "the repair touched a channel that only exists because it was created",
+        )
+
     async def test_a_channel_the_ledger_holds_is_left_to_the_ledger(self):
         """A recorded write a lock still owns is not a leftover — `/unlock` is its undo."""
         await self._lock()

@@ -952,6 +952,16 @@ async def _remember_overwrite(
     permission change is what the caller asked for, and a record that will not
     write must not turn a successful `/lockdown` into an error — the same trade the
     adoption pass makes about Discord's audit log.
+
+    **What is in scope is a change to an existing room's `@everyone` overwrite**, and
+    that boundary is deliberate: a channel *created* with an overwrite of its own —
+    a ticket channel, which is born denying `@everyone` `View Channel`
+    (``cogs/tickets.py``) — is the room's own configuration rather than a permission
+    it once had, so there is nothing stale for a reader to catch, nothing for
+    `/unlock` to undo, and a row would put a warning on every ticket ever opened and
+    hand those channels to the lockdown sweep. Creation is left to the create call;
+    a **change** to a ticket channel's overwrite afterwards goes through these
+    writers and is recorded like any other.
     """
     allow, deny = _pair(overwrite) if overwrite is not None else (None, None)
     row = (
