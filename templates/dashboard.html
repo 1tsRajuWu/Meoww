@@ -678,6 +678,66 @@
     </div>
     {% endif %}
 
+    {# What is off every list here right now, and the ranks that still see it
+       anyway — the `/hidden` command's reading, on the page that already owns the
+       whole-server controls. Drawn from `server_control.hide_panel`, the same
+       engine function the command's card is built on, so the two surfaces cannot
+       disagree about one server; and a reading rather than a control, because this
+       page's writes are the lockdown's and an un-hide is `/hide show:true`'s. #}
+    {% if management.hidden %}
+    <div class="own-state">
+      {{ chip('Hidden now', management.hidden.rooms | length) }}
+      {{ chip('Ranks stripped', management.hidden.sealed | length) }}
+      {{ chip('Still bypassing', management.hidden.bypass | length) }}
+    </div>
+    <div class="own-card">
+      <h3>What is hidden here</h3>
+      {% if management.hidden.rooms %}
+      <p>{% if management.hidden.whole %}Every channel and every category here is
+        off the list — {{ management.hidden.rooms | length }} in all.{% else %}
+        {{ management.hidden.rooms | length }} rooms are off the list.{% endif %}</p>
+      <ul class="list">
+        {% for room in management.hidden.rooms %}
+        <li class="list__row list__row--prose">
+          <span class="list__key">{{ room.name }}</span>
+          <span class="list__note">{% if room.category %}a category, with the rooms under it{% else %}a channel{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">Nothing here is hidden: no room has a row of the bot's, so
+        every channel and category is on everybody's list.</p>
+      {% endif %}
+      {% if management.hidden.gone %}
+      <p class="hint">{{ management.hidden.gone }} row(s) name a room that no longer
+        exists. There is nothing left to put back, and the next `/hide show:true`
+        drops them.</p>
+      {% endif %}
+      {% if management.hidden.sealed %}
+      <p>Administrator is stripped from {{ management.hidden.sealed | join(', ') }}.
+        That is what makes a hidden room hidden from them, since the permission
+        itself walks past every overwrite. It comes back when the last hidden room
+        does.</p>
+      {% endif %}
+      {% if management.hidden.bypass %}
+      <p>Still visible to whoever holds {{ management.hidden.bypass | join(', ') }}:
+        a rank an app owns, a rank above the bot's, or the bot's own rank — the
+        permission no overwrite reaches, and the one the undo needs in order to work
+        at all. Server Settings → Roles can put the bot's rank above theirs, and the
+        next `/hide` seals them too.</p>
+      {% endif %}
+      {% if management.hidden.rooms %}
+      <p class="hint">Putting it back is `/hide show:true` in the server. This page
+        reads the state rather than writing permissions, so nothing here can leave a
+        room hidden with no way back.</p>
+      {% endif %}
+    </div>
+    {% elif management.read %}
+    <p class="notice">The hidden-room ledger could not be read just now, so this is
+      not showing what is off the list. `/hidden` in the server answers from the bot
+      itself, which reads the same record.</p>
+    {% endif %}
+
     <div class="own-grid" data-reveal>
       <div class="own-card">
         <h3>Lock the server down</h3>

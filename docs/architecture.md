@@ -110,7 +110,7 @@ The pages, and what each owns:
 | `/dashboard/schedule` | the queue, the history, cancel and send-now |
 | `/dashboard/identity` | per-server nick, avatar, banner, bio |
 | `/dashboard/members` | the roster, the ban list, and one action form — warn, time out, kick, ban, unban |
-| `/dashboard/server` | lockdown, lift, and slowmode applied to every channel at once |
+| `/dashboard/server` | lockdown, lift, and slowmode applied to every channel at once, beside `/hidden`'s reading of this server — the rooms off every list right now and the ranks that can still see them |
 | `/dashboard/commands` | the per-server command scope and whether the republish landed |
 | `/dashboard/status` | monitors, command publish, this deployment's own readings |
 

@@ -1461,6 +1461,69 @@ async def hide_state(guild) -> dict:
     }
 
 
+def reading_order(channels) -> list:
+    """Categories first, then rooms — the one order every surface reads them in.
+
+    A category is *why* the rooms under it are off the list, so reading it first is
+    reading the answer before its parts. Within each half the order is Discord's
+    own (the ledger's, resolved through the guild), then by name, because two rooms
+    the same reader lists twice have to appear in the same order both times — the
+    command's card and the page's list are the same reading, and a second sort is
+    how two surfaces start disagreeing about one server.
+    """
+    return sorted(
+        channels,
+        key=lambda one: (not is_category(one), str(getattr(one, "name", ""))),
+    )
+
+
+async def hide_panel(guild) -> dict:
+    """The same reading as `/hidden`, in the shapes a web page can print.
+
+    ``hide_state`` answers in the shapes a Discord card wants — the live channel
+    objects it lists by name, the ids of the rows nothing can release. A page holds
+    no channel and prints text, so this flattens exactly those two fields and
+    leaves every other answer as the engine computed it: the two rank lists, the
+    whole-server fact and the readable flag are one call apart from the card's, so
+    the panel and the card cannot disagree about the same server.
+
+    Two deliberate differences from the card. There is **no twenty-room cap**:
+    the card's cap is Discord's message budget rather than the reading's, and a
+    page that dropped the rest behind *…and N more* would be the one surface where
+    somebody cannot see all of what is hidden. And a ledger nobody can read is
+    reported rather than emptied, because *nothing is hidden* and *I could not
+    tell* are different answers everywhere else in this project — a page that drew
+    the first for the second is how somebody concludes their rooms are visible
+    while they are not.
+    """
+    state = await hide_state(guild)
+    if not state["readable"]:
+        return {
+            "readable": False,
+            "detail": state["detail"],
+            "rooms": [],
+            "gone": 0,
+            "whole": False,
+            "sealed": [],
+            "bypass": [],
+        }
+    return {
+        "readable": True,
+        "detail": "",
+        "rooms": [
+            {
+                "name": str(getattr(channel, "name", "?")),
+                "category": is_category(channel),
+            }
+            for channel in reading_order(state["hidden"])
+        ],
+        "gone": len(state["gone"]),
+        "whole": state["whole"],
+        "sealed": state["sealed"],
+        "bypass": state["bypass"],
+    }
+
+
 async def lock_channel(
     guild, channel, actor: moderation_actions.Actor | None = None, *, hide: bool = False
 ) -> Report:

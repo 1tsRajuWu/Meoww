@@ -496,6 +496,72 @@ class TheHide(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
             "a room that arrived after the hide was counted among the hidden ones",
         )
 
+    async def test_the_page_reading_is_the_card_reading_in_plain_shapes(self):
+        """`hide_panel`: the same ledger and the same rank lists, with the live
+        channel objects flattened into names — a page prints a name and cannot hold a
+        channel. The order is the engine's (`reading_order`), because the command's
+        card and the dashboard's card are the same reading and two sorts are two
+        answers."""
+        everyone = Role("@everyone")
+        staff = Role("Staff", id=8, administrator=True)
+        mine = Role("Meow", id=424242, administrator=True)
+        category = Channel(1, "archive", kind="category")
+        inside = Channel(2, "notes")
+        inside.category = category
+        category.channels = [inside]
+        loose = Channel(3, "general")
+        guild = self._server(category, inside, loose, roles=[staff, mine])
+        guild.default_role = everyone
+        guild.me.roles = [mine]  # the rank the undo needs to keep its own
+
+        nothing = await server_control.hide_panel(guild)
+        self.assertTrue(nothing["readable"])
+        self.assertEqual(nothing["rooms"], [], "nothing hidden is not an unread ledger")
+        self.assertEqual(nothing["sealed"], [])
+        self.assertFalse(nothing["whole"])
+
+        await server_control.hide_channels(guild, [loose, category, inside], Actor())
+        panel = await server_control.hide_panel(guild)
+        self.assertEqual(
+            [room["name"] for room in panel["rooms"]],
+            ["archive", "general", "notes"],
+            "the panel does not read categories first and rooms by name",
+        )
+        self.assertEqual(
+            [room["category"] for room in panel["rooms"]],
+            [True, False, False],
+            "the page cannot tell a category from a room",
+        )
+        self.assertEqual(panel["sealed"], ["Staff"], "the stripped rank is missing")
+        self.assertEqual(panel["bypass"], ["Meow"], "the rank that still sees it is missing")
+        self.assertTrue(panel["whole"], "every room hidden did not read as all of it")
+
+        guild.gone.add(2)  # deleted while the hide held it
+        stale = await server_control.hide_panel(guild)
+        self.assertEqual(stale["gone"], 1, "a row nothing can release is not counted")
+        self.assertEqual(
+            [room["name"] for room in stale["rooms"]],
+            ["archive", "general"],
+            "the page lists a room that no longer exists",
+        )
+
+    async def test_a_ledger_nobody_can_read_is_not_a_server_with_nothing_hidden(self):
+        """The distinction every surface keeps and the page turns on: *nothing is
+        hidden* is an empty list of rooms, *I could not tell* is a flag. A page that
+        collapsed them would tell somebody their rooms are visible while a database
+        is down — the one reading of this feature that is worse than an error."""
+        everyone = Role("@everyone")
+        guild = self._server(Channel(1, "general"))
+        guild.default_role = everyone
+        with mock.patch.object(
+            server_control.db, "hide_rows", side_effect=RuntimeError("disk gone")
+        ):
+            panel = await server_control.hide_panel(guild)
+        self.assertFalse(panel["readable"], "an unreadable ledger read as an empty one")
+        self.assertEqual(panel["rooms"], [])
+        self.assertEqual(panel["sealed"], [])
+        self.assertIn("disk gone", panel["detail"])
+
     async def test_a_second_hide_is_not_a_refusal(self):
         everyone = Role("@everyone")
         channel = Channel(1, "secrets")
@@ -2472,6 +2538,30 @@ class TheHideHasThreeWaysIn(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase)
         self.assertIn("**3** in all", said, "the reading does not count what it took")
         self.assertIn("**Admin**", said, "the reading does not name the stripped rank")
         self.assertIn("show:True", said, "the reading does not carry the undo")
+
+    async def test_the_card_and_the_page_list_the_same_rooms_in_the_same_order(self):
+        """One reading, two surfaces: the `/hidden` card is built from `hide_state`,
+        the dashboard's card from `hide_panel`, and the ordering rule lives in the
+        engine rather than in either renderer — a second sort is how two surfaces
+        come to disagree about one server. Compared against the reading's card
+        rather than `/hide`'s, which names the categories it took rather than every
+        room: the reading is the one surface that lists them all."""
+        from cogs.server_control import ServerControl
+
+        await self._hide()
+        self.interaction.response.messages.clear()
+        self.interaction.followup.messages.clear()
+        await ServerControl.hidden.callback(self.cog, self.interaction)
+        said = self._said()
+        panel = await server_control.hide_panel(self.guild)
+        names = [room["name"] for room in panel["rooms"]]
+        self.assertEqual(names, ["📁・archive", "general", "notes"])
+        positions = [said.index(name) for name in names]
+        self.assertEqual(
+            positions,
+            sorted(positions),
+            "the card and the page order the same rooms differently",
+        )
 
     async def test_the_reading_is_refused_to_anybody_but_the_owner(self):
         from cogs.server_control import ServerControl

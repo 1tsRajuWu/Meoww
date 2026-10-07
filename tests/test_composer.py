@@ -846,10 +846,15 @@ def render_dashboard(**overrides) -> str:
         toggle_url="/api/toggle",
         toggle_all_url="/api/toggle-all",
         # An unread roster: the members and server pages then draw the branch a
-        # page takes when Discord could not be asked, which is a sentence.
+        # page takes when Discord could not be asked, which is a sentence. The
+        # hidden-room reading is in the key set as ``None`` — the same shape the
+        # view hands over when it could not be taken — because a fixture that
+        # simply omitted it would pin neither of the two branches the template
+        # draws for it.
         management={
             "page": "", "read": False, "why": "", "roster": None, "bans": [],
-            "control": None, "query": "", "recent": [], "abilities": None,
+            "control": None, "hidden": None, "query": "", "recent": [],
+            "abilities": None,
         },
         overview_live={
             "read": True, "why": "", "rooms": [], "people": 0, "alone": 0, "radio": None,

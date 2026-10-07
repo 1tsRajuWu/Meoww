@@ -23,12 +23,17 @@ What is pinned here is the *shape of a write* and the *ownership of a number*:
 4. **The ledgers are readings.** Nothing on the economy or levels page can write
    a balance; the switches they carry are the ones the Systems page carries.
 """
+import ast
+import os
 import re
 import unittest
 
 import keep_alive
 from tests.test_composer import GUILD_ID as FIXTURE_GUILD
 from utils import digest, scheduled
+
+#: The preview harness, read as source by one law below rather than imported.
+PREVIEW = os.path.join("scripts", "preview_dashboard.py")
 
 #: The server this suite's own fixture is aimed at. The composer fixture has its
 #: own id, and a page test that assumed it would be pinning a number it does not
@@ -592,6 +597,158 @@ class TheOverviewReadsTheServer(_PageRender):
         )
         for path in ("members", "server", "composer", "schedule"):
             self.assertIn(f'href="/dashboard/{path}?guild_id={GUILD_ID}"', html, path)
+
+
+class TheHiddenReadingIsOnTheServerPage(_PageRender):
+    """`/hidden`'s reading, on the page that already owns the whole-server controls.
+
+    The command answers in Discord and the page answers for somebody who is in the
+    dashboard already; both come from one engine reading — `hide_state` behind the
+    card, `hide_panel` behind this — so what is pinned here is the page's half: that
+    the reading is drawn at all, that a ledger nobody could read does not render as
+    *nothing is hidden*, and that the undo stays where it can actually be run.
+    """
+
+    def hidden_reading(self, **overrides) -> dict:
+        """A populated reading in the shape `server_control.hide_panel` answers with.
+
+        One category and one room, so both row notes are drawn; one stale row, one
+        stripped rank and one that still bypasses, so every sentence the card can
+        print appears exactly once. ``whole`` is true because the strongest
+        sentence is the one worth pinning.
+        """
+        reading = {
+            "readable": True,
+            "detail": "",
+            "rooms": [
+                {"name": "📁・archive", "category": True},
+                {"name": "notes", "category": False},
+            ],
+            "gone": 1,
+            "whole": True,
+            "sealed": ["Admin"],
+            "bypass": ["👑 Owner"],
+        }
+        reading.update(overrides)
+        return reading
+
+    def server_management(self, hidden) -> dict:
+        """The server page's context, with the hidden reading handed in.
+
+        ``hidden`` has no default on purpose: every law says which of the two
+        production shapes it means — a reading (possibly an empty one), or ``None``
+        for *the ledger could not be read*, which is the shape the view hands over
+        when the read fails and the one that must never render as an empty server.
+        """
+        management = roster_payload()
+        management["page"] = "server"
+        management["control"] = {
+            "locked": 0, "channels": [], "counts": {}, "plan": "", "ledger": True,
+        }
+        management["hidden"] = hidden
+        return management
+
+    def server_page(self, hidden) -> str:
+        return flat(self.page("server", management=self.server_management(hidden)))
+
+    def test_the_server_page_draws_what_is_hidden_and_who_can_still_see_it(self):
+        html = self.server_page(self.hidden_reading())
+        self.assertIn("What is hidden here", html)
+        self.assertIn("Every channel and every category here is off the list", html)
+        self.assertIn("📁・archive", html)
+        self.assertIn("a category, with the rooms under it", html)
+        self.assertIn("notes", html)
+        self.assertIn("Administrator is stripped from Admin", html)
+        self.assertIn("Still visible to whoever holds 👑 Owner", html)
+        self.assertIn("1 row(s) name a room that no longer exists", html)
+
+    def test_a_page_that_read_the_ledger_but_found_nothing_says_so(self):
+        html = self.server_page(
+            self.hidden_reading(rooms=[], whole=False, gone=0, sealed=[], bypass=[])
+        )
+        self.assertIn("Nothing here is hidden", html)
+        self.assertNotIn("Every channel and every category", html)
+
+    def test_a_ledger_that_could_not_be_read_is_not_drawn_as_nothing_hidden(self):
+        html = self.server_page(None)
+        self.assertIn("could not be read just now", html)
+        self.assertNotIn(
+            "Nothing here is hidden",
+            "an unread ledger is drawn as a server with nothing off the list",
+        )
+
+    def test_the_reading_is_only_on_the_page_that_owns_it(self):
+        """A roster has no business reading what is hidden, and the view keeps that
+        rule by reading it only for the server page — pinned here because a payload
+        handed to the wrong page must not draw it either."""
+        html = flat(
+            self.page(
+                "members", management=self.server_management(self.hidden_reading())
+            )
+        )
+        self.assertNotIn("What is hidden here", html)
+
+    def test_the_unhide_is_the_command_and_not_a_control_here(self):
+        """The page reads the state; it does not write permissions. The undo is the
+        one surface that can actually perform it, and it is named in the words that
+        would run it — the same rule the command's own card keeps."""
+        html = self.server_page(self.hidden_reading())
+        self.assertIn("/hide show:true", html)
+        self.assertIn("reads the state rather than writing permissions", html)
+        self.assertNotIn('value="unhide"', html, "the page offers a write it does not own")
+
+    def test_the_preview_harness_supplies_the_reading_as_well(self):
+        """Read as source rather than imported: importing the harness copies the live
+        database aside before it does anything else, which is not something a test
+        may do to the operator's file (``tests/test_db_isolation.py`` runs it in a
+        subprocess for the same reason). The keys are read with ``ast`` so this pins
+        the shape the harness *returns* rather than a string in a file — a preview
+        that supplied the two panels and not this reading would only ever show the
+        branch production takes for a server it could not read.
+        """
+        source = open(PREVIEW, encoding="utf-8").read()
+        keys: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name == "preview_management":
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Dict):
+                        keys |= {
+                            key.value
+                            for key in child.keys
+                            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                        }
+        self.assertIn("control", keys, "this law is reading the wrong dictionary")
+        self.assertIn(
+            "hidden",
+            keys,
+            "the preview cannot show a card it never supplies a reading for",
+        )
+
+    def test_the_preview_harness_renders_the_readings_that_page_needs(self):
+        """The address this suite renders by hand is rendered by the harness too, and
+        it used not to be: the Server page reads `roles`, `default_role` and
+        `reaction_roles` on every render and the harness supplied none of them, so
+        `/dashboard/server` answered **500** there — which made the page this card was
+        added to the one page that could not be looked at before shipping it. Read
+        with ``ast`` from the render call itself, for the reason above.
+        """
+        source = open(PREVIEW, encoding="utf-8").read()
+        names: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Name) or node.func.id != "render_template":
+                continue
+            if not node.args or getattr(node.args[0], "value", "") != "dashboard.html":
+                continue
+            names |= {keyword.arg for keyword in node.keywords if keyword.arg}
+        for key in ("roles", "default_role", "reaction_roles"):
+            self.assertIn(
+                key,
+                names,
+                f"the preview's render supplies no {key}, so the Server page cannot "
+                "be opened there",
+            )
 
 
 if __name__ == "__main__":

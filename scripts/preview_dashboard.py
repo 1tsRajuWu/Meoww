@@ -311,6 +311,25 @@ ROLES = [
     {"id": "1546716293657530369", "label": "Moderator", "kind": "role"},
 ]
 
+
+class _PreviewRole:
+    """One role, as ``keep_alive._role_choices`` reads one.
+
+    Two things beyond the id and the name decide that reader's answer: ``position``
+    (which is what marks a role ``above`` — *Discord would refuse to assign this
+    one*) and an ``is_default`` that is a **method** on the real object. A stub with
+    a boolean flag there is the one shape that silently empties the whole list, and
+    the Server page draws that list.
+    """
+
+    def __init__(self, entry: dict, position: int):
+        self.id = int(entry["id"])
+        self.name = str(entry["label"])
+        self.position = position
+
+    def is_default(self) -> bool:
+        return False
+
 SPECIAL = [
     {"id": "@everyone", "label": "@everyone", "sub": "everyone in the server", "kind": "special"},
     {"id": "@here", "label": "@here", "sub": "everyone online right now", "kind": "special"},
@@ -523,6 +542,12 @@ class _PreviewServer:
         # rather than raising. A fabricated "DaCat" here would be a nickname the
         # preview invented about a gateway it does not have.
         self.me = None
+        # The role list the Server page's own control reads — production's reader
+        # walks ``guild.roles``, so a server stub with none is a preview of an empty
+        # dropdown rather than of the control this file pretends the bot has. Same
+        # reason the channels above are here, and the reason that page could not
+        # render here at all until they were.
+        self.roles = [_PreviewRole(entry, index) for index, entry in enumerate(ROLES)]
         self._members = {int(m["id"]): _PreviewMentionable(m, "@") for m in MEMBERS}
         base = self.id * 1000
         self.text_channels = [
@@ -958,6 +983,9 @@ def dashboard(sub: str = "overview"):
     # pick a channel to send a message to, and the log picker's own answer to
     # whether the channel it has stored is one of them.
     channel_choices = keep_alive._channel_choices(guild["id"], page)
+    # …and the roles, for the other picker on the Server page. Read the same way,
+    # over this server's own stub roles.
+    role_choices = keep_alive._role_choices(guild["id"])
     return render_template(
         "dashboard.html",
         # The frame, merged the way the route merges it: `_site_context()` for the
@@ -1135,6 +1163,19 @@ def dashboard(sub: str = "overview"):
         # row itself is this process's copy of the store — unset, which is the
         # state the checklist's one finding is about.
         log_picker=keep_alive._log_picker(guild["id"], channel_choices),
+        # The other two readings the Server page draws, through production's own
+        # readers over this harness's own roles — for the reason every other reading
+        # here is, and because this address answered **500** without them: `roles`
+        # and `default_role` are read on every render of that page, and the harness
+        # supplied neither. A page that cannot be opened is a page that cannot be
+        # looked at, which is this file's whole job.
+        roles=role_choices,
+        default_role=keep_alive._default_role_reading(guild["id"], role_choices),
+        # …and the reaction-role mappings, the third reading of that page and the
+        # second one it could not be opened without. Read from this process's own
+        # copy of the store like the log picker is, so the preview shows an unset
+        # mapping rather than a shape nobody has seen.
+        reaction_roles=keep_alive._reaction_roles_reading(guild["id"], role_choices),
         member_actions=keep_alive.PANEL_MEMBER_ACTIONS,
         server_actions=keep_alive.PANEL_SERVER_ACTIONS,
         toggle_url="/api/toggle",
@@ -1231,6 +1272,24 @@ def preview_management(guild_id: int) -> dict:
             ],
             "counts": {"text": 3, "voice": 2, "manageable": 3},
             "plan": f"On **{guild['name']}** that is 3 of 5 text channels I can manage; 2 are voice and are not touched.",
+        },
+        # The hidden-room reading, in the shape `server_control.hide_panel`
+        # answers with. Populated rather than empty on purpose: the preview exists
+        # to show the branches, and a reading with nothing in it previews only the
+        # case that needs no explaining. One category and one room so both rows'
+        # notes are drawn, one stale row, one stripped rank and one that still
+        # bypasses — every sentence the card can print, once.
+        "hidden": {
+            "readable": True,
+            "detail": "",
+            "rooms": [
+                {"name": "📁・archive", "category": True},
+                {"name": "notes", "category": False},
+            ],
+            "gone": 1,
+            "whole": False,
+            "sealed": ["Admin"],
+            "bypass": ["👑 Owner"],
         },
         "query": "",
         "recent": [

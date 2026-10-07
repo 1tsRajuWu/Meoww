@@ -258,12 +258,10 @@ def _hidden_card(guild, state) -> discord.Embed:
 
     hidden = list(state["hidden"])
     # Categories first: a category is why its rooms are off the list, so reading it
-    # first is reading the answer before its parts. Discord's own order inside each
-    # half, untouched.
-    ordered = sorted(
-        hidden,
-        key=lambda one: (not server_control.is_category(one), str(getattr(one, "name", ""))),
-    )
+    # first is reading the answer before its parts. The order itself lives in the
+    # engine rather than here, because the dashboard's reading of the same server
+    # lists the same rooms and two sorts are two answers.
+    ordered = server_control.reading_order(hidden)
     lines = []
     if hidden:
         if state.get("whole"):

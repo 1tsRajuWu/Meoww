@@ -6050,6 +6050,12 @@ def _management_context(guild_id, page) -> dict:
         "roster": None,
         "bans": [],
         "control": None,
+        # The hidden-room reading, drawn only on the server page. `None` is *not
+        # read* rather than *nothing hidden* — the same distinction the card keeps —
+        # and this is the one surface where getting it wrong reads as "your rooms
+        # are visible" rather than as a missing figure, so the two shapes must
+        # never collapse into one.
+        "hidden": None,
         "query": "",
         "recent": [],
         # What this deployment may actually do here, so a control that cannot work
@@ -6114,6 +6120,15 @@ def _management_context(guild_id, page) -> dict:
             if isinstance(control, dict) and control.get("plan"):
                 control["plan"] = _plain_marks(control["plan"])
             context["control"] = control
+            # The other reading this page draws, from the very function `/hidden`'s
+            # card is built on (`server_control.hide_panel`) rather than a second
+            # reading of the same ledger — so the page and the command cannot
+            # disagree about one server. It answers with a dict whose `rooms` list
+            # is empty when nothing is hidden, which is *not* what `None` means
+            # here: `_loop_reading` hands back the default when the reading could
+            # not be taken at all.
+            hidden, _read_hidden = _loop_reading(server_control.hide_panel(guild), None)
+            context["hidden"] = hidden if isinstance(hidden, dict) else None
         recent, _read = _loop_reading(db.recent_web_actions(guild_id=guild_id, limit=12), [])
         context["recent"] = recent if isinstance(recent, list) else []
     except Exception as exc:  # noqa: BLE001 — a reading that breaks must not break the page
