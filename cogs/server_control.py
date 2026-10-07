@@ -91,16 +91,19 @@ def _lock_warnings(guild, channel) -> str:
 def _hide_card(
     guild, report, target, *, show: bool, everything: bool = False, named: str = ""
 ) -> discord.Embed:
-    """What `/hide` did, and the one fact it cannot change.
+    """What `/hide` did, and what it had to take from whom to make it true.
 
-    The paragraph about rank is not boilerplate, it is Discord's rule: **the
-    `Administrator` permission bypasses channel overwrites entirely**, and the
-    server's owner is exempt the same way. So a room denied to every role is still
-    readable by whoever holds that rank, and a card promising nobody else could see
-    it would be a claim the platform does not honour. The card names the ranks that
-    hold it instead — read off their own permissions, so a server that calls the
-    rank something else is answered the same way and a server whose rank is not an
-    administrator is told plainly that this hides it from them too.
+    Two of Discord's rules shape this card, and both are in the pseudocode the
+    platform publishes rather than inferred: ``compute_overwrites`` answers ``ALL``
+    the moment a member's base permissions carry **`Administrator`** — so no
+    overwrite this bot can write hides a room from a rank that holds it — and
+    ``compute_base_permissions`` answers ``ALL`` for the guild's owner whatever
+    their roles say. So *hidden from every administrator, seen by the owner alone*
+    is not a deny that can be written; it is a permission that had to be taken, and
+    the card says which ranks lost it, what else that costs them, and which ranks
+    it could not reach. The owner keeps their sight because they own the server,
+    not because a rank of theirs was spared — which is the difference between the
+    promise this command makes and the one it can keep.
 
     Three ways in reach this card — one `target`, one `name` the picker would not
     reach, and `everything` — so the **undo is written in the words that would run
@@ -135,11 +138,22 @@ def _hide_card(
                 "for a role or a member as much as for `@everyone`, is what the ledger "
                 "says was there before."
             )
+        if report.unsealed:
+            given_back = sorted({f"**{one}**" for one in report.unsealed})
+            tail += (
+                f"\n\n{'Every' if len(given_back) > 1 else 'The'} rank that was "
+                f"stripped of **Administrator** — {', '.join(given_back)} — has it "
+                "back, with the permissions it had before."
+            )
     else:
         title = "🙈 Hidden"
         body = report.sentence()
-        ranks = server_control.ranks_that_bypass(guild)
-        shown = sorted({f"**{getattr(role, 'name', '?')}**" for role in ranks})
+        # Read **after** the run, so this is who can still see it rather than who
+        # could have: a rank whose edit Discord refused is still standing there.
+        still = sorted(
+            {f"**{getattr(role, 'name', '?')}**" for role in server_control.ranks_that_bypass(guild)}
+        )
+        stripped = sorted({f"**{one}**" for one in report.sealed})
         # One subject, three scopes: a whole server cannot be called *this
         # channel*, and the sentence that follows a category and the sentence that
         # follows one room differ only in that word.
@@ -148,24 +162,54 @@ def _hide_card(
             if everything
             else f"This {holder} is off every role's list"
         )
-        if ranks:
-            tail = (
-                f"{subject}, and off the `@everyone` everyone here has: no member "
-                f"without **Administrator** can see it, and nobody can post in it. "
-                f"Still visible to whoever holds {', '.join(shown)}, and to this "
-                "server's owner — Discord exempts that permission from channel "
-                "overwrites, so no overwrite can take it from them. Remove "
-                "**Administrator** from those ranks and they lose it too.\n\n"
-                f"{undo}"
+        said = [
+            f"{subject}, and off the `@everyone` everyone here has: `View Channel` "
+            "is denied on every overwrite that granted it, so nobody can see in or "
+            "post in the room now — nobody, that is, but the ranks named below."
+        ]
+        if stripped:
+            said.append(
+                "**Administrator** bypasses channel overwrites entirely — Discord's "
+                "own rule, not this bot's choice — so no overwrite could have hidden "
+                "anything from the ranks that held it. They were **stripped of it**: "
+                f"{', '.join(stripped)}. Every administrative ability those ranks had "
+                "is gone with that permission — that is what it is — and it comes "
+                "back with the visibility, which the undo below does."
             )
-        else:
-            tail = (
-                f"{subject} and off `@everyone`: nobody here holds "
-                "**Administrator**, so no role and no member can see or post in it "
-                "now — only you, because this server's owner is exempt from channel "
-                "overwrites by Discord's own rule.\n\n"
-                f"{undo}"
+        if everything:
+            categories = sorted(
+                str(getattr(one, "name", "?"))
+                for one in (getattr(guild, "channels", []) or [])
+                if server_control.is_category(one)
             )
+            if categories:
+                said.append(
+                    "Every category this server has is on that list: "
+                    + ", ".join(f"**{one}**" for one in categories)
+                    + f" — {len(categories)} of them."
+                )
+        if still:
+            said.append(
+                f"Still visible to whoever holds {', '.join(still)} — which is my own "
+                "rank, the one that has to keep the permission to be able to hand it "
+                "back, and any rank I cannot edit. An app's own rank belongs to that "
+                "app and only it can change it; a rank *above* mine is out of my "
+                "reach. **Drag my role above theirs in Server Settings → Roles and "
+                "run this again**, and they lose the sight too — this command seals "
+                "whatever is still bypassing, so a second run costs nothing new."
+            )
+        said.append(
+            "You can still see it because Discord gives the server's owner every "
+            "permission whatever their roles hold — no rank of yours was spared to "
+            "make that true."
+        )
+        said.append(undo)
+        tail = "\n\n".join(said)
+    if report.ranks:
+        refused = "\n".join(
+            f"• **{str(one)[:80]}** — {str(why)[:160]}" for one, why in report.ranks[:8]
+        )
+        tail += f"\n\nRanks I could not change:\n{refused}"
     if report.failures:
         listed = "\n".join(
             f"• **{str(one)[:80]}** — {str(why)[:160]}" for one, why in report.failures[:8]
@@ -746,12 +790,12 @@ class ServerControl(commands.Cog):
 
     @app_commands.command(
         name="hide",
-        description="Hide a channel or category from every role and member but you.",
+        description="Hide a channel, a category, or everything here — from every role and member but you.",
     )
     @app_commands.describe(
         target="The channel or category to hide. A category takes its rooms with it.",
         name="A channel or category by name, <#id> or id, for one the picker will not reach.",
-        everything="Hide every channel and category in this server, not just one target.",
+        everything="Every channel and category at once — what happens with no target at all.",
         show="True puts the visibility back instead of hiding the target.",
     )
     async def hide(
@@ -795,11 +839,11 @@ class ServerControl(commands.Cog):
                 ephemeral=True,
             )
         if not given:
-            return await interaction.response.send_message(
-                "❌ Say what to hide: a `target` from the picker, a `name`, or "
-                "`everything:True` for every channel and category in this server.",
-                ephemeral=True,
-            )
+            # Nothing named is the whole server rather than a refusal, because that
+            # is this command's one job: *take all of it off the list*. Asking
+            # somebody to pick twenty-three rows to say so is the complaint this
+            # answers, and the whole of it is still reversible from the same card.
+            everything = True
         guild = interaction.guild
         if name:
             # The second way in, and it exists because the picker's list is a long

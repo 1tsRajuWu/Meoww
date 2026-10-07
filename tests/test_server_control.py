@@ -91,13 +91,29 @@ class Overwrite:
 
 
 class Role:
-    def __init__(self, name="role", position=0, *, id=1, manage_channels=False):
+    def __init__(self, name="role", position=0, *, id=1, manage_channels=False,
+                 administrator=False):
         self.name = name
         self.position = position
         self.id = id
         # What the role grants server-wide. Only a *hide* reads it: it is how the
         # people who could open the channel again are told from everybody else.
-        self.permissions = SimpleNamespace(manage_channels=manage_channels)
+        # ``value`` is Discord's own bitfield, because a rank a hide **stripped** is
+        # put back by handing the integer back — a stand-in with only named flags
+        # could not show a restore happening at all, and would pass a law about one
+        # while doing nothing.
+        self.permissions = SimpleNamespace(
+            manage_channels=manage_channels,
+            administrator=administrator,
+            value=(0x8 if administrator else 0) | (0x10 if manage_channels else 0),
+        )
+        self.edits = []
+
+    async def edit(self, *, permissions=None, reason=""):
+        """What ``role.edit`` is used for: the permissions a rank holds."""
+        self.edits.append((permissions, reason))
+        if permissions is not None:
+            self.permissions = permissions
 
     def __ge__(self, other):
         return self.position >= getattr(other, "position", 0)
@@ -405,6 +421,135 @@ class TheHide(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.already, 1)
         self.assertEqual(report.failures, [])
         self.assertIn("already", report.sentence())
+
+    async def test_a_hide_takes_administrator_from_the_ranks_that_see_past_it(self):
+        """No overwrite can hold a room back from `Administrator`; the permission goes.
+
+        Discord's own pseudocode decides it: ``compute_overwrites`` answers ``ALL``
+        the moment the base permissions carry the bit, so the only way to keep the
+        promise *even the admins cannot see it* is to take the permission itself —
+        and the value the rank had is what the row holds, or there is nothing to
+        give back when the rooms come home.
+        """
+        everyone = Role("@everyone")
+        staff = Role("Staff", id=8, manage_channels=True, administrator=True)
+        channel = Channel(1, "secrets")
+        guild = self._server(channel, roles=[staff])
+        guild.default_role = everyone
+        self.assertEqual(
+            [role.name for role in server_control.ranks_that_bypass(guild)], ["Staff"]
+        )
+
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.sealed, ["Staff"], "the rank that bypasses was left alone")
+        self.assertEqual(
+            [role.name for role in server_control.ranks_that_bypass(guild)],
+            [],
+            "the rank can still see straight past the deny",
+        )
+        self.assertEqual(
+            int(staff.permissions.value),
+            0x10,
+            "the strip took something other than Administrator with it",
+        )
+        self.assertEqual(
+            await server_control.sealed_ranks(guild),
+            {8: 0x18},
+            "the value the rank had was not written down",
+        )
+        self.assertIn("Administrator removed", staff.edits[0][1])
+
+    async def test_the_ranks_come_back_when_the_last_hidden_room_does(self):
+        """Not a room earlier: a rank handed its Administrator back while another
+        room is still hidden is the hole the strip exists to close."""
+        everyone = Role("@everyone")
+        staff = Role("Staff", id=8, administrator=True)
+        one, two = Channel(1, "secrets"), Channel(2, "plans")
+        guild = self._server(one, two, roles=[staff])
+        guild.default_role = everyone
+        await server_control.hide_channels(guild, [one, two], Actor())
+        self.assertEqual(await server_control.sealed_ranks(guild), {8: 0x8})
+
+        first = await server_control.show_channels(guild, [one], Actor())
+        self.assertTrue(first.ok, first.detail)
+        self.assertEqual(
+            first.unsealed, [], "a rank came back while a room was still hidden"
+        )
+        self.assertEqual(await server_control.sealed_ranks(guild), {8: 0x8})
+
+        last = await server_control.show_channels(guild, [two], Actor())
+        self.assertTrue(last.ok, last.detail)
+        self.assertEqual(last.unsealed, ["Staff"])
+        self.assertEqual(await server_control.sealed_ranks(guild), {})
+        self.assertEqual(
+            int(staff.permissions.value), 0x8, "the rank did not get what it had"
+        )
+
+    async def test_the_rank_the_bot_wears_keeps_its_own_permissions(self):
+        """The undo is an edit: a bot that gave its own Administrator away could not
+        hand it back, so that rank is refused **by name** rather than quietly kept."""
+        everyone = Role("@everyone")
+        mine = Role("Meow", id=424242, administrator=True)
+        channel = Channel(1, "secrets")
+        guild = self._server(channel, roles=[mine])
+        guild.default_role = everyone
+        guild.me.roles = [mine]
+
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.sealed, [])
+        self.assertEqual(
+            report.ranks,
+            [("Meow", "my own rank — I need it to put the ranks back")],
+            "a rank I wear was edited, or refused without saying why",
+        )
+        self.assertEqual(int(mine.permissions.value), 0x8, "my own rank was edited")
+
+    async def test_a_rank_an_app_manages_is_refused_before_it_is_ever_tried(self):
+        """An integration's own rank: Discord lets nobody but that app edit it, so a
+        try is a 403 per rank — named here instead of discovered there."""
+        everyone = Role("@everyone")
+        theirs = Role("Atlas", id=10, administrator=True)
+        theirs.managed = True
+        channel = Channel(1, "secrets")
+        guild = self._server(channel, roles=[theirs])
+        guild.default_role = everyone
+
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.sealed, [])
+        self.assertEqual(
+            report.ranks,
+            [("Atlas", "a rank Discord manages for an integration — only that app can edit it")],
+        )
+        self.assertEqual(
+            theirs.edits, [], "a rank Discord owns was edited anyway, to find out"
+        )
+
+    async def test_a_rank_discord_refuses_is_named_and_owed_nothing(self):
+        """A rank above mine: the edit is refused, the card names it, and no row is
+        left behind to edit a permission this bot could never change."""
+        everyone = Role("@everyone")
+        above = Role("Owner", id=9, administrator=True)
+        channel = Channel(1, "secrets")
+        guild = self._server(channel, roles=[above])
+        guild.default_role = everyone
+
+        async def refuses(*_args, **_kwargs):
+            raise _forbidden()
+
+        above.edit = refuses
+        report = await server_control.hide_channels(guild, [channel], Actor())
+        self.assertTrue(report.ok, report.detail)
+        self.assertEqual(report.sealed, [])
+        self.assertEqual(report.ranks[0][0], "Owner")
+        self.assertIn("Forbidden", report.ranks[0][1])
+        self.assertEqual(
+            await server_control.sealed_ranks(guild),
+            {},
+            "a rank Discord refused was left in the row, to be edited again on the undo",
+        )
 
     async def test_it_names_the_ranks_discord_still_lets_in(self):
         """`Administrator` bypasses channel overwrites; the card says who has it."""
@@ -2139,7 +2284,12 @@ class TheHideHasThreeWaysIn(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase)
         self.inside.category = self.category
         self.category.channels = [self.inside]
         self.loose = Channel(3, "general")
-        self.guild = Guild(channels=[self.category, self.inside, self.loose])
+        # The rank that holds **Administrator**, which is the half of *nobody else
+        # can see it* that no overwrite can write: it has to be taken away.
+        self.staff = Role("Admin", id=8, administrator=True)
+        self.guild = Guild(
+            channels=[self.category, self.inside, self.loose], roles=[self.staff]
+        )
         # The person who owns this server, which is the only one `/hide` answers.
         self.guild.owner_id = 42
         self.guild.default_role = self.everyone
@@ -2194,10 +2344,37 @@ class TheHideHasThreeWaysIn(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase)
             await db.hide_rows(self.guild.id), [], "a refused command wrote a row"
         )
 
-    async def test_no_way_in_at_all_is_refused_before_anything_happens(self):
+    async def test_a_bare_hide_takes_the_whole_server_and_the_ranks_that_bypass(self):
+        """Nothing named is everything — one command, and *I don't have to repeat*.
+
+        It is also where the *even the admins cannot see it* promise is kept: the
+        rank holding **Administrator** is stripped of it, because Discord's own rule
+        lets that permission walk straight past every overwrite this bot can write,
+        and it is given back with the visibility.
+        """
         await self._hide()
-        self.assertIn("Say what to hide", self._said())
+        for channel in (self.category, self.inside, self.loose):
+            self.assertIs(
+                channel.overwrites[self.everyone].view_channel, False, channel.name
+            )
+        self.assertIs(
+            self.staff.permissions.administrator,
+            False,
+            "the admin rank still sees straight past the deny",
+        )
+        said = self._said()
+        self.assertIn("Every channel and every category", said)
+        self.assertIn("stripped of it", said)
+        self.assertIn("**Admin**", said, "the card does not name the rank that lost it")
+        self.assertIn("everything:True show:True", said)
+
+    async def test_showing_it_all_gives_the_rank_its_permissions_back(self):
+        await self._hide()
+        await self._hide(show=True)
+        self.assertIs(self.staff.permissions.administrator, True)
+        self.assertEqual(int(self.staff.permissions.value), 0x8)
         self.assertEqual(await db.hide_rows(self.guild.id), [])
+        self.assertIn("has it back", self._said())
 
     async def test_a_name_nothing_answers_to_is_refused(self):
         await self._hide(name="not-a-channel")

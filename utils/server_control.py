@@ -593,6 +593,14 @@ class Report:
     detail: str = ""
     failures: list[tuple] = field(default_factory=list)
     channels: int = 0
+    #: Ranks a hide took `Administrator` from, and ranks an undo gave it back to.
+    sealed: list = field(default_factory=list)
+    unsealed: list = field(default_factory=list)
+    #: ``(rank, why)`` for a rank whose permissions could not be changed. Kept apart
+    #: from :attr:`failures`, which is about channels: a room that came back is a
+    #: success even when one rank's permissions could not, and one list cannot say
+    #: both without one of them reading as the other.
+    ranks: list = field(default_factory=list)
 
     def sentence(self) -> str:
         if not self.ok:
@@ -654,6 +662,9 @@ class Report:
             "blocked": self.blocked,
             "evicted": self.evicted,
             "failures": [{"channel": str(channel), "detail": detail} for channel, detail in self.failures],
+            "sealed": list(self.sealed),
+            "unsealed": list(self.unsealed),
+            "ranks": [{"rank": str(rank), "detail": detail} for rank, detail in self.ranks],
             "detail": self.detail,
             "said": self.sentence(),
         }
@@ -994,6 +1005,209 @@ def ranks_that_bypass(guild) -> list:
     return roles
 
 
+#: Where the ranks a hide has stripped are remembered. One ``guild_settings`` row
+#: per server holding ``{role id: the permissions value the rank had}``: the field
+#: is already a JSON document per key, and a table for one document is a migration
+#: this does not need — while the row itself has to survive a restart for the same
+#: reason the channel ledger does. A rank whose ``Administrator`` was taken and not
+#: written down is a rank nobody can prove needs it back.
+SEALED_RANKS_KEY = "hidden_rank_permissions"
+
+#: Discord's own bit for the permission that makes all of this necessary.
+ADMINISTRATOR_BIT: int = int(discord.Permissions.administrator.flag)
+
+
+async def sealed_ranks(guild) -> dict:
+    """``{role id: permissions value}`` for the ranks a hide has stripped."""
+    try:
+        held = await db.get_setting(report_guild_id(guild), SEALED_RANKS_KEY)
+    except Exception as exc:  # noqa: BLE001 — an unreadable row is reported by the caller
+        print(f"[CONTROL] could not read which ranks were stripped: {exc}", flush=True)
+        return {}
+    if not isinstance(held, dict):
+        return {}
+    found = {}
+    for key, value in held.items():
+        try:
+            found[int(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return found
+
+
+def _bot_role_ids(guild) -> set:
+    """The ids of the roles the bot itself wears, when this guild can say.
+
+    Read from ``guild.me.roles`` and never assumed: a stand-in server has no
+    member behind ``me``, and the rule this feeds — never strip the rank that has
+    to put the ranks back — has to hold there too.
+    """
+    me = getattr(guild, "me", None)
+    roles = getattr(me, "roles", None) or ()
+    return {_target_id(role) for role in roles}
+
+
+def _strippable_ranks(guild) -> tuple[list, list]:
+    """``(the ranks this hide may take Administrator from, the ones it will not)``.
+
+    Two refusals, and neither is caution:
+
+    * **a rank the bot itself wears.** The undo is an edit, so a bot that has given
+      its own Administrator away has given away the ability to hand it back, and an
+      irreversible permission change is the one thing this engine exists not to
+      make;
+    * **a rank an app manages** — an integration's own rank, which Discord lets
+      nobody but that app edit. Tried anyway it is a 403 per rank, and the card
+      would blame Discord for a rule that was already known; named here, it says
+      what it is.
+
+    A rank above the bot is attempted rather than refused from its position: the
+    refusal is Discord's to make, and its own answer on the card is worth more than
+    a guess this side of the wire.
+    """
+    bot_roles = _bot_role_ids(guild)
+    can, will_not = [], []
+    for role in ranks_that_bypass(guild):
+        if _target_id(role) in bot_roles:
+            will_not.append((role, "my own rank — I need it to put the ranks back"))
+            continue
+        if bool(getattr(role, "managed", False)):
+            will_not.append(
+                (role, "a rank Discord manages for an integration — only that app can edit it")
+            )
+            continue
+        can.append(role)
+    return can, will_not
+
+
+async def seal_ranks(guild, actor: moderation_actions.Actor | None = None) -> dict:
+    """Take `Administrator` from every rank that would see straight past the deny.
+
+    **Removing the permission is the only thing that can do it**, and Discord's own
+    pseudocode is why: ``compute_base_permissions`` answers ``ALL`` for the guild's
+    owner, and ``compute_overwrites`` answers ``ALL`` the moment the base
+    permissions carry ``Administrator`` — so *no* channel overwrite this bot can
+    write hides a room from whoever holds it. What was asked for ("even admin
+    cannot see it, only the owner can") is therefore not a permission that can be
+    denied; it is a permission that has to go, and it is not channel-scoped.
+
+    That makes this the loudest thing in the module, so it is said out loud rather
+    than done quietly: every rank that held it loses **every** administrative
+    ability here until the ranks are put back, which `/hide show:True` does when the
+    last hidden room comes back. The person asking keeps no special case — Discord
+    answers ``ALL`` for the owner whatever their roles hold, so the owner sees the
+    rooms *because they own the server*, and a rank of theirs left behind would be a
+    hole for whoever else wears it.
+
+    The row is written **before** the first edit, for the reason the channel ledger
+    is written before its overwrite: a permission taken and not written down has no
+    undo. Returns ``{"sealed": [names], "refused": [(name, why), …]}``.
+    """
+    already = await sealed_ranks(guild)
+    can, will_not = _strippable_ranks(guild)
+    refused = [(str(getattr(role, "name", "?")), why) for role, why in will_not]
+    pending = [role for role in can if _target_id(role) not in already]
+    if not pending:
+        return {"sealed": [], "refused": refused}
+
+    document = dict(already)
+    for role in pending:
+        held = getattr(getattr(role, "permissions", None), "value", 0)
+        try:
+            document[_target_id(role)] = int(held or 0)
+        except (TypeError, ValueError):
+            document[_target_id(role)] = 0
+    try:
+        await db.set_setting(
+            report_guild_id(guild),
+            SEALED_RANKS_KEY,
+            {str(role_id): value for role_id, value in document.items()},
+        )
+    except Exception as exc:  # noqa: BLE001 — no row, no permission change
+        return {
+            "sealed": [],
+            "refused": refused
+            + [(str(getattr(role, "name", "?")), f"this row could not be written ({exc})") for role in pending],
+        }
+
+    reason = "Administrator removed so a hidden room stays hidden"
+    reason += f" ({actor.label})" if actor else " (the website)"
+    sealed = []
+    for role in pending:
+        stripped = document[_target_id(role)] & ~ADMINISTRATOR_BIT
+        try:
+            await role.edit(permissions=discord.Permissions(stripped), reason=reason)
+        except Exception as exc:  # noqa: BLE001 — one refusal must not stop the rest
+            refused.append((str(getattr(role, "name", "?")), f"{type(exc).__name__}: {exc}"[:200]))
+            document.pop(_target_id(role), None)
+            continue
+        sealed.append(str(getattr(role, "name", "?")))
+
+    # What stands is what actually happened: a rank Discord refused is not a rank
+    # the undo owes anything to, so its row goes rather than sitting there waiting
+    # to edit a permission this bot could never change.
+    try:
+        await db.set_setting(
+            report_guild_id(guild),
+            SEALED_RANKS_KEY,
+            {str(role_id): value for role_id, value in document.items()},
+        )
+    except Exception as exc:  # noqa: BLE001 — the edits happened; this is bookkeeping
+        print(f"[CONTROL] could not tidy the sealed ranks: {exc}", flush=True)
+    if sealed:
+        print(
+            f"[CONTROL] guild {report_guild_id(guild)}: stripped Administrator from "
+            f"{len(sealed)} rank(s): {', '.join(sealed)}",
+            flush=True,
+        )
+    return {"sealed": sealed, "refused": refused}
+
+
+async def unseal_ranks(guild, actor: moderation_actions.Actor | None = None) -> dict:
+    """Give every stripped rank its own permissions back, from the row.
+
+    The exactly-what-was-there restore the channel ledger does, one level up: the
+    row holds the rank's whole permission **value**, not just the one bit, so a
+    server that changed a rank by hand while the rooms were hidden is put back to
+    what it was when the hide started rather than to a guess.
+    """
+    held = await sealed_ranks(guild)
+    if not held:
+        return {"released": [], "refused": []}
+    reason = "Administrator restored with the hidden rooms"
+    reason += f" ({actor.label})" if actor else " (the website)"
+    released, refused, left = [], [], {}
+    for role_id, value in held.items():
+        get_role = getattr(guild, "get_role", None)
+        role = get_role(role_id) if callable(get_role) else None
+        if role is None:
+            # A rank deleted while the rooms were hidden has nothing to put back,
+            # and keeping its row would edit an id Discord no longer knows.
+            continue
+        try:
+            await role.edit(permissions=discord.Permissions(int(value)), reason=reason)
+        except Exception as exc:  # noqa: BLE001 — one refusal must not stop the rest
+            left[role_id] = value
+            refused.append((str(getattr(role, "name", "?")), f"{type(exc).__name__}: {exc}"[:200]))
+            continue
+        released.append(str(getattr(role, "name", "?")))
+    try:
+        await db.set_setting(
+            report_guild_id(guild),
+            SEALED_RANKS_KEY,
+            {str(role_id): value for role_id, value in left.items()},
+        )
+    except Exception as exc:  # noqa: BLE001 — the ranks are back; this is bookkeeping
+        print(f"[CONTROL] could not tidy the sealed ranks: {exc}", flush=True)
+    if released:
+        print(
+            f"[CONTROL] guild {report_guild_id(guild)}: gave Administrator back to "
+            f"{len(released)} rank(s): {', '.join(released)}",
+            flush=True,
+        )
+    return {"released": released, "refused": refused}
+
+
 async def _locked_channels_now(guild) -> set:
     """The channels a lockdown holds, for the one question `/hide` asks first."""
     try:
@@ -1072,6 +1286,13 @@ async def hide_channels(guild, channels, actor: moderation_actions.Actor | None 
     report.ok = report.changed > 0 or report.already > 0
     if not report.ok:
         report.detail = "Discord refused every channel — I need **Manage Channels** there."
+        return report
+
+    # Only once something **is** hidden: taking every rank's Administrator away for a
+    # run that hid nothing would be the whole cost of this with none of the point.
+    outcome = await seal_ranks(guild, actor)
+    report.sealed = outcome["sealed"]
+    report.ranks = outcome["refused"]
     return report
 
 
@@ -1143,6 +1364,24 @@ async def show_channels(guild, channels, actor: moderation_actions.Actor | None 
     report.ok = report.restored > 0 or not report.failures
     if not report.ok:
         report.detail = "Discord refused every restore — I need **Manage Channels** there."
+        return report
+
+    # The ranks come back when the **last** hidden room does, and only then: a rank
+    # handed its Administrator back while another room is still hidden is a hole in
+    # the very promise the strip exists for, and one room's undo cannot know about
+    # the rooms it is not looking at. A ledger that cannot be read keeps the ranks
+    # as they are — the strict direction, since the rooms are still hidden.
+    still_hidden = None
+    try:
+        still_hidden = await db.hide_rows(report_guild_id(guild))
+    except Exception as exc:  # noqa: BLE001 — a failed read must not loosen anything
+        print(f"[CONTROL] could not check the hide ledger: {exc}", flush=True)
+    # ``== []`` rather than a falsy test: `None` is a ledger nobody could read, and
+    # that keeps the ranks stripped, because the rooms are still hidden.
+    if still_hidden == []:
+        outcome = await unseal_ranks(guild, actor)
+        report.unsealed = outcome["released"]
+        report.ranks = outcome["refused"]
     return report
 
 
