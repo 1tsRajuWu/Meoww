@@ -854,7 +854,7 @@ def make_vip_embed(
     footer: str | None = None,
     thumbnail_url: str | None = None,
     image_url: str | None = None,
-    author_name: str = "👑 DaCat Premium • VIP Edition",
+    author_name: str = "DaCat Premium • VIP Edition",
     author_icon: str | None = None,
     footer_icon: str | None = None,
 ) -> discord.Embed:
