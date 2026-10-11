@@ -337,6 +337,10 @@ def _clean_couple_part(name: str | None, fallback: str) -> str:
 
 
 def _couple_role_name(mem_a, mem_b) -> str:
+    return _pair_role_name(mem_a, mem_b, COUPLE_SEPARATOR)
+
+
+def _pair_role_name(mem_a, mem_b, sep: str) -> str:
     first, second = (mem_a, mem_b) if mem_a.id < mem_b.id else (mem_b, mem_a)
     n1 = _clean_couple_part(
         getattr(first, "display_name", None) or getattr(first, "name", None),
@@ -346,7 +350,7 @@ def _couple_role_name(mem_a, mem_b) -> str:
         getattr(second, "display_name", None) or getattr(second, "name", None),
         f"User{second.id % 10000}",
     )
-    return f"{n1}{COUPLE_SEPARATOR}{n2}"[:100]
+    return f"{n1}{sep}{n2}"[:100]
 
 
 async def _resolve_member(guild: discord.Guild, user_id: int):
@@ -375,9 +379,16 @@ async def _move_role_to_top(guild: discord.Guild, role) -> None:
 
 
 async def _get_or_create_couple_role(guild: discord.Guild | None, mem_a, mem_b):
+    return await _get_or_create_pair_role(
+        guild, mem_a, mem_b,
+        sep=COUPLE_SEPARATOR, colour=COUPLE_ROLE_COLOUR, noun="Couple",
+    )
+
+
+async def _get_or_create_pair_role(guild: discord.Guild | None, mem_a, mem_b, *, sep: str, colour: int, noun: str):
     if guild is None or mem_a is None or mem_b is None:
         return None
-    base = _couple_role_name(mem_a, mem_b)
+    base = _pair_role_name(mem_a, mem_b, sep)
     name = base
     for attempt in range(1, 10):
         role = discord.utils.get(guild.roles, name=name)
@@ -397,10 +408,10 @@ async def _get_or_create_couple_role(guild: discord.Guild | None, mem_a, mem_b):
     try:
         role = await guild.create_role(
             name=name,
-            colour=discord.Colour(COUPLE_ROLE_COLOUR),
+            colour=discord.Colour(colour),
             hoist=True,
             mentionable=True,
-            reason=f"Couple role for {base}",
+            reason=f"{noun} role for {base}",
         )
     except (discord.Forbidden, discord.HTTPException):
         return None
@@ -409,67 +420,40 @@ async def _get_or_create_couple_role(guild: discord.Guild | None, mem_a, mem_b):
 
 
 async def _add_couple_role(guild: discord.Guild | None, id1: int, id2: int) -> str:
+    return await _add_pair_role(
+        guild, id1, id2,
+        sep=COUPLE_SEPARATOR, colour=COUPLE_ROLE_COLOUR,
+        noun="Couple", reason="Just married", headline="created for you both!",
+    )
+
+
+async def _add_pair_role(guild: discord.Guild | None, id1: int, id2: int, *, sep: str, colour: int, noun: str, reason: str, headline: str) -> str:
     if guild is None:
         return ""
     mem_a = await _resolve_member(guild, id1)
     mem_b = await _resolve_member(guild, id2)
     if mem_a is None or mem_b is None:
         return ""
-    role = await _get_or_create_couple_role(guild, mem_a, mem_b)
+    role = await _get_or_create_pair_role(guild, mem_a, mem_b, sep=sep, colour=colour, noun=noun)
     if role is None:
         return ""
     for m in (mem_a, mem_b):
         try:
             if role not in getattr(m, "roles", []):
-                await m.add_roles(role, reason="Just married")
+                await m.add_roles(role, reason=reason)
         except (discord.Forbidden, discord.HTTPException):
             continue
-    return f"\n\n{role.mention} (`{role.name}`) created for you both!"
+    return f"\n\n{role.mention} (`{role.name}`) {headline}"
 
 
 async def _cleanup_couple_roles_on_divorce(guild: discord.Guild | None, id1: int, id2: int) -> str:
     if guild is None:
         return ""
-    removed_names: list[str] = []
-    # 1. Remove per-couple soft-pink "A x B" roles shared by this pair.
-    for role in list(getattr(guild, "roles", [])):
-        try:
-            if COUPLE_SEPARATOR not in role.name:
-                continue
-            if getattr(role, "colour", None) is not None and role.colour.value != COUPLE_ROLE_COLOUR:
-                # Only auto-delete roles we created (soft pink).
-                # Still remove the role from the pair even if colour differs,
-                # but never delete foreign roles.
-                foreign = True
-            else:
-                foreign = False
-            try:
-                member_ids = {m.id for m in role.members}
-            except Exception:
-                member_ids = set()
-            if id1 not in member_ids and id2 not in member_ids:
-                continue
-            for mid in (id1, id2):
-                m = await _resolve_member(guild, mid)
-                if m is not None and role in getattr(m, "roles", []):
-                    try:
-                        await m.remove_roles(role, reason="Divorced")
-                    except (discord.Forbidden, discord.HTTPException):
-                        pass
-            removed_names.append(f"`{role.name}`")
-            if foreign:
-                continue
-            try:
-                fresh_members = [mm for mm in role.members if mm.id not in (id1, id2)]
-            except Exception:
-                fresh_members = []
-            if not fresh_members:
-                try:
-                    await role.delete(reason="Couple divorced")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-        except Exception:
-            continue
+    note = await _cleanup_pair_roles(
+        guild, id1, id2,
+        sep=COUPLE_SEPARATOR, colour=COUPLE_ROLE_COLOUR,
+        reason="Divorced", delete_reason="Couple divorced", label="couple role",
+    )
     # 2. Migration: strip legacy shared role if now single.
     try:
         legacy = discord.utils.get(guild.roles, name=MARRIED_ROLE_NAME)
@@ -497,9 +481,54 @@ async def _cleanup_couple_roles_on_divorce(guild: discord.Guild | None, id1: int
                         pass
     except Exception:
         pass
+    return note
+
+
+async def _cleanup_pair_roles(guild: discord.Guild | None, id1: int, id2: int, *, sep: str, colour: int, reason: str, delete_reason: str, label: str) -> str:
+    if guild is None:
+        return ""
+    removed_names: list[str] = []
+    for role in list(getattr(guild, "roles", [])):
+        try:
+            if sep not in role.name:
+                continue
+            if getattr(role, "colour", None) is not None and role.colour.value != colour:
+                # Only auto-delete roles we created (matching colour).
+                # Still remove the role from the pair even if colour differs,
+                # but never delete foreign roles.
+                foreign = True
+            else:
+                foreign = False
+            try:
+                member_ids = {m.id for m in role.members}
+            except Exception:
+                member_ids = set()
+            if id1 not in member_ids and id2 not in member_ids:
+                continue
+            for mid in (id1, id2):
+                m = await _resolve_member(guild, mid)
+                if m is not None and role in getattr(m, "roles", []):
+                    try:
+                        await m.remove_roles(role, reason=reason)
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+            removed_names.append(f"`{role.name}`")
+            if foreign:
+                continue
+            try:
+                fresh_members = [mm for mm in role.members if mm.id not in (id1, id2)]
+            except Exception:
+                fresh_members = []
+            if not fresh_members:
+                try:
+                    await role.delete(reason=delete_reason)
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+        except Exception:
+            continue
     if not removed_names:
         return ""
-    return f"\n\n couple role {', '.join(removed_names)} removed."
+    return f"\n\n{label} {', '.join(removed_names)} removed."
 
 
 class MarriageView(discord.ui.View):
@@ -557,6 +586,20 @@ class MarriageView(discord.ui.View):
 
         role_note = await _add_couple_role(interaction.guild, self.proposer.id, self.target.id)
 
+        # Dating upgrade: marrying your bf/gf absorbs the dating bond and its
+        # role, so the pair keeps exactly one bond and one role.
+        if await _bond_partner(interaction.guild.id, self.proposer.id, "dating") == self.target.id:
+            dating = BOND_KINDS["dating"]
+            await _delete_bond_rows(interaction.guild.id, self.proposer.id, "dating")
+            upgrade_note = await _cleanup_pair_roles(
+                interaction.guild, self.proposer.id, self.target.id,
+                sep=dating["sep"], colour=dating["colour"],
+                reason="Upgraded to marriage", delete_reason="Dating upgraded to marriage",
+                label="dating role",
+            )
+            if upgrade_note:
+                role_note += f"\n*Dating bond upgraded to marriage!*{upgrade_note}"
+
         embed = discord.Embed(
             title="💒 JUST MARRIED! 💍",
             description=(
@@ -590,6 +633,245 @@ class MarriageView(discord.ui.View):
         embed = discord.Embed(
             title="💔 Proposal Rejected",
             description=f"Oof... {self.target.mention} turned down {self.proposer.mention}'s marriage proposal.\n*F in the chat for our fallen soldier.* 🪦",
+            color=0xED4245,
+            timestamp=discord.utils.utcnow()
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+# -------------------------------------------------------------
+# RELATIONSHIP BONDS (Dating, Besties, Twins, Siblings & more)
+# -------------------------------------------------------------
+# Marriages are forever (well, `/divorce`), but not every bond is a wedding:
+# boyfriend/girlfriend, best friends, twins and the rest get the same
+# proposal ceremony, pair role and breakup flow, keyed by ``kind`` in the
+# ``bonds`` table instead of the ``marriages`` one.
+BOND_KINDS: dict[str, dict] = {
+    "dating": {
+        "emoji": "💘",
+        "noun": "Dating",
+        "verb": "dating",
+        "colour": 0xFF6B81,
+        "sep": " ❤ ",
+        "gif": "kiss",
+        "propose_title": "💘 Dating Proposal",
+        "propose_text": "{p} asked {t} to be their boyfriend/girlfriend! Say yes and make it official! 💘",
+        "accept_title": "💘 OFFICIALLY DATING!",
+        "accept_text": "{t} said **YES** to {p}! The whole server ships it! 🚢💘",
+    },
+    "bestie": {
+        "emoji": "🧸",
+        "noun": "Bestie",
+        "verb": "best friends",
+        "colour": 0xFDCB6E,
+        "sep": " 🤝 ",
+        "gif": "hug",
+        "propose_title": "🧸 Best-Friend Proposal",
+        "propose_text": "{p} wants {t} as their one-and-only best friend! Through thick and thin! 🧸",
+        "accept_title": "🧸 BEST FRIENDS FOREVER!",
+        "accept_text": "{t} accepted! {p} & {t} are officially besties! Friendship bracelets for everyone! 🌈",
+    },
+    "twin": {
+        "emoji": "👯",
+        "noun": "Twin",
+        "verb": "twins",
+        "colour": 0xA29BFE,
+        "sep": " 👯 ",
+        "gif": "hug",
+        "propose_title": "👯 Twin Proposal",
+        "propose_text": "{p} claims {t} as their long-lost twin! Same wavelength, same chaos! 👯",
+        "accept_title": "👯 TWINS CONFIRMED!",
+        "accept_text": "{t} accepted! {p} & {t} are officially twins! Double trouble from now on! ✨",
+    },
+    "sibling": {
+        "emoji": "🧬",
+        "noun": "Sibling",
+        "verb": "siblings",
+        "colour": 0x81ECEC,
+        "sep": " 🧬 ",
+        "gif": "hug",
+        "propose_title": "🧬 Sibling Proposal",
+        "propose_text": "{p} wants {t} as their sibling — family you actually get to choose! 🧬",
+        "accept_title": "🧬 OFFICIAL SIBLINGS!",
+        "accept_text": "{t} accepted! {p} & {t} are officially siblings! Sunday dinners forever! 🍽️",
+    },
+    "crush": {
+        "emoji": "💖",
+        "noun": "Crush",
+        "verb": "crushing",
+        "colour": 0xFD79A8,
+        "sep": " 💖 ",
+        "gif": "blush",
+        "propose_title": "💖 Crush Confession",
+        "propose_text": "{p} just confessed their crush on {t}! The butterflies are real! 🦋",
+        "accept_title": "💖 CRUSH CONFIRMED!",
+        "accept_text": "{t} admitted they feel it too! {p} & {t} are officially crushing! 😳💖",
+    },
+    "rival": {
+        "emoji": "⚔️",
+        "noun": "Rival",
+        "verb": "rivals",
+        "colour": 0xE17055,
+        "sep": " ⚔️ ",
+        "gif": "stare",
+        "propose_title": "⚔️ Rival Challenge",
+        "propose_text": "{p} challenged {t} to be their rival! May the best one win! ⚔️",
+        "accept_title": "⚔️ RIVALRY ACCEPTED!",
+        "accept_text": "{t} accepted the challenge! {p} vs {t} — this means war (the friendly kind)! 🔥",
+    },
+}
+
+
+async def _bond_partner(guild_id: int, user_id: int, kind: str):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT user2_id FROM bonds WHERE guild_id=? AND user1_id=? AND kind=?",
+            (guild_id, user_id, kind),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def _user_bonds(guild_id: int, user_id: int) -> list[tuple[str, int]]:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT kind, user2_id FROM bonds WHERE guild_id=? AND user1_id=?",
+            (guild_id, user_id),
+        ) as cur:
+            return [(r[0], r[1]) async for r in cur]
+
+
+async def _pair_bond_kinds(guild_id: int, a_id: int, b_id: int) -> set[str]:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT kind FROM bonds WHERE guild_id=? AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
+            (guild_id, a_id, b_id, b_id, a_id),
+        ) as cur:
+            return {r[0] async for r in cur}
+
+
+async def _delete_bond_rows(guild_id: int, user_id: int, kind: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "DELETE FROM bonds WHERE guild_id=? AND kind=? AND (user1_id=? OR user2_id=?)",
+            (guild_id, kind, user_id, user_id),
+        )
+        await conn.commit()
+
+
+async def _marriage_partner(guild_id: int, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?",
+            (guild_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+
+class BondView(discord.ui.View):
+    """Accept / Decline for a relationship proposal — the MarriageView pattern."""
+
+    def __init__(self, proposer: discord.Member, target: discord.Member, kind: str, timeout: float = 300):
+        super().__init__(timeout=timeout)
+        self.proposer = proposer
+        self.target = target
+        self.kind = kind
+        self.responded = False
+        self.message: discord.Message | None = None
+        emoji = BOND_KINDS[kind]["emoji"]
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.style == discord.ButtonStyle.success:
+                item.label = f"{emoji} Accept"
+
+    @property
+    def spec(self) -> dict:
+        return BOND_KINDS[self.kind]
+
+    async def on_timeout(self):
+        if self.responded:
+            return
+        self.responded = True
+        for item in self.children:
+            item.disabled = True
+        spec = self.spec
+        expired = discord.Embed(
+            title=f"{spec['emoji']} {spec['noun']} Proposal — Expired",
+            description=(
+                f"{self.proposer.mention} proposed {spec['verb']} with {self.target.mention}, "
+                "but they didn't respond in time.\n*Run `/bond propose` again to retry.*"
+            ),
+            color=0x95A5A6,
+            timestamp=discord.utils.utcnow()
+        )
+        try:
+            if self.message is not None:
+                await self.message.edit(embed=expired, view=self)
+        except Exception:
+            pass
+        finally:
+            self.stop()
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        spec = self.spec
+        if interaction.user.id != self.target.id:
+            return await interaction.response.send_message("❌ This proposal is not for you!", ephemeral=True)
+        if self.responded:
+            return await interaction.response.send_message("❌ This proposal has already been answered or expired.", ephemeral=True)
+        self.responded = True
+        for item in self.children:
+            item.disabled = True
+
+        now = discord.utils.utcnow().strftime("%B %d, %Y")
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO bonds (guild_id, user1_id, user2_id, kind, since_at) VALUES (?, ?, ?, ?, ?)",
+                (interaction.guild.id, self.proposer.id, self.target.id, self.kind, now)
+            )
+            await conn.execute(
+                "INSERT OR REPLACE INTO bonds (guild_id, user1_id, user2_id, kind, since_at) VALUES (?, ?, ?, ?, ?)",
+                (interaction.guild.id, self.target.id, self.proposer.id, self.kind, now)
+            )
+            await conn.commit()
+
+        role_note = await _add_pair_role(
+            interaction.guild, self.proposer.id, self.target.id,
+            sep=spec["sep"], colour=spec["colour"], noun=spec["noun"],
+            reason=f"Bonded ({self.kind})", headline=f"are now {spec['verb']}!",
+        )
+
+        embed = discord.Embed(
+            title=spec["accept_title"],
+            description=(
+                spec["accept_text"].format(p=self.proposer.mention, t=self.target.mention)
+                + f"\n\n📅 **Since:** `{now}`{role_note}"
+            ),
+            color=spec["colour"],
+            timestamp=discord.utils.utcnow()
+        )
+        bond_gif = await gifs.action_gif(spec["gif"])
+        if bond_gif:
+            embed.set_image(url=bond_gif)
+        embed.set_footer(text=f"DaCat Bonds • {spec['noun']}")
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+    @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        spec = self.spec
+        if interaction.user.id != self.target.id:
+            return await interaction.response.send_message("❌ This proposal is not for you!", ephemeral=True)
+        if self.responded:
+            return await interaction.response.send_message("❌ This proposal has already been answered or expired.", ephemeral=True)
+        self.responded = True
+        for item in self.children:
+            item.disabled = True
+
+        embed = discord.Embed(
+            title=f"💔 {spec['noun']} Proposal Rejected",
+            description=f"Oof... {self.target.mention} turned down {self.proposer.mention}. *F in the chat.* 🪦",
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
@@ -1021,6 +1303,15 @@ class Social(commands.Cog):
                 if await cur.fetchone():
                     return await interaction.response.send_message(f"❌ {member.mention} is already married to someone else!", ephemeral=True)
 
+        my_date = await _bond_partner(interaction.guild.id, interaction.user.id, "dating")
+        if my_date is not None and my_date != member.id:
+            return await interaction.response.send_message(
+                "❌ You're already dating someone! Run `/bond break` first — or propose to them instead! 💘", ephemeral=True)
+        their_date = await _bond_partner(interaction.guild.id, member.id, "dating")
+        if their_date is not None and their_date != interaction.user.id:
+            return await interaction.response.send_message(
+                f"❌ {member.mention} is already dating someone else!", ephemeral=True)
+
         embed = discord.Embed(
             title="💍 Marriage Proposal",
             description=f"💖 {interaction.user.mention} has fallen to one knee and proposed to {member.mention}!\n\n*{member.mention}, will you take their hand in holy matrimony?*",
@@ -1068,6 +1359,157 @@ class Social(commands.Cog):
             timestamp=discord.utils.utcnow()
         )
         await send_card(interaction, embed=embed)
+
+    # ---------------------------------------------------------
+    # 4b. RELATIONSHIP BONDS (bf/gf, besties, twins & more)
+    # ---------------------------------------------------------
+    bond = app_commands.Group(
+        name="bond",
+        description="Dating, best friends, twins, siblings, crushes & rivals!",
+    )
+
+    @bond.command(name="propose", description="Propose a relationship bond to another member!")
+    @app_commands.describe(member="The lucky member", kind="What kind of bond")
+    @app_commands.choices(kind=[
+        app_commands.Choice(name="💘 Dating (bf/gf)", value="dating"),
+        app_commands.Choice(name="🧸 Bestie", value="bestie"),
+        app_commands.Choice(name="👯 Twin", value="twin"),
+        app_commands.Choice(name="🧬 Sibling", value="sibling"),
+        app_commands.Choice(name="💖 Crush", value="crush"),
+        app_commands.Choice(name="⚔️ Rival", value="rival"),
+    ])
+    async def bond_propose(self, interaction: discord.Interaction, member: discord.Member, kind: app_commands.Choice[str]):
+        kind = kind.value
+        spec = BOND_KINDS[kind]
+        me_id, them_id = interaction.user.id, member.id
+        if them_id == me_id:
+            return await interaction.response.send_message(f"❌ You can't be your own {spec['noun'].lower()}!", ephemeral=True)
+        if member.bot:
+            return await interaction.response.send_message("❌ Bots cannot sign bond certificates!", ephemeral=True)
+
+        if await _bond_partner(interaction.guild.id, me_id, kind) is not None:
+            return await interaction.response.send_message(
+                f"❌ You already have a {spec['noun']}! Run `/bond break` first.", ephemeral=True)
+        if await _bond_partner(interaction.guild.id, them_id, kind) is not None:
+            return await interaction.response.send_message(
+                f"❌ {member.mention} already has a {spec['noun']} with someone else!", ephemeral=True)
+
+        pair_kinds = await _pair_bond_kinds(interaction.guild.id, me_id, them_id)
+        if kind == "dating":
+            if await _marriage_partner(interaction.guild.id, me_id) is not None:
+                return await interaction.response.send_message(
+                    "❌ You're married! Run `/divorce` first — no cheating on my watch! 💍", ephemeral=True)
+            if await _marriage_partner(interaction.guild.id, them_id) is not None:
+                return await interaction.response.send_message(
+                    f"❌ {member.mention} is married to someone else!", ephemeral=True)
+            if pair_kinds & {"twin", "sibling"}:
+                return await interaction.response.send_message(
+                    "❌ Family is family — you can't date your twin or sibling! 🚫", ephemeral=True)
+        elif kind in ("twin", "sibling"):
+            other = "sibling" if kind == "twin" else "twin"
+            if other in pair_kinds:
+                return await interaction.response.send_message(
+                    f"❌ You're already {other}s — pick one family label!", ephemeral=True)
+            if await _marriage_partner(interaction.guild.id, me_id) == them_id:
+                return await interaction.response.send_message(
+                    "❌ You're married to them — that's a stronger bond already! 💍", ephemeral=True)
+            if await _bond_partner(interaction.guild.id, me_id, "dating") == them_id:
+                return await interaction.response.send_message(
+                    "❌ You're dating them — family-zoning your partner is diabolical! 💘", ephemeral=True)
+
+        embed = discord.Embed(
+            title=spec["propose_title"],
+            description=f"{spec['emoji']} {interaction.user.mention} " + spec["propose_text"].format(p=interaction.user.mention, t=member.mention),
+            color=spec["colour"],
+            timestamp=discord.utils.utcnow()
+        )
+        bond_gif = await gifs.action_gif(spec["gif"])
+        if bond_gif:
+            embed.set_image(url=bond_gif)
+        view = BondView(interaction.user, member, kind)
+        await interaction.response.send_message(content=member.mention, embed=embed, view=view)
+        try:
+            view.message = await interaction.original_response()
+        except Exception:
+            pass
+
+    @bond.command(name="break", description="End one (or all) of your relationship bonds.")
+    @app_commands.describe(kind="Which bond to end — leave empty if you only have one")
+    @app_commands.choices(kind=[
+        app_commands.Choice(name="💘 Dating (bf/gf)", value="dating"),
+        app_commands.Choice(name="🧸 Bestie", value="bestie"),
+        app_commands.Choice(name="👯 Twin", value="twin"),
+        app_commands.Choice(name="🧬 Sibling", value="sibling"),
+        app_commands.Choice(name="💖 Crush", value="crush"),
+        app_commands.Choice(name="⚔️ Rival", value="rival"),
+    ])
+    async def break_bond(self, interaction: discord.Interaction, kind: app_commands.Choice[str] | None = None):
+        mine = await _user_bonds(interaction.guild.id, interaction.user.id)
+        if not mine:
+            return await interaction.response.send_message("❌ You have no bonds to break! Forever alone... for now. 🥲", ephemeral=True)
+        if kind is None:
+            if len(mine) > 1:
+                kinds = ", ".join(f"`{k}`" for k, _ in sorted(mine))
+                return await interaction.response.send_message(
+                    f"❌ You have several bonds ({kinds}) — run `/bond break` again naming which one!", ephemeral=True)
+            kind_value = mine[0][0]
+        else:
+            kind_value = kind.value
+        partner_id = await _bond_partner(interaction.guild.id, interaction.user.id, kind_value)
+        if partner_id is None:
+            return await interaction.response.send_message(f"❌ You have no `{kind_value}` bond!", ephemeral=True)
+        spec = BOND_KINDS[kind_value]
+
+        await _delete_bond_rows(interaction.guild.id, interaction.user.id, kind_value)
+        role_note = await _cleanup_pair_roles(
+            interaction.guild, interaction.user.id, partner_id,
+            sep=spec["sep"], colour=spec["colour"],
+            reason=f"{spec['noun']} bond ended", delete_reason=f"{spec['noun']} bond ended",
+            label=f"{spec['noun'].lower()} role",
+        )
+        s_name = await display_name(interaction.guild, partner_id, client=interaction.client)
+        embed = discord.Embed(
+            title=f"{spec['emoji']} {spec['noun']} Bond Ended",
+            description=f"💔 {interaction.user.mention} and {s_name} are no longer {spec['verb']}.\n*All good things come to an end...*{role_note}",
+            color=0xED4245,
+            timestamp=discord.utils.utcnow()
+        )
+        await send_card(interaction, embed=embed)
+
+    @bond.command(name="list", description="Show someone's relationship bonds.")
+    @app_commands.describe(member="Whose bonds to look up — defaults to you")
+    async def bond_list(self, interaction: discord.Interaction, member: discord.Member | None = None):
+        member = member or interaction.user
+        rows = await _user_bonds(interaction.guild.id, member.id)
+        if not rows:
+            whose = "You have" if member.id == interaction.user.id else f"{member.display_name} has"
+            return await send_card(interaction, embed=discord.Embed(
+                title="💞 Relationship Bonds",
+                description=f"{whose} no bonds yet! Run `/bond propose` to start one! 🥲",
+                color=0x95A5A6,
+                timestamp=discord.utils.utcnow()
+            ))
+        lines = []
+        for kind_value, partner_id in sorted(rows):
+            spec = BOND_KINDS.get(kind_value)
+            if spec is None:
+                continue
+            partner = await _resolve_member(interaction.guild, partner_id)
+            pname = partner.display_name if partner else f"<@{partner_id}>"
+            async with aiosqlite.connect(DB_PATH) as conn:
+                async with conn.execute(
+                    "SELECT since_at FROM bonds WHERE guild_id=? AND user1_id=? AND kind=?",
+                    (interaction.guild.id, member.id, kind_value),
+                ) as cur:
+                    srow = await cur.fetchone()
+            since = f" — since `{srow[0]}`" if srow and srow[0] else ""
+            lines.append(f"{spec['emoji']} **{spec['noun']}** — {pname}{since}")
+        await send_card(interaction, embed=discord.Embed(
+            title=f"💞 {member.display_name}'s Bonds",
+            description="\n".join(lines),
+            color=0xEB459E,
+            timestamp=discord.utils.utcnow()
+        ))
 
     @app_commands.command(name="ship", description="Calculate the romantic compatibility between two members!")
     @app_commands.describe(user1="First member", user2="Second member")

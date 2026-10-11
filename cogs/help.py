@@ -71,9 +71,12 @@ HELP_MODULES = {
             "> `/hunt` — Catch rare animals in the wild\n"
             "> `/zoo [member]` — View your collected safari animals\n"
             "> `/sellanimals <tier>` — Sell animals for coins\n"
-            "> `/action <type> <member>` — Perform roleplay actions (Bonk, Slap, Hug, Kiss, Pat, Punch, Bite, Cuddle, Poke, Feed)\n"
+            "> `/action <type> <member>` — Perform roleplay actions (Bonk, Slap, Hug, Kiss, Pat, Punch, Bite, Cuddle, Poke, Feed, Blush, Smile, Wave, Wink, Dance, Laugh, Cry, Lick, Tickle)\n"
             "> `/marry <member>` — Propose marriage to another member\n"
             "> `/divorce` — End marriage\n"
+            "> `/bond propose <member> <type>` — Propose dating, bestie, twin, sibling, crush or rival bonds\n"
+            "> `/bond break [type]` — End a relationship bond\n"
+            "> `/bond list [member]` — Show someone's relationship bonds\n"
             "> `/ship <member1> <member2>` — Calculate love compatibility percentage\n"
             "> `/uwu <text>` — Translate any message into cute anime text"
         ),

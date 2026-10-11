@@ -369,6 +369,14 @@ async def setup():
             married_at TEXT,
             PRIMARY KEY (guild_id, user1_id)
         )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS bonds (
+            guild_id INTEGER,
+            user1_id INTEGER,
+            user2_id INTEGER,
+            kind TEXT,
+            since_at TEXT,
+            PRIMARY KEY (guild_id, user1_id, kind)
+        )''')
 
         # Giveaway tables
         await db.execute('''CREATE TABLE IF NOT EXISTS giveaways (

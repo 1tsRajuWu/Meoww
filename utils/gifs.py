@@ -86,6 +86,7 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "cry": (("purrbot", "cry"), ("otakugifs", "cry")),
     "lick": (("purrbot", "lick"), ("otakugifs", "lick")),
     "tickle": (("purrbot", "tickle"), ("otakugifs", "tickle")),
+    "stare": (("otakugifs", "stare"),),
     # Two social cards rather than reactions: the marriage proposal and the
     # wedding. Neither provider draws a ring, and both of these were hand-typed
     # `media.tenor.com` links that answered 404 — the same rot as the actions,

@@ -430,10 +430,12 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "action", "uwu", "marry", "divorce", "ship", "hunt", "zoo",
+            "bond",
         ),
         commands=(
             "/action", "/uwu", "/marry", "/divorce", "/ship", "/hunt", "/zoo",
             "/sellanimals",
+            "/bond propose", "/bond break", "/bond list",
         ),
         cog="cogs.social",
         help_key="social",
