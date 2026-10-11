@@ -78,6 +78,13 @@ ANIMALS = {
 # spammed indefinitely.
 HUNT_COOLDOWN_SECONDS = 30 * 60
 
+# Proposals ping a member and mint top-of-list roles on accept; breakups delete
+# them. Without a cooldown an alt pair can strobe the whole server.
+MARRY_COOLDOWN_SECONDS = 60
+BOND_PROPOSE_COOLDOWN_SECONDS = 60
+DIVORCE_COOLDOWN_SECONDS = 30
+BOND_BREAK_COOLDOWN_SECONDS = 30
+
 TIER_COLORS = {
     "common": 0x95A5A6,
     "uncommon": 0x2ECC71,
@@ -638,6 +645,15 @@ class MarriageView(discord.ui.View):
         embed.set_footer(text="DaCat Love & Marriage")
         await interaction.response.edit_message(embed=embed, view=self)
         self.stop()
+        # Edits never ping: tell the proposer out loud, or only the channel
+        # watchers ever learn the answer.
+        try:
+            await interaction.followup.send(
+                f"🔔 {self.proposer.mention} — {self.target.mention} said **YES**! 💒",
+                allowed_mentions=pings(self.proposer),
+            )
+        except Exception:
+            pass
 
     @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -657,6 +673,13 @@ class MarriageView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
         self.stop()
+        try:
+            await interaction.followup.send(
+                f"🔔 {self.proposer.mention} — {self.target.mention} declined the proposal.",
+                allowed_mentions=pings(self.proposer),
+            )
+        except Exception:
+            pass
 
 
 # -------------------------------------------------------------
@@ -916,6 +939,13 @@ class BondView(discord.ui.View):
         embed.set_footer(text=f"DaCat Bonds • {spec['noun']}")
         await interaction.response.edit_message(embed=embed, view=self)
         self.stop()
+        try:
+            await interaction.followup.send(
+                f"🔔 {self.proposer.mention} — {self.target.mention} accepted the {spec['noun'].lower()} proposal!",
+                allowed_mentions=pings(self.proposer),
+            )
+        except Exception:
+            pass
 
     @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -936,6 +966,13 @@ class BondView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
         self.stop()
+        try:
+            await interaction.followup.send(
+                f"🔔 {self.proposer.mention} — {self.target.mention} declined the {spec['noun'].lower()} proposal.",
+                allowed_mentions=pings(self.proposer),
+            )
+        except Exception:
+            pass
 
 
 # -------------------------------------------------------------
@@ -1348,6 +1385,7 @@ class Social(commands.Cog):
     # ---------------------------------------------------------
     @app_commands.command(name="marry", description="Propose marriage to another member!")
     @app_commands.describe(member="The lucky member to propose to")
+    @app_commands.checks.cooldown(1, MARRY_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     async def marry(self, interaction: discord.Interaction, member: discord.Member):
         if member.id == interaction.user.id:
             return await interaction.response.send_message("❌ You can't marry yourself!", ephemeral=True)
@@ -1388,13 +1426,18 @@ class Social(commands.Cog):
         view = MarriageView(interaction.user, member)
         # A legacy send with the mention in ``content``, which is what actually
         # notifies — the proposal is useless if the person proposed to misses it.
-        await interaction.response.send_message(content=member.mention, embed=embed, view=view)
+        # Embed text never pings, so the content mention carries an explicit set.
+        await interaction.response.send_message(
+            content=member.mention, embed=embed, view=view,
+            allowed_mentions=pings(member),
+        )
         try:
             view.message = await interaction.original_response()
         except Exception:
             pass
 
     @app_commands.command(name="divorce", description="Divorce your current spouse.")
+    @app_commands.checks.cooldown(1, DIVORCE_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     async def divorce(self, interaction: discord.Interaction):
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute("SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, interaction.user.id)) as cur:
@@ -1429,6 +1472,7 @@ class Social(commands.Cog):
     )
 
     @bond.command(name="propose", description="Propose a relationship bond to another member!")
+    @app_commands.checks.cooldown(1, BOND_PROPOSE_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(member="The lucky member", kind="What kind of bond")
     @app_commands.choices(kind=[
         app_commands.Choice(name="💘 Dating (bf/gf)", value="dating"),
@@ -1485,20 +1529,26 @@ class Social(commands.Cog):
 
         embed = discord.Embed(
             title=spec["propose_title"],
-            description=f"{spec['emoji']} {interaction.user.mention} " + spec["propose_text"].format(p=interaction.user.mention, t=member.mention),
+            description=f"{spec['emoji']} " + spec["propose_text"].format(p=interaction.user.mention, t=member.mention),
             color=spec["colour"],
             timestamp=discord.utils.utcnow()
         )
         if bond_gif:
             embed.set_image(url=bond_gif)
         view = BondView(interaction.user, member, kind)
-        await interaction.response.send_message(content=member.mention, embed=embed, view=view)
+        # The content mention is what actually notifies — embed text never
+        # pings — so it carries an explicit ping set, not the default.
+        await interaction.response.send_message(
+            content=member.mention, embed=embed, view=view,
+            allowed_mentions=pings(member),
+        )
         try:
             view.message = await interaction.original_response()
         except Exception:
             pass
 
     @bond.command(name="break", description="End one (or all) of your relationship bonds.")
+    @app_commands.checks.cooldown(1, BOND_BREAK_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(kind="Which bond to end — leave empty if you only have one")
     @app_commands.choices(kind=[
         app_commands.Choice(name="💘 Dating (bf/gf)", value="dating"),

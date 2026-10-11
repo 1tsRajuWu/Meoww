@@ -103,11 +103,20 @@ class _FakeResponse:
         self.done = True
 
 
+class _FakeFollowup:
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, content=None, **kwargs):
+        self.messages.append({"content": content, **kwargs})
+
+
 class _FakeInteraction:
     def __init__(self, user, guild):
         self.user = user
         self.guild = guild
         self.response = _FakeResponse()
+        self.followup = _FakeFollowup()
         self.channel = SimpleNamespace(send=_noop_send)
         self.client = SimpleNamespace()
         self._original = SimpleNamespace(id=1)
@@ -310,6 +319,59 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         view.message = SimpleNamespace(edit=_noop_edit())
         await view.on_timeout()
         self.assertTrue(all(item.disabled for item in view.children))
+
+    async def test_propose_names_each_member_once(self):
+        interaction = await self._propose(self.raj, self.ice, "twin")
+        sent = interaction.response.messages[-1]
+        embed = sent["embed"]
+        self.assertEqual(embed.description.count("<@1>"), 1)
+        self.assertEqual(embed.description.count("<@2>"), 1)
+
+    async def test_propose_tags_the_target(self):
+        interaction = await self._propose(self.raj, self.ice, "dating")
+        sent = interaction.response.messages[-1]
+        self.assertEqual(sent["content"], "<@2>")
+        allowed = sent.get("allowed_mentions")
+        self.assertIsNotNone(allowed)
+        self.assertIn(self.ice, getattr(allowed, "users", []))
+
+    async def test_accept_pings_the_proposer(self):
+        await self._propose(self.raj, self.ice, "dating")
+        _view, interaction = await self._accept(self.raj, self.ice, "dating")
+        pings = interaction.followup.messages
+        self.assertTrue(pings, "accept must notify the proposer")
+        self.assertIn("<@1>", pings[-1]["content"])
+        allowed = pings[-1].get("allowed_mentions")
+        self.assertIn(self.raj, getattr(allowed, "users", []))
+
+    async def test_decline_pings_the_proposer(self):
+        view = social_module.BondView(self.raj, self.ice, "dating")
+        interaction = _FakeInteraction(self.ice, self.guild)
+        await view.decline.callback(interaction)
+        self.assertTrue(interaction.followup.messages)
+        self.assertIn("<@1>", interaction.followup.messages[-1]["content"])
+
+    async def test_proposals_and_breakups_are_rate_limited(self):
+        from discord.app_commands.errors import CommandOnCooldown
+
+        async def _use_twice(command):
+            import datetime
+
+            for _ in range(2):
+                interaction = _FakeInteraction(self.raj, self.guild)
+                interaction.guild_id = GUILD
+                interaction.created_at = datetime.datetime.now(datetime.timezone.utc)
+                for check in command.checks:
+                    result = check(interaction)
+                    if hasattr(result, "__await__"):
+                        await result
+
+        cog = self.cog
+        for command in (cog.marry, cog.divorce, cog.bond_propose, cog.break_bond):
+            with self.assertRaises(
+                CommandOnCooldown, msg=f"/{command.name} can be spammed"
+            ):
+                await _use_twice(command)
 
     async def test_bonds_heal_a_database_missing_the_table(self):
         conn = db.connect()
