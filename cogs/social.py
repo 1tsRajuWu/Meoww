@@ -723,6 +723,22 @@ BOND_KINDS: dict[str, dict] = {
 }
 
 
+async def _ensure_bonds_table() -> None:
+    # A live database can predate this table: the file the process holds may
+    # come from a backup written before the migration existed, and setup runs
+    # only at boot (see utils.meetings, which heals its tables the same way).
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute('''CREATE TABLE IF NOT EXISTS bonds (
+            guild_id INTEGER,
+            user1_id INTEGER,
+            user2_id INTEGER,
+            kind TEXT,
+            since_at TEXT,
+            PRIMARY KEY (guild_id, user1_id, kind)
+        )''')
+        await conn.commit()
+
+
 async def _bond_partner(guild_id: int, user_id: int, kind: str):
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
@@ -824,6 +840,7 @@ class BondView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
+        await _ensure_bonds_table()
         now = discord.utils.utcnow().strftime("%B %d, %Y")
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(
@@ -1387,6 +1404,7 @@ class Social(commands.Cog):
         if member.bot:
             return await interaction.response.send_message("❌ Bots cannot sign bond certificates!", ephemeral=True)
 
+        await _ensure_bonds_table()
         if await _bond_partner(interaction.guild.id, me_id, kind) is not None:
             return await interaction.response.send_message(
                 f"❌ You already have a {spec['noun']}! Run `/bond break` first.", ephemeral=True)
@@ -1444,6 +1462,7 @@ class Social(commands.Cog):
         app_commands.Choice(name="⚔️ Rival", value="rival"),
     ])
     async def break_bond(self, interaction: discord.Interaction, kind: app_commands.Choice[str] | None = None):
+        await _ensure_bonds_table()
         mine = await _user_bonds(interaction.guild.id, interaction.user.id)
         if not mine:
             return await interaction.response.send_message("❌ You have no bonds to break! Forever alone... for now. 🥲", ephemeral=True)
@@ -1480,6 +1499,7 @@ class Social(commands.Cog):
     @app_commands.describe(member="Whose bonds to look up — defaults to you")
     async def bond_list(self, interaction: discord.Interaction, member: discord.Member | None = None):
         member = member or interaction.user
+        await _ensure_bonds_table()
         rows = await _user_bonds(interaction.guild.id, member.id)
         if not rows:
             whose = "You have" if member.id == interaction.user.id else f"{member.display_name} has"

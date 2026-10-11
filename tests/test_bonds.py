@@ -311,6 +311,23 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         await view.on_timeout()
         self.assertTrue(all(item.disabled for item in view.children))
 
+    async def test_bonds_heal_a_database_missing_the_table(self):
+        conn = db.connect()
+        try:
+            conn.execute("DROP TABLE bonds")
+            conn.commit()
+        finally:
+            conn.close()
+        interaction = await self._propose(self.raj, self.ice, "dating")
+        self.assertTrue(
+            any("boyfriend" in (m.get("content") or "") for m in interaction.response.messages)
+            or interaction.response.done,
+            "propose must survive a database that predates the bonds table",
+        )
+        await self._accept(self.raj, self.ice, "dating")
+        rows = {(r[0], r[1], r[2]) for r in _bond_rows()}
+        self.assertIn((1, 2, "dating"), rows)
+
 def _noop_edit():
     async def _edit(**_kwargs):
         return None
