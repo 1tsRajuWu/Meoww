@@ -1245,6 +1245,14 @@ async def on_ready():
     except Exception as e:
         print(f"[SITE-GUARD] Failed to start the check: {e}", flush=True)
 
+    # 24/7 cross-cloud heartbeat: keeps Render free tier awake by pinging between
+    # Hugging Face and Render every 3 minutes so the bot never disconnects.
+    try:
+        from keep_alive import start_cross_keepalive
+        start_cross_keepalive(bot)
+    except Exception as e:
+        print(f"[KEEPALIVE] Failed to start cross-cloud keepalive: {e}", flush=True)
+
     # Read UptimeRobot's view of this service, on a timer. The dashboard's
     # status panel and `/health`'s `uptime` block both read the snapshot this
     # keeps, so no page load ever waits on a third party's API — and a monitor

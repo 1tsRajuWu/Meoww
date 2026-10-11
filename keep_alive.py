@@ -12293,6 +12293,58 @@ def start_site_guard(bot):
     return bot.loop.create_task(site_guard_loop())
 
 
+#: Cross-cloud keepalive: prevents Render from sleeping by sending a pulse
+#: between Hugging Face and Render every 3 minutes (Render sleeps at 15m idle).
+CROSS_KEEPALIVE_INTERVAL_SECONDS = 180
+CROSS_KEEPALIVE_TARGETS = (
+    "https://meoww-premium.onrender.com/health",
+    "https://1tsrajowo-meow.hf.space/health",
+)
+
+
+def _ping_cloud_target(url: str) -> None:
+    """Send a lightweight HTTP probe to prevent cloud container sleep."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "DaCat-KeepAlive/1.0 (+https://dacat.pages.dev)"},
+        )
+        with urllib.request.urlopen(req, timeout=12.0) as resp:
+            status = getattr(resp, "status", 200)
+            if status == 200:
+                print(f"[KEEPALIVE] 24/7 pulse sent to {url} (HTTP 200 OK)", flush=True)
+            else:
+                print(f"[KEEPALIVE] Pulse sent to {url} (HTTP {status})", flush=True)
+    except Exception as exc:
+        print(f"[KEEPALIVE] Pulse to {url} note: {exc}", flush=True)
+
+
+async def cross_keepalive_loop():
+    """Ping the peer cloud service every 3 minutes so neither host sleeps."""
+    import asyncio
+    print(
+        f"[KEEPALIVE] 24/7 cross-cloud keepalive active (pulse every {CROSS_KEEPALIVE_INTERVAL_SECONDS}s).",
+        flush=True,
+    )
+    await asyncio.sleep(20)
+    while True:
+        for url in CROSS_KEEPALIVE_TARGETS:
+            try:
+                await asyncio.to_thread(_ping_cloud_target, url)
+            except Exception as e:
+                print(f"[KEEPALIVE] Ping failed: {e}", flush=True)
+        await asyncio.sleep(CROSS_KEEPALIVE_INTERVAL_SECONDS)
+
+
+def start_cross_keepalive(bot):
+    """Start the 24/7 cross-cloud keepalive on the bot event loop."""
+    if bot is None or getattr(bot, "loop", None) is None:
+        print("[KEEPALIVE] No event loop — cross-cloud keepalive disabled.", flush=True)
+        return None
+    return bot.loop.create_task(cross_keepalive_loop())
+
+
 #: How often the quiet-window loop looks at the clock. Half a minute, against a
 #: window thirty minutes wide: the tick is what makes "03:33" mean a minute
 #: rather than "some time after the next restart", and anything faster would be
