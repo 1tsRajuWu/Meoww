@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-RENDER_URL="https://meow-discord-bot.onrender.com"
+RENDER_URL="https://meoww-premium.onrender.com"
 
 # Check .env if available for DASHBOARD_BASE_URL
 if [ -f .env ]; then
