@@ -278,7 +278,7 @@ jobs:
 
       - name: Publish to Cloudflare Pages
         if: steps.cf.outputs.configured == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -382,7 +382,7 @@ jobs:
 
       - name: Publish owner console to Cloudflare Pages
         if: steps.cf.outputs.configured == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -439,7 +439,7 @@ jobs:
 
       - name: Publish the dashboard to Cloudflare Pages
         if: steps.cf.outputs.configured == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -484,7 +484,7 @@ jobs:
 
       - name: Publish the market to Cloudflare Pages
         if: steps.cf.outputs.configured == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
