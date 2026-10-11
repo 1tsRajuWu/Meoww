@@ -66,7 +66,7 @@ class Premium(commands.Cog):
 
     premium = app_commands.Group(
         name="premium",
-        description="DaCat VIP & Premium edition perks, status, and free invite!",
+        description="👑 DaCat VIP & Premium edition perks, status, and free invite!",
     )
 
     @premium.command(

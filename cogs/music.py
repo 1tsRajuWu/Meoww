@@ -299,7 +299,7 @@ class Music(commands.Cog):
 
     music = app_commands.Group(
         name="music",
-        description="Share Spotify music, track listens, and post jam links!",
+        description="🎵 Share Spotify music, track listens, and post jam links!",
     )
 
     def __init__(self, bot: commands.Bot | None):
@@ -438,7 +438,7 @@ class Music(commands.Cog):
         except Exception:
             pass
 
-    @music.command(name="add", description="Add a Spotify link to this server's music library!")
+    @music.command(name="add", description="➕ Add a Spotify link to this server's music library!")
     @app_commands.describe(link="A Spotify track, album, playlist or episode link")
     async def music_add(self, interaction: discord.Interaction, link: str):
         parsed = parse_spotify_link(link)
@@ -539,7 +539,7 @@ class Music(commands.Cog):
             timestamp=discord.utils.utcnow(),
         ))
 
-    @music.command(name="jam", description="Show this server's active Spotify Jam!")
+    @music.command(name="jam", description="🎧 Show this server's active Spotify Jam!")
     async def music_jam(self, interaction: discord.Interaction):
         await ensure_music_schema()
         async with aiosqlite.connect(DB_PATH) as conn:
@@ -566,7 +566,7 @@ class Music(commands.Cog):
             timestamp=discord.utils.utcnow(),
         ))
 
-    @music.command(name="jamset", description="Post this server's active Spotify Jam link!")
+    @music.command(name="jamset", description="📢 Post this server's active Spotify Jam link!")
     @app_commands.describe(link="The Spotify Jam invite link")
     async def music_jamset(self, interaction: discord.Interaction, link: str):
         link = str(link or "").strip()

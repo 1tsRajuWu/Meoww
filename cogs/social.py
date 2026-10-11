@@ -1606,10 +1606,10 @@ class Social(commands.Cog):
     # ---------------------------------------------------------
     bond = app_commands.Group(
         name="bond",
-        description="Dating, best friends, twins, siblings, crushes & rivals!",
+        description="💞 Dating, besties, twins, siblings, crushes & rivals!",
     )
 
-    @bond.command(name="propose", description="Propose a relationship bond to another member!")
+    @bond.command(name="propose", description="💘 Propose a relationship bond to another member!")
     @app_commands.checks.cooldown(1, BOND_PROPOSE_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(member="The lucky member", kind="What kind of bond")
     @app_commands.choices(kind=[
@@ -1781,7 +1781,7 @@ class Social(commands.Cog):
             ephemeral=True,
         )
 
-    @bond.command(name="break", description="End one (or all) of your relationship bonds.")
+    @bond.command(name="break", description="💔 End one (or all) of your relationship bonds.")
     @app_commands.checks.cooldown(1, BOND_BREAK_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(kind="Which bond to end — leave empty if you only have one")
     @app_commands.choices(kind=[
@@ -1842,7 +1842,7 @@ class Social(commands.Cog):
         )
         await send_card(interaction, embed=embed)
 
-    @bond.command(name="list", description="Show someone's relationship bonds.")
+    @bond.command(name="list", description="💞 Show someone's relationship bonds.")
     @app_commands.describe(member="Whose bonds to look up — defaults to you")
     async def bond_list(self, interaction: discord.Interaction, member: discord.Member | None = None):
         member = member or interaction.user
