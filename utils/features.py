@@ -564,6 +564,22 @@ FEATURES: tuple[Feature, ...] = (
         help_key="tracker",
     ),
     Feature(
+        id="premium",
+        name="VIP & Premium",
+        icon="💎",
+        category="Premium",
+        description=(
+            "DaCat VIP Edition features, early-access complimentary status, "
+            "perks showcase, and 1-click bot authorization."
+        ),
+        gate_commands=("premium",),
+        commands=(
+            "/premium status", "/premium perks", "/premium invite",
+        ),
+        cog="cogs.premium",
+        help_key="premium",
+    ),
+    Feature(
         id="system",
         name="System & Server Control",
         icon="⚙️",
@@ -679,7 +695,7 @@ ALWAYS_ALLOWED_COMMANDS: frozenset[str] = frozenset({
 # the level row or the module toggle, and without this guard a DM invocation
 # raised AttributeError and answered with "An unexpected error occurred".
 DM_ALLOWED_COMMANDS: frozenset[str] = frozenset({
-    "help", "legal", "uwu", "8ball",
+    "help", "legal", "uwu", "8ball", "premium",
 })
 
 

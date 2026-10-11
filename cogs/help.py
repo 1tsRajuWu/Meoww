@@ -270,7 +270,19 @@ HELP_MODULES = {
         "color": 0x95A5A6,
         "emoji": "⚙️"
     },
-
+    "premium": {
+        "title": "💎 VIP & Premium Edition",
+        "desc": (
+            "DaCat VIP Edition (`1558691012975534222`) features, complimentary preview "
+            "perks, and bot authorization links.\n\n"
+            "> `/premium status` — Check your server's VIP tier status and active bot instance\n"
+            "> `/premium perks` — Showcase of all 100x VIP features & enhancements\n"
+            "> `/premium invite` — 1-click authorization link to add the VIP bot to your server\n\n"
+            "*VIP early access is 100% free ($0.00) during our preview period!*"
+        ),
+        "color": 0xFFD700,
+        "emoji": "💎"
+    },
 }
 
 

@@ -343,6 +343,10 @@ COMMAND_ACCESS: dict[str, str] = {
     "market sell": MARKET,
     "market portfolio": MARKET,
     "market history": MARKET,
+    # -- Premium / VIP: everyone, on status, perks and invite ------------- #
+    "premium status": EVERYONE,
+    "premium perks": EVERYONE,
+    "premium invite": EVERYONE,
 }
 
 
