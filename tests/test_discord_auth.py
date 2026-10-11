@@ -1052,7 +1052,6 @@ class InvitePermissionsCase(unittest.TestCase):
         perms = self.perms(minimal=True)
         for name in (
             "mention_everyone",
-            "manage_guild",
             "manage_webhooks",
             "create_instant_invite",
             "move_members",
@@ -1065,6 +1064,7 @@ class InvitePermissionsCase(unittest.TestCase):
                 getattr(perms, name),
                 f"the limited invite grants {name}, which nothing in the tree uses",
             )
+        self.assertTrue(perms.manage_guild, "native AutoMod needs Manage Server")
 
     def _query(self, **kwargs):
         with mock.patch.dict(os.environ, {"DISCORD_CLIENT_ID": "1234567890"}):

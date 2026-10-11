@@ -157,6 +157,7 @@ DASHBOARD_PREFIXES = (
     # Systems pages draw, and a form that posts to a path this host redirects is
     # the failure the note above describes.
     "/api/module-settings",
+    "/api/automod-native-sync",
     "/api/reaction-roles",
     "/api/identity",
     "/api/uptime",

@@ -86,7 +86,7 @@ else is linked from the [table of contents](#contents).
 | 🏆 | **Leveling & XP** | Message + voice XP, level-up cards, `/rank /leaderboard` |
 | 💰 | **Economy & Casino** | `/daily /work /rob /pay`, shop with 20 real perks, slots, blackjack… |
 | 📈 | **Market** | Trade 72 real crypto/stocks with coins at live prices |
-| 🤖 | **Automod & Shield** | Anti-spam flood protection, invite/link filters |
+| 🤖 | **Automod & Shield** | Discord-native AutoMod rules plus local anti-spam, invite and link filters |
 | ⭐ | **Starboard** | Star reactions → community showcase cards |
 | 🐾 | **Social Roleplay** | `/action /marry /ship /hunt /zoo`, `/uwu` styler |
 | 🎭 | **Fun & Memes** | Live Reddit memes, 8ball, quotes, roasts |
@@ -388,6 +388,7 @@ needs it (`utils/discord_auth.py`):
 | Add Reactions, Use External Emojis | the starboard |
 | Kick Members, Ban Members, Moderate Members | `/kick`, `/ban`, `/mute`, and automod's timeout |
 | Manage Messages | `/purge` |
+| Manage Server | Discord-native AutoMod rule sync from the dashboard and `/automod native` |
 | Manage Channels | `/lock`, `/unlock`, and ticket channels |
 | Manage Roles | level rewards and `/defaultrole` |
 | Change Nickname | a server's own name and picture for the bot |
@@ -395,10 +396,11 @@ needs it (`utils/discord_auth.py`):
 | Create Public Threads, Send Messages in Threads | the ticket panel and the `/help` panel |
 
 That list deliberately leaves out `Mention Everyone` (announcements ping a role,
-which needs no permission), `Connect` (nothing joins voice — the tracker reads
-state changes), Manage Server, Manage Webhooks, Create Invite, and the member
-move/mute/deafen bits. A grant nothing uses is still a grant, and it is what a
-leaked token reaches for first.
+which needs no permission), Manage Webhooks, Create Invite, and the member
+move/mute/deafen bits. Native Discord AutoMod needs Manage Server, so the limited
+link includes that one permission and the bot still refuses to edit rules it did
+not create. A grant nothing uses is still a grant, and it is what a leaked token
+reaches for first.
 
 > On the limited link, if a feature reports "Missing Permissions", grant that one
 > permission to the bot's role. Existing servers keep whatever they already

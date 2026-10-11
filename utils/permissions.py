@@ -229,6 +229,7 @@ COMMAND_ACCESS: dict[str, str] = {
     "automod invites": GUILD,
     "automod links": GUILD,
     "automod antispam": GUILD,
+    "automod native": GUILD,
     # The reading is for everybody, like `/modlog`'s bare form: an administrator
     # checking the filters is the common case, but "why did the bot delete my
     # link" is a question a member may ask, and it is a read of this server's own

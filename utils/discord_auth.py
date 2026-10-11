@@ -124,9 +124,11 @@ INVITE_PERMISSIONS = ADMINISTRATOR_PERMISSIONS
 #:
 #: What is *not* here is as deliberate as what is. There is no **Mention
 #: Everyone** (no code path pings ``@everyone``; announcements ping a role, which
-#: needs no permission), no **Manage Server**, no **Manage Webhooks**, no **Create
-#: Invite**, and none of the member-move/mute/deafen bits. A grant nothing uses
-#: is still a grant: it is what a hijacked token reaches for.
+#: needs no permission), no **Manage Webhooks**, no **Create Invite**, and none
+#: of the member-move/mute/deafen bits. Native Discord AutoMod rules require
+#: **Manage Server**, so that one bit is included and the dashboard can create
+#: and update only the rules it owns. A grant nothing uses is still a grant: it
+#: is what a hijacked token reaches for.
 #:
 #: **Connect and Speak are back**, and the reason they were absent is worth
 #: keeping: playback had been retired, so the list was measured against a tree in
@@ -160,6 +162,7 @@ MINIMAL_PERMISSION_BITS = (
     # --- identity, and the operator's own log ---
     ("change_nickname", 1 << 26),        # the per-server name in utils/identity.py
     ("view_audit_log", 1 << 7),          # who added the bot (utils/operator_log.py)
+    ("manage_guild", 1 << 5),            # native AutoMod rule sync (cogs/automod.py)
     # --- threads: the ticket panel and the /help panel ---
     ("create_public_threads", 1 << 35),
     ("send_messages_in_threads", 1 << 38),

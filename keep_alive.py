@@ -5634,6 +5634,10 @@ def _dashboard_page(page: str, guild_id):
     # Read once and handed to two readers — the picker and the reading above it —
     # so the stored id is offered or explained against the same list.
     role_choices = _role_choices(guild_id)
+    native_automod = _native_automod_context(guild_id) if page == "systems" else {
+        "read": False,
+        "why": "Open Systems to read Discord's native AutoMod rules.",
+    }
     return render_template(
         "dashboard.html",
         # The frame every served page wears, merged first so this page's own
@@ -5735,6 +5739,7 @@ def _dashboard_page(page: str, guild_id):
         bot_ping=bot_ping,
         bot_ready=bot_ready,
         modules=modules_data,
+        native_automod=native_automod,
         server_health=server_health,
         # The support bridge, and only for the operator: the conversation is
         # between the operator and the bot's own support channel, so a server's
@@ -9580,6 +9585,40 @@ def api_module_settings():
     })
 
 
+@app.route("/api/automod-native-sync", methods=["POST"])
+@_form_door
+def api_automod_native_sync():
+    """Explicit retry for the Discord-native AutoMod sync.
+
+    Settings writes already sync automatically.  This separate, idempotent door
+    exists for the operational case where Discord was briefly unavailable or the
+    bot lacked Manage Server when an administrator first enabled the feature.
+    """
+    denied = _require_auth_api()
+    if denied:
+        return denied
+    data = _json_or_form()
+    refused = _foreign_guild_refusal(data.get("guild_id"))
+    if refused:
+        return refused
+    guild_id = _resolve_guild_id(data.get("guild_id"))
+    if guild_id is None:
+        return jsonify({"success": False, "error": "No server to sync."}), 400
+    lookup = getattr(BOT_INSTANCE, "get_cog", None)
+    live = lookup("AutoMod") if callable(lookup) else None
+    sync = getattr(live, "sync_native_rules", None)
+    if not callable(sync):
+        return jsonify({"success": False, "error": "Native AutoMod is not loaded."}), 503
+    try:
+        result = _run_on_bot_loop(sync(int(guild_id)), timeout=20.0)
+    except Exception as exc:  # noqa: BLE001 — surface a safe operational sentence
+        print(f"[AUTOMOD] Explicit native sync failed for {guild_id}: {exc}", flush=True)
+        return jsonify({"success": False, "error": "The bot could not reach Discord. Try again shortly."}), 503
+    if not isinstance(result, dict) or not result.get("success"):
+        return jsonify(result if isinstance(result, dict) else {"success": False, "error": "Native sync failed."}), 502
+    return jsonify(result)
+
+
 def _posted_setting_value(spec, raw):
     """One posted value, validated against its declaration.
 
@@ -9646,6 +9685,37 @@ def _invalidate_module_settings(guild_id) -> None:
     cache = getattr(live, "settings_cache", None)
     if isinstance(cache, dict):
         cache.pop(int(guild_id), None)
+    # Native Discord AutoMod is another live reader of these same settings.  Keep
+    # it in lockstep with a dashboard save, but do not make a dashboard render
+    # depend on a network call: a failed sync is reported by the native status
+    # panel and can be retried with its explicit button.
+    sync = getattr(live, "sync_native_rules", None)
+    if callable(sync):
+        try:
+            _run_on_bot_loop(sync(int(guild_id)), timeout=15.0)
+        except Exception as exc:  # noqa: BLE001 — saved settings remain valid
+            print(f"[AUTOMOD] Native rule sync after settings save failed for {guild_id}: {exc}", flush=True)
+
+
+def _native_automod_context(guild_id) -> dict:
+    """Read the native AutoMod rules without turning an unavailable bot into 0."""
+    if not guild_id or BOT_INSTANCE is None:
+        return {"read": False, "why": "Native AutoMod is available after the bot connects to this server."}
+    lookup = getattr(BOT_INSTANCE, "get_cog", None)
+    if not callable(lookup):
+        return {"read": False, "why": "The AutoMod service is not loaded in this deployment."}
+    try:
+        live = lookup("AutoMod")
+        reader = getattr(live, "native_status", None)
+        if not callable(reader):
+            return {"read": False, "why": "This deployment does not expose native AutoMod status."}
+        status, read = _loop_reading(reader(int(guild_id)), None)
+        if not read or not isinstance(status, dict):
+            return {"read": False, "why": "Discord did not return the native AutoMod rules."}
+        return status
+    except Exception as exc:  # noqa: BLE001 — status must not break the dashboard
+        print(f"[AUTOMOD] Native status read failed for {guild_id}: {exc}", flush=True)
+        return {"read": False, "why": "Discord did not return the native AutoMod rules."}
 
 
 @app.route("/api/toggle", methods=["POST"])
@@ -9744,6 +9814,12 @@ def _flip_module(guild_id, module_id, enabled):
     # success, otherwise the toggle silently reverts on the next restart.
     if not modules.set_enabled(guild_id, module_id, enabled):
         return {"success": False, "error": "Could not save that change. Please try again."}, 500
+
+    if module_id == "automod":
+        # Turning the feature on/off is also a native-rule change.  Use the same
+        # invalidation path as the settings form so the local listener and
+        # Discord's pre-gateway shield cannot drift apart.
+        _invalidate_module_settings(guild_id)
 
     # Read *before* the republish is asked for, and into a local rather than
     # inside the response below: this is the stamp the page has to beat, so it

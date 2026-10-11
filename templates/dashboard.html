@@ -438,16 +438,50 @@
           {{ module_switch(module) }}
         </div>
         <p class="hint">{{ module.desc }}</p>
-        <p class="small mono">
+       <p class="small mono">
           {# The registry writes each command as a person types it — `/market buy`,
              leading slash included — so the card prints what the registry holds.
              It did not: this line prefixed a second `/`, and every card on this
-             page offered `//starboard set`, which is not a command anybody can
+             page offered `//market buy`, which is not a command anybody can
              run and not one a copy-paste would fix. #}
-          {% for command in module.commands %}{{ command }} {% endfor %}
-        </p>
+           {% for command in module.commands %}{{ command }} {% endfor %}
+         </p>
 
-        {# The system's own settings — the rules it runs by, read and written
+         {% if module.id == 'automod' %}
+         <div class="dash-sys__native" aria-labelledby="native-automod-title">
+           <div class="dash-sys__native-head">
+             <div>
+               <h5 id="native-automod-title">Discord native AutoMod</h5>
+               <p class="hint">Blocks supported threats before they reach the bot. DaCat keeps the detailed moderation case locally.</p>
+             </div>
+             {% if native_automod.read %}
+             <span class="own-chip own-chip--{{ 'ok' if native_automod.count else 'warn' }}">
+               <span class="own-chip__label">Rules</span>
+               <span class="own-chip__value mono">{{ native_automod.count }} managed</span>
+             </span>
+             {% else %}
+             <span class="own-chip own-chip--warn"><span class="own-chip__label">Status</span><span class="own-chip__value">Not read</span></span>
+             {% endif %}
+           </div>
+           {% if native_automod.read %}
+           <ul class="list dash-sys__native-list">
+             {% for rule in native_automod.rules %}
+             <li class="list__row"><span class="list__key">{{ rule.name }}</span><span class="list__note">{{ rule.trigger }} · {{ 'enabled' if rule.enabled else 'disabled' }}</span></li>
+             {% else %}
+             <li class="list__row list__row--prose"><span class="list__note">No native rules are managed yet. Enable invite blocking or flood protection to create one.</span></li>
+             {% endfor %}
+           </ul>
+           {% else %}
+           <p class="hint">{{ native_automod.why }}</p>
+           {% endif %}
+           <form method="post" action="/api/automod-native-sync" class="row">
+             {{ guard('Discord native AutoMod is synced.') }}
+             <button class="btn" type="submit">Sync native rules</button>
+           </form>
+         </div>
+         {% endif %}
+
+         {# The system's own settings — the rules it runs by, read and written
            here. They are declared in the registry beside the system and drawn
            from that declaration, so a card cannot offer a control the endpoint
            would refuse, or an input the reader does not read. One form for all

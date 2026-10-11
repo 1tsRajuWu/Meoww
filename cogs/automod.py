@@ -34,6 +34,13 @@ from discord.ext import commands
 from utils import db, features, modlog
 from utils.style import INFO, WARN
 
+try:
+    from discord.automod import AutoModRuleAction, AutoModTrigger
+    from discord.enums import AutoModRuleEventType, AutoModRuleTriggerType
+except ImportError:  # pragma: no cover - only old discord.py installations
+    AutoModRuleAction = AutoModTrigger = None
+    AutoModRuleEventType = AutoModRuleTriggerType = None
+
 INVITE_REGEX = re.compile(r"(discord\.gg|discordapp\.com/invite|discord\.com/invite)/\S+", re.IGNORECASE)
 LINK_REGEX = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -47,6 +54,65 @@ APPEAL_POINTER = "If that was wrong, run `/appeal` — a human will read it."
 #: copy of it is how the two would come to disagree about which switch turns the
 #: filters off.
 MODULE = "automod"
+
+# Discord's native rules are deliberately named and owned by this bot.  This
+# gives the dashboard an idempotent sync target and makes it safe to leave rules
+# created by a server administrator alone.  The native rules complement (rather
+# than replace) the richer local filter: Discord can block a message before it
+# reaches the gateway, while the local listener still handles allowlists and
+# detailed case cards.
+NATIVE_INVITE_RULE = "DaCat AutoMod · invite links"
+NATIVE_SPAM_RULE = "DaCat AutoMod · spam"
+NATIVE_RULE_NAMES = frozenset({NATIVE_INVITE_RULE, NATIVE_SPAM_RULE})
+NATIVE_INVITE_KEYWORDS = ("discord.gg/", "discordapp.com/invite/", "discord.com/invite/")
+
+
+def _owns_native_rule(bot, rule) -> bool:
+    """Names are a label, not authority: only edit rules created by this bot."""
+    bot_id = getattr(getattr(bot, "user", None), "id", None)
+    creator_id = getattr(rule, "creator_id", None)
+    try:
+        return bot_id is not None and creator_id is not None and int(bot_id) == int(creator_id)
+    except (TypeError, ValueError):
+        return False
+
+
+def native_rule_actions(*, timeout_minutes: int = 0):
+    """Build safe native actions without retaining message content.
+
+    Discord requires a block action alongside a timeout action.  The timeout is
+    capped again here even though the registry validates it, because this helper
+    is also used by migration/repair code and must never send an invalid payload.
+    """
+    if AutoModRuleAction is None:
+        return []
+    actions = [AutoModRuleAction()]
+    minutes = max(0, min(28 * 24 * 60, int(timeout_minutes or 0)))
+    if minutes:
+        actions.append(AutoModRuleAction(duration=datetime.timedelta(minutes=minutes)))
+    return actions
+
+
+def native_rule_payloads(settings: dict) -> tuple[dict, ...]:
+    """Return the two native rule definitions from the server's settings."""
+    if AutoModTrigger is None or AutoModRuleTriggerType is None:
+        return ()
+    return (
+        {
+            "name": NATIVE_INVITE_RULE,
+            "enabled": bool(settings.get("block_invites")),
+            "trigger": AutoModTrigger(keyword_filter=list(NATIVE_INVITE_KEYWORDS)),
+            "actions": native_rule_actions(),
+        },
+        {
+            "name": NATIVE_SPAM_RULE,
+            "enabled": bool(settings.get("anti_spam")),
+            "trigger": AutoModTrigger(type=AutoModRuleTriggerType.spam),
+            "actions": native_rule_actions(
+                timeout_minutes=settings.get("spam_timeout_minutes", 0)
+            ),
+        },
+    )
 
 
 def _off_sentence() -> str:
@@ -144,6 +210,24 @@ def _audit_embed(
     return embed
 
 
+def _native_audit_embed(execution, rule_name: str, member, channel) -> discord.Embed:
+    """A native-rule execution card that never copies message content."""
+    embed = discord.Embed(
+        title="🤖 AutoMod — native rule",
+        color=WARN,
+        timestamp=discord.utils.utcnow(),
+    )
+    if member is not None:
+        embed.add_field(name="👤 Member", value=f"{member.mention}\n`{member.name}`", inline=True)
+    else:
+        embed.add_field(name="👤 Member", value=f"User ID `{execution.user_id}`", inline=True)
+    embed.add_field(name="📍 Channel", value=getattr(channel, "mention", "—"), inline=True)
+    embed.add_field(name="📐 Rule", value=rule_name, inline=False)
+    embed.add_field(name="⚙️ Outcome", value="Discord's native AutoMod blocked the message.", inline=False)
+    embed.set_footer(text="Native Discord AutoMod • Message content is not retained")
+    return embed
+
+
 class AutoMod(commands.Cog):
     """Basic auto-moderation: spam detection and invite/link filtering."""
 
@@ -181,6 +265,105 @@ class AutoMod(commands.Cog):
         if guild_id in self.settings_cache:
             self.settings_cache[guild_id][key] = value
 
+    async def native_status(self, guild_id) -> dict:
+        """Read this bot's native Discord AutoMod rules for one server.
+
+        A missing gateway, missing permission, or older library is reported as an
+        unreadable status rather than as an empty rule list.  Empty and unknown
+        are different operational answers: the first means the server has no
+        managed native rules, the second means Discord was not asked.
+        """
+        if AutoModTrigger is None:
+            return {"read": False, "why": "This deployment's Discord library has no native AutoMod support."}
+        guild = getattr(self.bot, "get_guild", lambda _id: None)(int(guild_id))
+        if guild is None:
+            return {"read": False, "why": "The bot is not connected to this server right now."}
+        try:
+            rules = await guild.fetch_automod_rules()
+        except discord.Forbidden:
+            return {"read": False, "why": "Discord refused the AutoMod read. Give the bot Manage Server."}
+        except discord.HTTPException as exc:
+            print(f"[AUTOMOD] Could not read native rules for {guild_id}: {exc}", flush=True)
+            return {"read": False, "why": "Discord did not return the native AutoMod rules."}
+
+        managed = []
+        for rule in rules:
+            if rule.name not in NATIVE_RULE_NAMES or not _owns_native_rule(self.bot, rule):
+                continue
+            trigger_type = getattr(getattr(rule, "trigger", None), "type", None)
+            managed.append({
+                "name": rule.name,
+                "enabled": bool(rule.enabled),
+                "trigger": getattr(trigger_type, "name", str(trigger_type or "unknown")),
+            })
+        return {"read": True, "rules": managed, "count": len(managed)}
+
+    async def sync_native_rules(self, guild_id) -> dict:
+        """Create/update only the native rules managed by DaCat.
+
+        This is idempotent and is safe to call after every dashboard settings
+        save.  Existing rules with other names are never edited or deleted.
+        """
+        if AutoModTrigger is None or AutoModRuleEventType is None:
+            return {"success": False, "error": "Native AutoMod is unavailable in this discord.py version."}
+        guild = getattr(self.bot, "get_guild", lambda _id: None)(int(guild_id))
+        if guild is None:
+            return {"success": False, "error": "The bot is not connected to this server right now."}
+        try:
+            rules = await guild.fetch_automod_rules()
+            existing = {
+                rule.name: rule
+                for rule in rules
+                if rule.name in NATIVE_RULE_NAMES and _owns_native_rule(self.bot, rule)
+            }
+            settings = await self.get_settings(guild.id)
+            module_enabled = self._running(guild.id)
+            changed = []
+            for payload in native_rule_payloads(settings):
+                payload["enabled"] = bool(payload["enabled"] and module_enabled)
+                rule = existing.get(payload["name"])
+                if rule is None:
+                    # Do not create disabled rules on first sync.  An admin who
+                    # has not enabled a shield should not grow hidden Discord
+                    # configuration just by opening the dashboard.
+                    if not payload["enabled"]:
+                        continue
+                    await guild.create_automod_rule(
+                        name=payload["name"],
+                        event_type=AutoModRuleEventType.message_send,
+                        trigger=payload["trigger"],
+                        actions=payload["actions"],
+                        enabled=True,
+                        reason="DaCat native AutoMod sync",
+                    )
+                    changed.append(payload["name"])
+                    continue
+
+                await rule.edit(
+                    enabled=payload["enabled"],
+                    actions=payload["actions"],
+                    reason="DaCat native AutoMod sync",
+                )
+                changed.append(payload["name"])
+            return {"success": True, "changed": changed, "said": (
+                "Discord AutoMod is synced."
+                if changed else "Discord AutoMod already matches this server's settings."
+            )}
+        except discord.Forbidden:
+            return {"success": False, "error": "Discord refused the native AutoMod change. Give the bot Manage Server."}
+        except discord.HTTPException as exc:
+            print(f"[AUTOMOD] Could not sync native rules for {guild_id}: {exc}", flush=True)
+            return {"success": False, "error": "Discord rejected the native AutoMod change."}
+
+    @automod_group.command(name="native", description="Sync Discord's native AutoMod rules with this server's settings.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def automod_native(self, interaction: discord.Interaction):
+        result = await self.sync_native_rules(interaction.guild.id)
+        await interaction.response.send_message(
+            result.get("said") or result.get("error") or "Native AutoMod sync finished.",
+            ephemeral=True,
+        )
+
     def _invalidate(self, guild_id) -> None:
         """Drop one guild's cache after a write from anywhere else.
 
@@ -194,7 +377,11 @@ class AutoMod(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def automod_invites(self, interaction: discord.Interaction, enabled: bool):
         await self.update_setting(interaction.guild.id, "block_invites", enabled)
-        await interaction.response.send_message(f"Invite link blocking: **{'ON' if enabled else 'OFF'}**")
+        native = await self.sync_native_rules(interaction.guild.id)
+        suffix = " Native Discord AutoMod is synced." if native.get("success") else " Native sync needs attention: " + native.get("error", "unknown error")
+        await interaction.response.send_message(
+            f"Invite link blocking: **{'ON' if enabled else 'OFF'}**.{suffix}"
+        )
 
     @automod_group.command(name="links", description="Toggle blocking of ordinary http(s) links.")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -215,11 +402,16 @@ class AutoMod(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def automod_antispam(self, interaction: discord.Interaction, enabled: bool):
         await self.update_setting(interaction.guild.id, "anti_spam", enabled)
-        await interaction.response.send_message(f"Anti-spam: **{'ON' if enabled else 'OFF'}**")
+        native = await self.sync_native_rules(interaction.guild.id)
+        suffix = " Native Discord AutoMod is synced." if native.get("success") else " Native sync needs attention: " + native.get("error", "unknown error")
+        await interaction.response.send_message(
+            f"Anti-spam: **{'ON' if enabled else 'OFF'}**.{suffix}"
+        )
 
     @automod_group.command(name="status", description="What the automatic filters are doing here right now.")
     async def automod_status(self, interaction: discord.Interaction):
         settings = await self.get_settings(interaction.guild.id)
+        native = await self.native_status(interaction.guild.id)
         embed = discord.Embed(
             title="🤖 Auto Moderation — this server",
             description=(
@@ -238,6 +430,21 @@ class AutoMod(commands.Cog):
             else:
                 shown = str(value) if str(value) else "—"
             embed.add_field(name=spec.label, value=shown, inline=True)
+        if native.get("read"):
+            rules = native.get("rules", [])
+            embed.add_field(
+                name="Discord native AutoMod",
+                value=(
+                    "\n".join(
+                        f"{'On' if rule['enabled'] else 'Off'} · {rule['name']}"
+                        for rule in rules
+                    )
+                    if rules else "No DaCat native rules are managed yet."
+                ),
+                inline=False,
+            )
+        else:
+            embed.add_field(name="Discord native AutoMod", value=f"Not read: {native.get('why', 'unknown')}", inline=False)
         gate = features.get(MODULE)
         embed.set_footer(
             text=(
@@ -246,6 +453,25 @@ class AutoMod(commands.Cog):
             )
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_automod_action(self, execution):
+        """Record native Discord AutoMod actions in the same moderation log."""
+        guild = getattr(execution, "guild", None)
+        if guild is None or not self._running(guild.id):
+            return
+        try:
+            rule = await execution.fetch_rule()
+            rule_name = rule.name
+        except (discord.Forbidden, discord.HTTPException):
+            rule_name = f"native rule {execution.rule_id}"
+        member = getattr(execution, "member", None)
+        channel = getattr(execution, "channel", None)
+        await modlog.post(
+            guild,
+            _native_audit_embed(execution, rule_name, member, channel),
+            what=f"the native automod action for user {execution.user_id}",
+        )
 
     def _spam_rule(self, settings) -> str:
         """The flood rule in the server's own numbers, for the log card."""

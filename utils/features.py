@@ -327,7 +327,7 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=("automod",),
         commands=(
             "/automod invites", "/automod links", "/automod antispam",
-            "/automod status",
+            "/automod status", "/automod native",
         ),
         # No cog of its own: `cogs.automod` is a core cog that gates itself, so
         # that a server with this system off still loads the listener (a disabled

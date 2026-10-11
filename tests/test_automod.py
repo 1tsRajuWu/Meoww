@@ -33,6 +33,30 @@ ORIGIN = 200
 MEMBER = 77
 
 
+class NativeRuleDefinitions(unittest.TestCase):
+    """Native rules stay bounded, named, and derived from the local settings."""
+
+    def test_native_rules_follow_invite_and_spam_settings(self):
+        payloads = automod_module.native_rule_payloads({
+            "block_invites": True,
+            "anti_spam": False,
+            "spam_timeout_minutes": 5,
+        })
+        self.assertEqual(
+            [payload["name"] for payload in payloads],
+            [automod_module.NATIVE_INVITE_RULE, automod_module.NATIVE_SPAM_RULE],
+        )
+        self.assertTrue(payloads[0]["enabled"])
+        self.assertFalse(payloads[1]["enabled"])
+        self.assertEqual(payloads[0]["trigger"].keyword_filter, list(automod_module.NATIVE_INVITE_KEYWORDS))
+        self.assertEqual(payloads[1]["trigger"].type.name, "spam")
+
+    def test_native_timeout_is_capped_to_discords_limit(self):
+        actions = automod_module.native_rule_actions(timeout_minutes=99999)
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(actions[1].duration.total_seconds(), 28 * 24 * 60 * 60)
+
+
 def _forbidden():
     return discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "no perms")
 

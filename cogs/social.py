@@ -246,26 +246,211 @@ class CrashView(discord.ui.View):
 # -------------------------------------------------------------
 # MARRIAGE VIEW (Accept / Decline Proposal)
 # -------------------------------------------------------------
+COUPLE_ROLE_COLOUR = 0xFFB6C1  # soft pink
+COUPLE_SEPARATOR = " x "
+COUPLE_MAX_PART = 40
+# Kept for migration: previous shared-role version.
+MARRIED_ROLE_NAME = "💍 Married"
+
+
+def _clean_couple_part(name: str | None, fallback: str) -> str:
+    cleaned = (name or "").replace("\n", " ").replace("\r", " ").strip()
+    cleaned = " ".join(cleaned.split())
+    if not cleaned:
+        cleaned = fallback
+    if len(cleaned) > COUPLE_MAX_PART:
+        cleaned = cleaned[:COUPLE_MAX_PART].rstrip() or fallback
+    return cleaned
+
+
+def _couple_role_name(mem_a, mem_b) -> str:
+    first, second = (mem_a, mem_b) if mem_a.id < mem_b.id else (mem_b, mem_a)
+    n1 = _clean_couple_part(
+        getattr(first, "display_name", None) or getattr(first, "name", None),
+        f"User{first.id % 10000}",
+    )
+    n2 = _clean_couple_part(
+        getattr(second, "display_name", None) or getattr(second, "name", None),
+        f"User{second.id % 10000}",
+    )
+    return f"{n1}{COUPLE_SEPARATOR}{n2}"[:100]
+
+
+async def _resolve_member(guild: discord.Guild, user_id: int):
+    m = guild.get_member(user_id)
+    if m is not None:
+        return m
+    try:
+        return await guild.fetch_member(user_id)
+    except (discord.NotFound, discord.HTTPException):
+        return None
+
+
+async def _get_or_create_couple_role(guild: discord.Guild | None, mem_a, mem_b):
+    if guild is None or mem_a is None or mem_b is None:
+        return None
+    base = _couple_role_name(mem_a, mem_b)
+    name = base
+    for attempt in range(1, 10):
+        role = discord.utils.get(guild.roles, name=name)
+        if role is None:
+            break
+        try:
+            member_ids = {m.id for m in role.members}
+        except Exception:
+            member_ids = set()
+        if not member_ids or member_ids <= {mem_a.id, mem_b.id}:
+            return role
+        # Name taken by a different couple — make it unique.
+        name = f"{base} {attempt + 1}"[:100]
+    else:
+        return discord.utils.get(guild.roles, name=name)
+    try:
+        return await guild.create_role(
+            name=name,
+            colour=discord.Colour(COUPLE_ROLE_COLOUR),
+            hoist=False,
+            mentionable=True,
+            reason=f"Couple role for {base}",
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        return None
+
+
+async def _add_couple_role(guild: discord.Guild | None, id1: int, id2: int) -> str:
+    if guild is None:
+        return ""
+    mem_a = await _resolve_member(guild, id1)
+    mem_b = await _resolve_member(guild, id2)
+    if mem_a is None or mem_b is None:
+        return ""
+    role = await _get_or_create_couple_role(guild, mem_a, mem_b)
+    if role is None:
+        return ""
+    for m in (mem_a, mem_b):
+        try:
+            if role not in getattr(m, "roles", []):
+                await m.add_roles(role, reason="Just married")
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+    return f"\n\n{role.mention} (`{role.name}`) created for you both!"
+
+
+async def _cleanup_couple_roles_on_divorce(guild: discord.Guild | None, id1: int, id2: int) -> str:
+    if guild is None:
+        return ""
+    removed_names: list[str] = []
+    # 1. Remove per-couple soft-pink "A x B" roles shared by this pair.
+    for role in list(getattr(guild, "roles", [])):
+        try:
+            if COUPLE_SEPARATOR not in role.name:
+                continue
+            if getattr(role, "colour", None) is not None and role.colour.value != COUPLE_ROLE_COLOUR:
+                # Only auto-delete roles we created (soft pink).
+                # Still remove the role from the pair even if colour differs,
+                # but never delete foreign roles.
+                foreign = True
+            else:
+                foreign = False
+            try:
+                member_ids = {m.id for m in role.members}
+            except Exception:
+                member_ids = set()
+            if id1 not in member_ids and id2 not in member_ids:
+                continue
+            for mid in (id1, id2):
+                m = await _resolve_member(guild, mid)
+                if m is not None and role in getattr(m, "roles", []):
+                    try:
+                        await m.remove_roles(role, reason="Divorced")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+            removed_names.append(f"`{role.name}`")
+            if foreign:
+                continue
+            try:
+                fresh_members = [mm for mm in role.members if mm.id not in (id1, id2)]
+            except Exception:
+                fresh_members = []
+            if not fresh_members:
+                try:
+                    await role.delete(reason="Couple divorced")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+        except Exception:
+            continue
+    # 2. Migration: strip legacy shared role if now single.
+    try:
+        legacy = discord.utils.get(guild.roles, name=MARRIED_ROLE_NAME)
+        if legacy is not None:
+            import aiosqlite as _sqlite
+
+            from utils import db as _db
+
+            for mid in (id1, id2):
+                try:
+                    async with _sqlite.connect(_db.DB_PATH) as conn:
+                        async with conn.execute(
+                            "SELECT 1 FROM marriages WHERE guild_id=? AND user1_id=? LIMIT 1",
+                            (guild.id, mid),
+                        ) as cur:
+                            if await cur.fetchone():
+                                continue
+                except Exception:
+                    continue
+                m = await _resolve_member(guild, mid)
+                if m is not None and legacy in getattr(m, "roles", []):
+                    try:
+                        await m.remove_roles(legacy, reason="Divorced")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+    except Exception:
+        pass
+    if not removed_names:
+        return ""
+    return f"\n\n couple role {', '.join(removed_names)} removed."
+
+
 class MarriageView(discord.ui.View):
-    def __init__(self, proposer: discord.Member, target: discord.Member):
-        super().__init__(timeout=60)
+    def __init__(self, proposer: discord.Member, target: discord.Member, timeout: float = 300):
+        super().__init__(timeout=timeout)
         self.proposer = proposer
         self.target = target
         self.responded = False
+        self.message: discord.Message | None = None
 
     async def on_timeout(self):
-        if not self.responded:
-            self.responded = True
-            self.clear_items()
+        if self.responded:
+            return
+        self.responded = True
+        for item in self.children:
+            item.disabled = True
+        expired = discord.Embed(
+            title="💍 Marriage Proposal — Expired",
+            description=(
+                f"{self.proposer.mention} proposed to {self.target.mention}, "
+                "but they didn't respond in time.\n*Run `/marry` again to repropose.*"
+            ),
+            color=0x95A5A6,
+            timestamp=discord.utils.utcnow()
+        )
+        try:
+            if self.message is not None:
+                await self.message.edit(embed=expired, view=self)
+        except Exception:
+            pass
+        finally:
+            self.stop()
 
     @discord.ui.button(label="💍 Accept Proposal", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
             return await interaction.response.send_message("❌ This proposal is not for you!", ephemeral=True)
         if self.responded:
-            return
+            return await interaction.response.send_message("❌ This proposal has already been answered or expired.", ephemeral=True)
         self.responded = True
-        self.clear_items()
+        for item in self.children:
+            item.disabled = True
 
         now = discord.utils.utcnow().strftime("%B %d, %Y")
         async with aiosqlite.connect(DB_PATH) as conn:
@@ -279,13 +464,15 @@ class MarriageView(discord.ui.View):
             )
             await conn.commit()
 
+        role_note = await _add_couple_role(interaction.guild, self.proposer.id, self.target.id)
+
         embed = discord.Embed(
             title="💒 JUST MARRIED! 💍",
             description=(
                 f"🎉 **{self.target.mention} said YES to {self.proposer.mention}!**\n\n"
                 f"🔔 The church bells are ringing across the server!\n"
                 f"May your love be eternal and your coin balance never hit zero! ✨\n\n"
-                f"📅 **Wedding Date:** `{now}`"
+                f"📅 **Wedding Date:** `{now}`{role_note}"
             ),
             color=0xEB459E,
             timestamp=discord.utils.utcnow()
@@ -297,15 +484,17 @@ class MarriageView(discord.ui.View):
             embed.set_image(url=wedding_gif)
         embed.set_footer(text="DaCat Love & Marriage")
         await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
 
     @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
             return await interaction.response.send_message("❌ This proposal is not for you!", ephemeral=True)
         if self.responded:
-            return
+            return await interaction.response.send_message("❌ This proposal has already been answered or expired.", ephemeral=True)
         self.responded = True
-        self.clear_items()
+        for item in self.children:
+            item.disabled = True
 
         embed = discord.Embed(
             title="💔 Proposal Rejected",
@@ -314,6 +503,7 @@ class MarriageView(discord.ui.View):
             timestamp=discord.utils.utcnow()
         )
         await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
 
 
 # -------------------------------------------------------------
@@ -748,6 +938,10 @@ class Social(commands.Cog):
         # A legacy send with the mention in ``content``, which is what actually
         # notifies — the proposal is useless if the person proposed to misses it.
         await interaction.response.send_message(content=member.mention, embed=embed, view=view)
+        try:
+            view.message = await interaction.original_response()
+        except Exception:
+            pass
 
     @app_commands.command(name="divorce", description="Divorce your current spouse.")
     async def divorce(self, interaction: discord.Interaction):
@@ -765,9 +959,11 @@ class Social(commands.Cog):
         # uncached spouse would otherwise render as a raw "<@id>".
         s_name = await display_name(interaction.guild, spouse_id, client=interaction.client)
 
+        role_note = await _cleanup_couple_roles_on_divorce(interaction.guild, interaction.user.id, spouse_id)
+
         embed = discord.Embed(
             title="📄 Divorce Finalized",
-            description=f"💔 {interaction.user.mention} and {s_name} are officially divorced.\n*All good things come to an end...*",
+            description=f"💔 {interaction.user.mention} and {s_name} are officially divorced.\n*All good things come to an end...*{role_note}",
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )

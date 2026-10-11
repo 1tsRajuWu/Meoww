@@ -475,40 +475,6 @@
 .decision .btn { flex: 1 1 12rem; }
 
 /* --------------------------------------------------------------------------
-   The radio table
-   -------------------------------------------------------------------------- */
-
-.radio-row {
-  display: grid;
-  grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr) minmax(0, auto) auto;
-  gap: var(--space-4);
-  align-items: baseline;
-  padding-block: var(--space-3);
-  border-bottom: 1px solid var(--line);
-}
-
-.radio-row__name { font-weight: 550; }
-.radio-row__desc { color: var(--text-secondary); }
-.radio-row__tags { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
-
-@media (max-width: 760px) {
-  /* Two columns on a phone, not one: the name and its *Copy* share the first
-     line while the description and the tags span both. Stacking the control
-     under three lines of its own row added sixty pixels to every station —
-     the wall coming back one row at a time, which is what the first version of
-     this rule did when the fourth column arrived. */
-  .radio-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-1) var(--space-3);
-  }
-  .radio-row__name { grid-column: 1; }
-  .radio-row__desc,
-  .radio-row__tags { grid-column: 1 / -1; }
-  .radio-row__tags { justify-content: flex-start; }
-  .radio-row .command__copy { grid-column: 2; grid-row: 1; align-self: center; }
-}
-
-/* --------------------------------------------------------------------------
    The table (02 — the stations)
 
    The catalogue was one forty-eight-row list and two thirds of the page. The
@@ -813,6 +779,29 @@
 
 .dash-sys__head h4 { margin: 0; font-size: var(--text-body); font-weight: 550; }
 
+/* Native Discord AutoMod is shown as a separately labelled layer so an admin can
+   tell what is handled before the gateway from what the local listener audits. */
+.dash-sys__native {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-sunken) 82%, var(--accent) 18%);
+}
+
+.dash-sys__native-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.dash-sys__native h5 { margin: 0; font-size: var(--text-small); color: var(--text-primary); }
+.dash-sys__native p { margin: var(--space-1) 0 0; }
+.dash-sys__native-list { margin: 0; }
+
 /* The server switcher, when a session reaches more than one. */
 .dash-servers {
   display: flex;
@@ -892,6 +881,7 @@
    rows, and the per-row controls stop being a row. */
 @media (max-width: 760px) {
   .dash-sys__head { flex-wrap: wrap; }
+  .dash-sys__native-head { flex-direction: column; }
   .dash-row-form { flex-direction: column; align-items: stretch; }
   .dash-row-form > * { width: 100%; }
 }
