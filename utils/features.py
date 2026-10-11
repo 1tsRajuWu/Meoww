@@ -569,8 +569,8 @@ FEATURES: tuple[Feature, ...] = (
         icon="💎",
         category="Premium",
         description=(
-            "DaCat VIP Edition features, early-access complimentary status, "
-            "perks showcase, and 1-click bot authorization."
+            "DaCat VIP Edition: Relationship Bonds (/bond) and Spotify Music Engine (/music), "
+            "early-access complimentary status, and 1-click bot authorization."
         ),
         gate_commands=("premium",),
         commands=(

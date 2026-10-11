@@ -13,13 +13,8 @@ from utils.style import (
 )
 
 PREMIUM_PERKS = [
-    ("🎵 Spotify Music Engine", "Rich Spotify now-playing cards, server library, listens, and interactive collaborative Jams."),
-    ("📈 Live Financial Market", "Live exchange crypto & stock trading, candlestick charts, real-time fills, and portfolio tracking."),
-    ("🎙️ Executive Meetings", "Structured audio meetings, agendas, recording minutes, and automated summaries."),
-    ("📊 365-Day Server Analytics", "Long-term activity velocity, voice minutes & message leaderboards, and channel heatmaps."),
-    ("🎰 VIP High-Roller Casino", "Exclusive high-multiplier Crash rocket, high-stakes Mines, and global Richlist."),
-    ("👑 100x Visuals & Components V2", "Luxurious radiant gold styling, verified VIP badges, and Components V2 fidelity."),
-    ("⚡ Priority 24/7 Gateway", "Dedicated uninterrupted gateway process with instant response times and cloud auto-sync."),
+    ("🎵 Spotify Music Engine (/music)", "Rich Spotify track cards, server song library, listen counters, and interactive collaborative Jam sessions."),
+    ("💍 Relationship Bonds (/bond)", "Exclusive relationship bonds for dating (bf/gf), besties, twins, siblings, homeboys/homegirls, crushes & rivals with auto-assigned custom roles."),
 ]
 
 
@@ -88,13 +83,10 @@ class Premium(commands.Cog):
                 ("Current Price", "**$0.00 / free** (no payment required)", True),
                 ("Active Instance", f"`{'👑 VIP Bot (' + str(VIP_BOT_ID) + ')' if is_vip else '🐾 Main Bot (1548380269776605324)'}`", True),
                 (
-                    "Connected Features",
-                    "• 🎵 Spotify Music Cards & Jams: **Active**\n"
-                    "• 📈 Live Crypto & Stock Market: **Active**\n"
-                    "• 🎙️ Audio Meetings & Agendas: **Active**\n"
-                    "• 📊 365-Day Server Tracker: **Active**\n"
-                    "• 🎰 High-Roller Crash & Mines: **Active**\n"
-                    "• 👑 100x Enhanced Visuals: **Active**",
+                    "Connected Premium Features",
+                    "• 🎵 **Spotify Music Engine** (`/music add`, `/music jam`, `/music top`): **Active (VIP)**\n"
+                    "• 💍 **Relationship Bonds** (`/bond propose`, `/bond list`, `/bond break`): **Active (VIP)**\n"
+                    "• 👑 **100x Enhanced Visuals & VIP Cards**: **Active (VIP)**",
                     False,
                 ),
             ],

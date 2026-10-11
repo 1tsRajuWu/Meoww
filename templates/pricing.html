@@ -55,6 +55,9 @@
       free trial's.
       {% endif %}
     </p>
+    <p class="mw-hint">
+      👑 <strong>DaCat VIP Edition:</strong> Early-access preview for the VIP Bot (Client ID: <code>1558691012975534222</code>) is complimentary ($0.00), featuring the premium <strong>Relationship Bonds</strong> (<code>/bond</code>) and <strong>Spotify Music Engine &amp; Jams</strong> (<code>/music</code>) suites with 100x enhanced VIP gold card visuals.
+    </p>
     <p class="mw-hint">If paid plans ever come to this deployment, this page will say so first.</p>
     {% endif %}
   </div>
@@ -170,6 +173,7 @@
     <h2 class="mw-closing__title mw-title">Everything on this page is enforced by the same model that serves it.</h2>
     <div class="mw-hero__actions">
       {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
+      {% if vip_invite_url %}<a class="mw-btn" href="{{ vip_invite_url }}">Add VIP Bot 👑</a>{% endif %}
       {% if kofi_url %}<a class="mw-link" href="{{ kofi_url }}" rel="noopener">Support the bot</a>{% endif %}
     </div>
   </div>

@@ -2,9 +2,9 @@
 
 **Effective Date:** October 6, 2026 · **Version 8** (AI-assisted source).
 
-This policy explains what this Discord bot ("the Bot") stores, why, where it goes
+This policy explains what this Discord bot ("the Bot", encompassing Primary Bot Client ID `1548380269776605324` and VIP Edition Client ID `1558691012975534222`) stores, why, where it goes
 and how to have it removed. It describes one deployment; the operator running it
-answers for it, and using a server that runs the Bot is agreement to it.
+answers for it, and using a server that runs either Bot instance is agreement to it. Both instances share the same database, security policies, and privacy protections.
 
 ## 1. What we store
 
@@ -72,6 +72,8 @@ answers for it, and using a server that runs the Bot is agreement to it.
   — with no record of who started anything. Those four rows are kept, are read by
   nothing, and hold nothing about a member; a stream itself was relayed straight
   into the voice channel and never copied anywhere.
+* **VIP & Early-Access features:** Early-access VIP features (Spotify music cards, live market, 365-day tracker, audio meetings) operate under identical minimal telemetry standards. No voice audio from meetings is recorded, stored, or processed for AI training.
+* **Payment credentials:** There are no charges during early-access preview ($0.00). If commercial billing is enabled in the future, payments will be processed exclusively by verified PCI-DSS compliant payment gateways (e.g., Lemon Squeezy / Stripe). The Bot and operator never collect, receive, or store credit card numbers or financial credentials.
 * **No DMs are read**, and nothing is sold, rented or shared for advertising. No
   trackers, no analytics. The Bot requests no profile information itself — the
   exception below is optional and exists only so a server's administrators can

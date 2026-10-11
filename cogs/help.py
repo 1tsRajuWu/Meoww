@@ -276,8 +276,11 @@ HELP_MODULES = {
             "DaCat VIP Edition (`1558691012975534222`) features, complimentary preview "
             "perks, and bot authorization links.\n\n"
             "> `/premium status` — Check your server's VIP tier status and active bot instance\n"
-            "> `/premium perks` — Showcase of all 100x VIP features & enhancements\n"
+            "> `/premium perks` — Showcase of active VIP features (Music & Bonds)\n"
             "> `/premium invite` — 1-click authorization link to add the VIP bot to your server\n\n"
+            "**Featured VIP Premium Commands:**\n"
+            "• 🎵 `/music` — Spotify music cards, track libraries, and collaborative Jams\n"
+            "• 💍 `/bond` — Relationship bonds (dating, besties, twins, crushes, rivals) with custom roles\n\n"
             "*VIP early access is 100% free ($0.00) during our preview period!*"
         ),
         "color": 0xFFD700,

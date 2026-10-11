@@ -23,11 +23,15 @@ while true; do
     if [ -f .env ]; then
         # Check if the .env file has a placeholder token
         TOKEN=$(grep -E "^DISCORD_TOKEN=" .env | cut -d '=' -f2)
+        VIP_TOKEN=$(grep -E "^VIP_BOT_TOKEN=" .env | cut -d '=' -f2)
         if [ -n "$TOKEN" ] && [ "$TOKEN" != "paste_your_bot_token_here" ] && [ "$TOKEN" != "your_actual_token_here" ]; then
             "$PYTHON_BIN" bot.py
             echo "Bot crashed or exited. Restarting in 5 seconds..."
+        elif [ -n "$VIP_TOKEN" ] && [ "$VIP_TOKEN" != "paste_your_bot_token_here" ] && [ "$VIP_TOKEN" != "your_actual_token_here" ]; then
+            "$PYTHON_BIN" bot.py
+            echo "VIP Bot crashed or exited. Restarting in 5 seconds..."
         else
-            echo "Waiting for valid DISCORD_TOKEN in .env..."
+            echo "Waiting for valid DISCORD_TOKEN or VIP_BOT_TOKEN in .env..."
         fi
     else
         echo ".env file not found. Copy .env.example to .env first. Waiting..."

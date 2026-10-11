@@ -1,0 +1,17 @@
+[Unit]
+Description=DaCat Discord Bot 24/7 Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/dacat
+ExecStart=/opt/dacat/.venv/bin/python3 bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/dacat/logs/systemd.log
+StandardError=append:/opt/dacat/logs/systemd_err.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -301,7 +301,7 @@
           {% if invite_url %}
           <a href="{{ invite_url }}">The invite</a> asks for Administrator, so nothing arrives
           as “Missing Permissions”{% if invite_limited_url %} — or take
-          <a href="{{ invite_limited_url }}">a smaller grant</a> instead{% endif %}.
+          <a href="{{ invite_limited_url }}">a smaller grant</a> instead{% endif %}{% if vip_invite_url %}, or invite the <a href="{{ vip_invite_url }}">VIP Edition (1558691012975534222)</a>{% endif %}.
           {% else %}
           This deployment has no invite link configured yet.
           {% endif %}

@@ -23,6 +23,8 @@ services:
     envVars:
       - key: DISCORD_TOKEN
         sync: false
+      - key: VIP_BOT_TOKEN
+        sync: false
       # The application's client id, which is **public**: it appears in every
       # invite link anybody can read, so it lives here rather than in the
       # dashboard's secret list. Without it the landing page omitted its

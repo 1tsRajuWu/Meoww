@@ -9,11 +9,11 @@ They are between you and the operator of the deployment you are using.
 
 ## 1. What the Bot is
 
-The Bot is a self-hosted community bot: moderation, logging and automod filters;
+The Bot is a community bot operating under Primary Application ID `1548380269776605324` and VIP Edition Application ID `1558691012975534222`: moderation, logging and automod filters;
 tickets with transcripts and close-time ratings; a leveling system with XP and
 automatic role rewards; a coin economy with a shop, loans and casino games; a
 live market; social roleplay; fun commands and mini-games; a
-per-channel activity tracker keeping a 365-day window; and a web dashboard for
+per-channel activity tracker keeping a 365-day window; VIP early-access enhancements; and a web dashboard for
 staff — module toggles, a message composer that can post **now or on a schedule**
 in up to five channels, live market charts, and a bug-report command. It is
 provided **"as is" and "as available"**, with no warranty of any kind; it may
@@ -112,15 +112,8 @@ only here. The third document in this bundle, the AI & crawling policy, states
 what this deployment does about automated collection and about training use.
 
 ## 9. Subscriptions and operational fees
-
-Core Bot functionality is currently offered without charge. To support ongoing
-hosting, database maintenance, infrastructure scaling, and operational costs,
-optional paid subscription tiers, server premium perks, or enhanced quotas may
-be introduced. If they are, each one will state its price, its billing period,
-whether it renews automatically, how to cancel, and what a cancellation or a
-refund does to already-earned progress **before** it is purchased — and no paid
-tier will bundle consent to anything else, including model training, with the
-thing you are buying.
+ 
+Core Bot functionality and the DaCat VIP Edition (Client ID: `1558691012975534222`) are currently offered under a complimentary promotional preview at $0.00 without charge. In the near future, optional paid premium tiers, server licenses, or enhanced quotas may be introduced to support ongoing 24/7 dedicated hosting, database persistence, and infrastructure scaling. When commercial billing launches, each plan will state its exact price, billing period, cancellation terms, and refund policy on `/pricing` and in Discord before purchase. Existing free access to core community features will not be retroactively billed, and preview users will receive advance notice before any paid transition.
 
 ## 10. What you send, and what the Bot produces
 
