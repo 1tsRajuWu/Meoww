@@ -287,16 +287,23 @@ def _publish(label: str, path: str, token: str, commands: list[dict], args) -> i
 
 
 def _identity_commands(commands: list, app_id) -> list:
-    """Drop VIP-only roots when this token is not the VIP bot's.
+    """Narrow a publish list to what this token's bot may offer.
 
-    Same rule ``bot.py`` publishes by, so this tool cannot drift from the bot.
+    Same rule ``bot.py`` publishes by, so this tool cannot drift from the bot:
+    the VIP token publishes only the VIP commands, any other token publishes
+    everything else.
     """
-    if not permissions.is_vip_app_id(app_id):
-        dropped = [c["name"] for c in commands if c.get("name") in permissions.VIP_ONLY_COMMANDS]
-        commands = [c for c in commands if c.get("name") not in permissions.VIP_ONLY_COMMANDS]
+    from utils import command_scope
+
+    names = {c.get("name") for c in commands}
+    if permissions.is_vip_app_id(app_id):
+        keep = command_scope.for_identity(names, is_vip=True)
+    else:
+        keep = command_scope.for_identity(names, is_vip=False)
+        dropped = sorted(names - keep)
         if dropped:
-            print(f"Main identity: leaving out {', '.join(sorted(dropped))}.")
-    return commands
+            print(f"Main identity: leaving out {', '.join(dropped)}.")
+    return [c for c in commands if c.get("name") in keep]
 
 
 def main() -> int:

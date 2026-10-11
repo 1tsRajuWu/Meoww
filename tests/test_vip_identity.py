@@ -19,10 +19,10 @@ class IdentityFilter(unittest.TestCase):
             {"help", "marry", "premium", "bond"}, is_vip=False)
         self.assertEqual(names, {"help", "marry", "bond"})
 
-    def test_vip_keeps_everything(self):
+    def test_vip_keeps_only_vip(self):
         names = command_scope.for_identity(
             {"help", "marry", "premium"}, is_vip=True)
-        self.assertEqual(names, {"help", "marry", "premium"})
+        self.assertEqual(names, {"premium"})
 
     def test_unknown_identity_keeps_everything(self):
         names = command_scope.for_identity(
@@ -44,12 +44,12 @@ class ForceSyncFilter(unittest.TestCase):
         kept = force_sync._identity_commands(commands, 1548380269776605324)
         self.assertEqual([c["name"] for c in kept], ["marry", "bond"])
 
-    def test_vip_token_sync_keeps_premium(self):
+    def test_vip_token_sync_keeps_only_premium(self):
         import force_sync
 
         commands = [{"name": "marry"}, {"name": "premium"}]
         kept = force_sync._identity_commands(commands, permissions.VIP_BOT_ID)
-        self.assertEqual([c["name"] for c in kept], ["marry", "premium"])
+        self.assertEqual([c["name"] for c in kept], ["premium"])
 
 
 class BootPublisherFilter(unittest.TestCase):

@@ -52,13 +52,16 @@ def is_available(command: str, states: Mapping[str, bool]) -> bool:
 def for_identity(names: Iterable[str], *, is_vip: bool | None) -> set[str]:
     """The names one bot identity may publish.
 
-    The VIP commands belong to the VIP picker only: a main instance leaves
-    them out of every scope, which is what takes them off its pickers and
-    hands the ceiling slots back. ``None`` (tests, dry runs, pre-login)
-    keeps everything — only a logged-in main instance may narrow a scope.
+    The two bots split the tree: the VIP instance publishes only the VIP
+    commands, and the main instance publishes everything else. That is what
+    takes normals off the VIP picker and VIP off the main one, handing both
+    scopes their ceiling slots back. ``None`` (tests, dry runs, pre-login)
+    keeps everything — only a logged-in instance may narrow a scope.
     """
     names = set(names)
-    if is_vip is False:
+    if is_vip is True:
+        names &= VIP_ONLY_COMMANDS
+    elif is_vip is False:
         names -= VIP_ONLY_COMMANDS
     return names
 
