@@ -100,6 +100,7 @@ class Premium(commands.Cog):
                 ),
             ],
             thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
+            author_icon=VIP_SPARKLE_GIF,
             footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
@@ -118,6 +119,7 @@ class Premium(commands.Cog):
             ),
             fields=fields,
             thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
+            author_icon=VIP_SPARKLE_GIF,
             footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
@@ -141,6 +143,8 @@ class Premium(commands.Cog):
                 ("VIP Bot (1558691012975534222)", f"[Direct Authorization Link]({VIP_INVITE_URL})", True),
                 ("Main Bot (1548380269776605324)", f"[Direct Authorization Link]({MAIN_INVITE_URL})", True),
             ],
+            author_icon=VIP_SPARKLE_GIF,
+            footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
 
