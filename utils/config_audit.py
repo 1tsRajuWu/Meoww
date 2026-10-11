@@ -158,6 +158,14 @@ SETTINGS: tuple[Setting, ...] = (
         secret=True,
     ),
     Setting(
+        "VIP_BOT_TOKEN",
+        CAPABILITY,
+        "the bot token for DaCat VIP Edition (1558691012975534222)",
+        "the dedicated VIP Bot instance is not run concurrently; only the primary "
+        "bot connects to Discord.",
+        secret=True,
+    ),
+    Setting(
         "ENABLE_MESSAGE_CONTENT_INTENT",
         CAPABILITY,
         "the Message Content intent, which Discord gates behind the Developer "
