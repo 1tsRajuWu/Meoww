@@ -68,7 +68,6 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "poke": (("purrbot", "poke"), ("otakugifs", "poke")),
     "hug": (("purrbot", "hug"), ("otakugifs", "hug")),
     "pat": (("purrbot", "pat"), ("otakugifs", "pat")),
-    "kiss": (("purrbot", "kiss"), ("otakugifs", "kiss")),
     "cuddle": (("purrbot", "cuddle"), ("otakugifs", "cuddle")),
     "slap": (("purrbot", "slap"), ("otakugifs", "slap")),
     "bite": (("purrbot", "bite"), ("otakugifs", "bite")),
@@ -84,8 +83,10 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "dance": (("purrbot", "dance"), ("otakugifs", "dance")),
     "laugh": (("otakugifs", "laugh"),),
     "cry": (("purrbot", "cry"), ("otakugifs", "cry")),
-    "lick": (("purrbot", "lick"), ("otakugifs", "lick")),
     "tickle": (("purrbot", "tickle"), ("otakugifs", "tickle")),
+    # Summoning is a beckon plus a party entrance: wave calls them over,
+    # dance covers the flashy arrival. Both verified live, both goofy.
+    "spawn": (("otakugifs", "wave"), ("purrbot", "dance")),
     "stare": (("otakugifs", "stare"),),
     "handhold": (("otakugifs", "handhold"),),
     # A proposal is a shy question, not the kiss itself — blush fits, and both

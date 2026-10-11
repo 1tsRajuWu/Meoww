@@ -425,7 +425,7 @@ FEATURES: tuple[Feature, ...] = (
         icon="🐾",
         category="Community",
         description=(
-            "Expressive action roleplay commands (hug, pat, cuddle, kiss, slap), "
+            "Expressive action roleplay commands (hug, pat, cuddle, slap, dance), "
             "/uwu text styler."
         ),
         gate_commands=(

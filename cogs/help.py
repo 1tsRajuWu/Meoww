@@ -71,7 +71,7 @@ HELP_MODULES = {
             "> `/hunt` — Catch rare animals in the wild\n"
             "> `/zoo [member]` — View your collected safari animals\n"
             "> `/sellanimals <tier>` — Sell animals for coins\n"
-            "> `/action <type> <member>` — Perform roleplay actions (Bonk, Slap, Hug, Kiss, Pat, Punch, Bite, Cuddle, Poke, Feed, Blush, Smile, Wave, Wink, Dance, Laugh, Cry, Lick, Tickle)\n"
+            "> `/action <type> <member>` — Perform roleplay actions (Bonk, Slap, Hug, Pat, Punch, Bite, Cuddle, Poke, Feed, Blush, Smile, Wave, Wink, Dance, Laugh, Cry, Tickle, Spawn)\n"
             "> `/marry <member>` — Propose marriage to another member\n"
             "> `/divorce` — End marriage\n"
             "> `/bond propose <member> <type>` — Propose dating, bestie, twin, sibling, crush or rival bonds (crushes stay secret 🤫, proposals last an hour)\n"

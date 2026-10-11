@@ -140,15 +140,6 @@ ACTIONS_DATA = {
             "{author} gave {target} the biggest, warmest embrace ever! 🌸",
         ]
     },
-    "kiss": {
-        "title": "💋 Sweet Kiss!",
-        "color": 0xEB459E,
-        "lines": [
-            "{author} leaned in and gave {target} a sweet kiss on the cheek! 🌸",
-            "*smooch* {author} kissed {target}! Look at them blushing red! 🥰",
-            "{author} gave {target} a tender, romantic kiss! ✨",
-        ]
-    },
     "pat": {
         "title": "🐾 Headpats!",
         "color": 0x5865F2,
@@ -257,20 +248,22 @@ ACTIONS_DATA = {
             "{target} is comforting {author} through the waterworks! 🤗",
         ]
     },
-    "lick": {
-        "title": "👅 Surprise Lick!",
-        "color": 0xFF7675,
-        "lines": [
-            "{author} gave {target} a surprise lick?! Blehaha, what was that for! 👅",
-            "{target} just got licked by {author}! Someone's feeling mischievous today! 😜",
-        ]
-    },
     "tickle": {
         "title": "🪶 Tickle Attack!",
         "color": 0xFDCB6E,
         "lines": [
             "{author} launched a relentless tickle attack on {target}! Stoooop! 🤣",
             "{target} is squirming under {author}'s tickle torture! No mercy! 🪶",
+        ]
+    },
+    "spawn": {
+        "title": "🌀 Summoned!",
+        "color": 0x6C5CE7,
+        "lines": [
+            "{author} opened a portal and summoned {target}! Step right up! 🌀✨",
+            "POOF! {author} called {target} forth! You have been spawned! 🎮✨",
+            "{author} used Summoning Jutsu! {target} appeared in a puff of smoke! 💨",
+            "{target} has respawned, courtesy of {author}! Don't die again! 🎮💫",
         ]
     }
 }
@@ -1474,7 +1467,6 @@ class Social(commands.Cog):
         app_commands.Choice(name="🔨 Bonk", value="bonk"),
         app_commands.Choice(name="👋 Slap", value="slap"),
         app_commands.Choice(name="🤗 Hug", value="hug"),
-        app_commands.Choice(name="💋 Kiss", value="kiss"),
         app_commands.Choice(name="✨ Headpat", value="pat"),
         app_commands.Choice(name="👊 Punch", value="punch"),
         app_commands.Choice(name="🦷 Bite", value="bite"),
@@ -1488,8 +1480,8 @@ class Social(commands.Cog):
         app_commands.Choice(name="💃 Dance", value="dance"),
         app_commands.Choice(name="😂 Laugh", value="laugh"),
         app_commands.Choice(name="😭 Cry", value="cry"),
-        app_commands.Choice(name="👅 Lick", value="lick"),
         app_commands.Choice(name="🪶 Tickle", value="tickle"),
+        app_commands.Choice(name="🌀 Spawn", value="spawn"),
     ])
     async def action(self, interaction: discord.Interaction, action: app_commands.Choice[str], member: discord.Member):
         await self._handle_action(interaction, action.value, member)
