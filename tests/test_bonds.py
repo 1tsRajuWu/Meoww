@@ -554,6 +554,18 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertTrue(interaction.response.messages[-1].get("ephemeral"))
         self.assertEqual(_bond_rows(), [])
 
+    async def test_homegirl_homeboy_coexist_with_own_roles(self):
+        await self._propose(self.raj, self.ice, "homegirl")
+        await self._accept(self.raj, self.ice, "homegirl")
+        await self._propose(self.raj, self.zed, "homeboy")
+        await self._accept(self.raj, self.zed, "homeboy")
+        kinds = {(r[0], r[2]) for r in _bond_rows()}
+        self.assertIn((1, "homegirl"), kinds)
+        self.assertIn((1, "homeboy"), kinds)
+        names = sorted(r.name for r in self.guild.roles)
+        self.assertTrue(any("🩷" in n for n in names))
+        self.assertTrue(any("🩵" in n for n in names))
+
     async def test_proposals_last_an_hour(self):
         self.assertEqual(social_module.BondView(self.raj, self.ice, "dating").timeout, 3600)
         self.assertEqual(social_module.MarriageView(self.raj, self.ice).timeout, 3600)
