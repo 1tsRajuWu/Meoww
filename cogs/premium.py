@@ -3,6 +3,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils import games
 from utils.style import (
     send_card,
     make_vip_embed,
@@ -19,6 +20,7 @@ from utils.style import (
 PREMIUM_PERKS = [
     ("🎵 Spotify Music Engine (/music)", "Rich Spotify track cards, server song library, listen counters, and interactive collaborative Jam sessions."),
     ("💍 Relationship Bonds (/bond)", "Exclusive relationship bonds for dating (bf/gf), besties, twins, siblings, homeboys/homegirls, crushes & rivals with auto-assigned custom roles."),
+    ("🎮 100% Free & Ad-Free Games Engine (/game)", "Instant verified zero-ad game finder for web and PC: Minecraft, DOOM, Pokémon, retro, puzzles, horror, and weekly free commercial games."),
 ]
 
 
@@ -74,6 +76,38 @@ class PremiumInviteView(discord.ui.View):
         )
 
 
+class GameLinksView(discord.ui.View):
+    """Interactive link buttons for verified free and ad-free games."""
+
+    def __init__(self, game_info: games.GameInfo):
+        super().__init__(timeout=None)
+        # Primary verified destination
+        self.add_item(
+            discord.ui.Button(
+                label=game_info.primary_label[:80],
+                url=game_info.primary_url,
+                style=discord.ButtonStyle.link,
+            )
+        )
+        # Secondary verified destination if available
+        if game_info.secondary_url and game_info.secondary_label:
+            self.add_item(
+                discord.ui.Button(
+                    label=game_info.secondary_label[:80],
+                    url=game_info.secondary_url,
+                    style=discord.ButtonStyle.link,
+                )
+            )
+        # Epic Games Weekly Free Commercial Games
+        self.add_item(
+            discord.ui.Button(
+                label="🎁 Epic Weekly Freebies",
+                url="https://store.epicgames.com/free-games",
+                style=discord.ButtonStyle.link,
+            )
+        )
+
+
 class Premium(commands.Cog):
     """VIP Premium Bot edition, perks, and status."""
 
@@ -122,6 +156,7 @@ class Premium(commands.Cog):
                     "Connected Premium Features",
                     "• 🎵 **Spotify Music Engine** (`/music add`, `/music jam`, `/music top`): **Active (VIP)**\n"
                     "• 💍 **Relationship Bonds** (`/bond propose`, `/bond list`, `/bond break`): **Active (VIP)**\n"
+                    "• 🎮 **100% Free & Ad-Free Games** (`/game`): **Active (VIP)**\n"
                     "• 👑 **100x Enhanced Visuals & VIP Cards**: **Active (VIP)**",
                     False,
                 ),
@@ -178,6 +213,53 @@ class Premium(commands.Cog):
             thumbnail=True,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
+
+    @app_commands.command(
+        name="game",
+        description="🎮 Find 100% free & ad-free games by name, genre, or type (VIP Exclusive)!",
+    )
+    @app_commands.describe(
+        query="Game name, genre, or type (e.g. Minecraft, Doom, Pokemon, Chess, horror, retro, puzzle, rpg)",
+    )
+    async def game(self, interaction: discord.Interaction, query: str):
+        game_info = games.lookup_game(query)
+
+        fields = [
+            ("Category & Platform", f"📂 **{game_info.category}** · 💻 {game_info.platform_type}", False),
+            ("🛡️ Ad-Free Guarantee", f"✅ **{game_info.ad_free_guarantee}**", False),
+        ]
+
+        sources_text = [f"• [{game_info.primary_label}]({game_info.primary_url})"]
+        if game_info.secondary_url and game_info.secondary_label:
+            sources_text.append(f"• [{game_info.secondary_label}]({game_info.secondary_url})")
+        for label, url in game_info.extra_sources:
+            sources_text.append(f"• [{label}]({url})")
+
+        fields.append(("🌐 Verified Ad-Free Destination(s)", "\n".join(sources_text), False))
+
+        embed = _brand_embed(
+            interaction,
+            title=f"🎮 {game_info.title}",
+            description=(
+                f"{game_info.description}\n\n"
+                "**Zero Ads · Zero Popups · Safe & Legal**\n"
+                "Play or download completely free without advertisements or intrusive paywalls!"
+            ),
+            fields=fields,
+            thumbnail=True,
+        )
+        view = GameLinksView(game_info)
+        await send_card(interaction, embed=embed, view=view)
+
+    @game.autocomplete("query")
+    async def game_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        choices = games.popular_suggestions(current)
+        return [
+            app_commands.Choice(name=c[:100], value=c.split(" (")[0][:100])
+            for c in choices[:25]
+        ]
 
 
 async def setup(bot: commands.Bot):

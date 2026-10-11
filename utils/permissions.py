@@ -38,7 +38,7 @@ import discord
 #: pickers and hands the ceiling slots back.
 VIP_BOT_ID = 1558691012975534222
 #: Root commands reserved to the VIP instance (see above).
-VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music"})
+VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music", "game"})
 
 
 def is_vip_app_id(app_id) -> bool:
@@ -389,10 +389,11 @@ COMMAND_ACCESS: dict[str, str] = {
     "market sell": MARKET,
     "market portfolio": MARKET,
     "market history": MARKET,
-    # -- Premium / VIP: everyone, on status, perks and invite ------------- #
+    # -- Premium / VIP: everyone, on status, perks, invite and game -------- #
     "premium status": EVERYONE,
     "premium perks": EVERYONE,
     "premium invite": EVERYONE,
+    "game": EVERYONE,
 }
 
 

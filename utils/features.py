@@ -570,12 +570,13 @@ FEATURES: tuple[Feature, ...] = (
         icon="💎",
         category="Premium",
         description=(
-            "DaCat VIP Edition: Relationship Bonds (/bond) and Spotify Music Engine (/music), "
-            "early-access complimentary status, and 1-click bot authorization."
+            "DaCat VIP Edition: Relationship Bonds (/bond), Spotify Music Engine (/music), "
+            "ad-free games directory (/game), early-access complimentary status, and 1-click bot authorization."
         ),
-        gate_commands=("premium",),
+        gate_commands=("premium", "game"),
         commands=(
             "/premium status", "/premium perks", "/premium invite",
+            "/game",
         ),
         cog="cogs.premium",
         help_key="premium",
