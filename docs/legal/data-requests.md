@@ -67,6 +67,7 @@ DELETE FROM marriages         WHERE guild_id=:guild AND (user1_id=:member OR use
 DELETE FROM bonds             WHERE guild_id=:guild AND (user1_id=:member OR user2_id=:member);
 DELETE FROM music_tracks      WHERE guild_id=:guild AND added_by=:member;
 DELETE FROM music_listens     WHERE guild_id=:guild AND user_id=:member;
+DELETE FROM music_jam         WHERE guild_id=:guild AND set_by=:member;
 -- text the member wrote, and records that name them
 DELETE FROM scheduled_messages WHERE guild_id=:guild AND created_by=:member;
 DELETE FROM ticket_feedback    WHERE guild_id=:guild AND (author_id=:member OR claimed_by=:member);

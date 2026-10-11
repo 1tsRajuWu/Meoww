@@ -16,13 +16,15 @@ Three surfaces, one group:
   Spotify Jam link. Spotify offers no API for "what jams are live", so the
   jam is what a member declares it to be — set it, show it, remove it.
 """
+import datetime
 import re
+import urllib.parse
 
 import aiohttp
 import aiosqlite
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from utils import db
 from utils.style import display_name, send_card
@@ -35,6 +37,111 @@ SPOTIFY_LINK_RE = re.compile(
 JAM_LINK_RE = re.compile(r"https?://(?:open\.spotify\.com|spotify\.link)/\S+", re.IGNORECASE)
 OEMBED_URL = "https://open.spotify.com/oembed?url={url}"
 REQUEST_TIMEOUT = 8.0
+
+#: How often the jam watcher re-checks every server's active jam, how many
+#: consecutive dead reads end it, and the session cap after which it ends
+#: whatever the link says. Spotify offers no "is this jam live" API, so liveness
+#: is read off the link itself — and a link that answers is not proof anyone is
+#: still listening, which is what the cap is for.
+JAM_CHECK_MINUTES = 10
+JAM_MAX_FAILS = 3
+JAM_MAX_AGE_HOURS = 12
+
+#: Final landing pages that mean "there is no jam here any more". Anything behind
+#: a login wall counts as unknown, never dead — a wall is not an answer.
+JAM_DEAD_PATHS = ("/", "/search", "/download", "/premium", "/about", "/legal", "/us")
+
+
+async def ensure_music_schema() -> None:
+    """Create the music tables and heal columns a live database predates.
+
+    The jam watcher needs ``channel_id``/``fails``/``last_checked`` on a table
+    that shipped without them; ``CREATE TABLE IF NOT EXISTS`` cannot add a
+    column, so missing ones are altered in. Runs on every jam write and every
+    sweep, because a live database can be replaced under a running process.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute('''CREATE TABLE IF NOT EXISTS music_jam (
+            guild_id INTEGER PRIMARY KEY,
+            url TEXT,
+            set_by INTEGER,
+            set_at TEXT,
+            channel_id INTEGER,
+            fails INTEGER DEFAULT 0,
+            last_checked TEXT
+        )''')
+        async with conn.execute("PRAGMA table_info(music_jam)") as cur:
+            cols = {row[1] async for row in cur}
+        for column in ("channel_id", "fails", "last_checked"):
+            if column not in cols:
+                await conn.execute(f"ALTER TABLE music_jam ADD COLUMN {column}")
+        await conn.commit()
+
+
+def jam_landing_is_dead(final_url: str) -> bool:
+    """Whether a resolved jam URL lands somewhere that is not a jam.
+
+    Pure, so the dead/live line is testable without the network: gone links
+    (root, search, marketing pages) read dead, everything else reads live.
+    """
+    try:
+        parts = urllib.parse.urlparse(str(final_url or ""))
+    except Exception:
+        return False
+    if parts.netloc not in ("open.spotify.com", "spotify.link"):
+        return False
+    path = (parts.path or "/").rstrip("/") or "/"
+    return path in JAM_DEAD_PATHS or any(
+        path == dead or path.startswith(dead + "/") for dead in JAM_DEAD_PATHS[1:])
+
+
+async def fetch_jam_status(url: str, session) -> str:
+    """``live`` / ``dead`` / ``unknown`` for one jam link.
+
+    Only a definitive answer counts as dead (gone status, or a landing page
+    that cannot be a jam). Timeouts, login walls and transport errors are
+    ``unknown`` — a blip must never end anyone's session. Never raises.
+    """
+    try:
+        async with session.get(url, allow_redirects=True,
+                               timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)) as response:
+            final = str(getattr(response, "url", url) or url)
+            status = getattr(response, "status", 0) or 0
+    except Exception:
+        return "unknown"
+    if status in (404, 410):
+        return "dead"
+    if status >= 400:
+        return "unknown"
+    try:
+        if "accounts.spotify.com" in final or "/login" in final:
+            return "unknown"
+    except Exception:
+        return "unknown"
+    try:
+        return "dead" if jam_landing_is_dead(final) else "live"
+    except Exception:
+        return "unknown"
+
+
+async def _jam_rows():
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT guild_id, url, set_by, set_at, channel_id, fails FROM music_jam"
+        ) as cur:
+            return [tuple(r) for r in await cur.fetchall()]
+
+
+def _jam_age_hours(set_at: str | None) -> float | None:
+    if not set_at:
+        return None
+    try:
+        then = datetime.datetime.fromisoformat(str(set_at))
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=datetime.timezone.utc)
+        return (datetime.datetime.now(datetime.timezone.utc) - then).total_seconds() / 3600
+    except Exception:
+        return None
 
 KIND_LABELS = {
     "track": "Track",
@@ -220,6 +327,117 @@ class Music(commands.Cog):
             await interaction.response.send_message(
                 "❌ You don't have permission to do that.", ephemeral=True)
 
+    @tasks.loop(minutes=JAM_CHECK_MINUTES)
+    async def jam_watch(self):
+        """Re-check every server's jam: ended links and old sessions go away.
+
+        Nobody has to remove anything. A link that reads dead three checks in
+        a row, or a session older than the cap, is deleted and announced where
+        it was posted. Unknowns (timeouts, login walls) never end a session.
+        """
+        await self._sweep_jams()
+
+    @jam_watch.before_loop
+    async def _before_jam_watch(self):
+        try:
+            await self.bot.wait_until_ready()
+        except (RuntimeError, AttributeError):
+            pass
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self.bot is not None and not self.jam_watch.is_running():
+            self.jam_watch.start()
+
+    async def _sweep_jams(self, probe=None) -> dict:
+        """One watch pass over every jam. Returns what happened per guild.
+
+        ``probe`` is a test seam standing in for the network.
+        """
+        await ensure_music_schema()
+        probe = probe or fetch_jam_status
+        outcome: dict = {}
+        try:
+            timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+            session = aiohttp.ClientSession(timeout=timeout)
+        except Exception:
+            return outcome
+        try:
+            for row in await _jam_rows():
+                guild_id, url, _set_by, set_at, channel_id, fails = row
+                if self.bot is not None and hasattr(self.bot, "is_module_enabled"):
+                    try:
+                        if not self.bot.is_module_enabled(guild_id, "music"):
+                            continue
+                    except Exception:
+                        pass
+                age = _jam_age_hours(set_at)
+                if age is not None and age >= JAM_MAX_AGE_HOURS:
+                    await self._end_jam(guild_id, channel_id, expired=True)
+                    outcome[guild_id] = "expired"
+                    continue
+                try:
+                    status = await probe(url, session)
+                except Exception:
+                    status = "unknown"
+                if status == "live":
+                    await self._mark_jam(guild_id, fails=0)
+                    outcome[guild_id] = "live"
+                elif status == "dead":
+                    fails = int(fails or 0) + 1
+                    if fails >= JAM_MAX_FAILS:
+                        await self._end_jam(guild_id, channel_id, expired=False)
+                        outcome[guild_id] = "ended"
+                    else:
+                        await self._mark_jam(guild_id, fails=fails)
+                        outcome[guild_id] = f"failing-{fails}"
+                else:
+                    outcome[guild_id] = "unknown"
+        finally:
+            try:
+                await session.close()
+            except Exception:
+                pass
+        return outcome
+
+    async def _mark_jam(self, guild_id: int, *, fails: int) -> None:
+        try:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                await conn.execute(
+                    "UPDATE music_jam SET fails=?, last_checked=? WHERE guild_id=?",
+                    (fails, datetime.datetime.now(datetime.timezone.utc).isoformat(), guild_id),
+                )
+                await conn.commit()
+        except Exception:
+            pass
+
+    async def _end_jam(self, guild_id: int, channel_id: int | None, *, expired: bool) -> None:
+        try:
+            async with aiosqlite.connect(DB_PATH) as conn:
+                await conn.execute("DELETE FROM music_jam WHERE guild_id=?", (guild_id,))
+                await conn.commit()
+        except Exception:
+            return
+        if self.bot is None or channel_id is None:
+            return
+        try:
+            channel = self.bot.get_channel(channel_id)
+        except Exception:
+            channel = None
+        if channel is None:
+            return
+        reason = (f"hit the {JAM_MAX_AGE_HOURS}h session cap"
+                  if expired else "the link went quiet")
+        try:
+            await channel.send(embed=discord.Embed(
+                title="🎧 Spotify Jam Ended",
+                description=f"The jam {reason} — cleared automatically, post a fresh one with `/music jamset`! 🎶",
+                color=0x95A5A6,
+                timestamp=discord.utils.utcnow(),
+            ))
+        except Exception:
+            pass
+
     @music.command(name="add", description="Add a Spotify link to this server's music library!")
     @app_commands.describe(link="A Spotify track, album, playlist or episode link")
     async def music_add(self, interaction: discord.Interaction, link: str):
@@ -323,9 +541,10 @@ class Music(commands.Cog):
 
     @music.command(name="jam", description="Show this server's active Spotify Jam!")
     async def music_jam(self, interaction: discord.Interaction):
+        await ensure_music_schema()
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
-                "SELECT url, set_by, set_at FROM music_jam WHERE guild_id=?",
+                "SELECT url, set_by, set_at, last_checked FROM music_jam WHERE guild_id=?",
                 (interaction.guild.id,),
             ) as cur:
                 row = await cur.fetchone()
@@ -336,11 +555,13 @@ class Music(commands.Cog):
                 color=0x1DB954,
                 timestamp=discord.utils.utcnow(),
             ))
-        url, set_by, set_at = row
+        url, set_by, set_at, last_checked = row
         setter = await display_name(interaction.guild, set_by)
+        watched = (f"\n\n✅ Live — bot watching, auto-removes when it ends"
+                   + (f" (checked `{str(last_checked)[:16].replace('T', ' ')}`)" if last_checked else ""))
         await send_card(interaction, embed=discord.Embed(
             title="🎧 Active Spotify Jam",
-            description=f"[**Tap to join the jam!**]({url})\n\nSet by **{setter}** • `{set_at or 'recently'}`",
+            description=f"[**Tap to join the jam!**]({url})\n\nSet by **{setter}** • `{set_at or 'recently'}`{watched}",
             color=0x1DB954,
             timestamp=discord.utils.utcnow(),
         ))
@@ -354,22 +575,27 @@ class Music(commands.Cog):
                 "❌ That doesn't look like a Spotify Jam link! In Spotify: play something → Devices → Start a Jam → Invite → Copy link.",
                 ephemeral=True,
             )
+        await ensure_music_schema()
+        now = discord.utils.utcnow().isoformat()
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(
-                "INSERT OR REPLACE INTO music_jam (guild_id, url, set_by, set_at) VALUES (?, ?, ?, ?)",
-                (interaction.guild.id, link, interaction.user.id,
-                 discord.utils.utcnow().isoformat()),
+                "INSERT OR REPLACE INTO music_jam"
+                " (guild_id, url, set_by, set_at, channel_id, fails, last_checked)"
+                " VALUES (?, ?, ?, ?, ?, 0, ?)",
+                (interaction.guild.id, link, interaction.user.id, now,
+                 interaction.channel_id, now),
             )
             await conn.commit()
         await send_card(interaction, embed=discord.Embed(
             title="🎧 Spotify Jam Live!",
-            description=f"[**Tap to join the jam!**]({link})\n\nPosted by {interaction.user.mention} — everyone in, same song, same moment! 🎶",
+            description=f"[**Tap to join the jam!**]({link})\n\nPosted by {interaction.user.mention} — everyone in, same song, same moment! 🎶\n\n👀 I'll keep watch and clear it automatically when the jam ends (or after {JAM_MAX_AGE_HOURS}h).",
             color=0x1DB954,
             timestamp=discord.utils.utcnow(),
         ))
 
     @music.command(name="jamremove", description="Remove this server's active Spotify Jam!")
     async def music_jamremove(self, interaction: discord.Interaction):
+        await ensure_music_schema()
         async with aiosqlite.connect(DB_PATH) as conn:
             async with conn.execute(
                 "SELECT url FROM music_jam WHERE guild_id=?", (interaction.guild.id,)) as cur:

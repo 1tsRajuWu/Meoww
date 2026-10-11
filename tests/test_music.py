@@ -60,6 +60,7 @@ def _interaction(user, guild):
     interaction = SimpleNamespace(
         user=user, guild=guild, response=_FakeResponse(), client=SimpleNamespace())
     interaction.guild_id = guild.id
+    interaction.channel_id = 777
     return interaction
 
 
@@ -296,6 +297,133 @@ class MusicFlows(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         quiet = _interaction(self.dj, self.guild)
         await cog.cog_app_command_error(quiet, app_commands.AppCommandError("boom"))
         self.assertEqual(quiet.response.messages, [])
+
+
+class JamWatch(unittest.TestCase):
+    def test_dead_landings(self):
+        dead = [
+            "https://open.spotify.com/",
+            "https://open.spotify.com/search/x",
+            "https://open.spotify.com/download",
+            "https://open.spotify.com/premium",
+        ]
+        for url in dead:
+            self.assertTrue(music_module.jam_landing_is_dead(url), url)
+
+    def test_live_landings(self):
+        live = [
+            "https://open.spotify.com/playlist/abc123",
+            "https://open.spotify.com/track/xyz?si=123",
+            "https://spotify.link/jamABC",
+        ]
+        for url in live:
+            self.assertFalse(music_module.jam_landing_is_dead(url), url)
+
+    def test_non_spotify_is_not_our_call(self):
+        self.assertFalse(music_module.jam_landing_is_dead("https://example.com/x"))
+        self.assertFalse(music_module.jam_landing_is_dead(""))
+
+
+class JamSweep(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        path = self.use_temp_database("jam-watch.db")
+        music_module.DB_PATH = path
+        await db.setup()
+        self.guild = _FakeGuild()
+        self.sent = []
+
+        async def _send(*args, **kwargs):
+            self.sent.append(kwargs.get("embed"))
+
+        self.channel = SimpleNamespace(id=777, send=_send)
+        self.bot = SimpleNamespace(
+            add_view=lambda view: None,
+            is_module_enabled=lambda gid, mod: True,
+            get_channel=lambda cid: self.channel if cid == 777 else None,
+        )
+        self.cog = music_module.Music(bot=self.bot)
+
+    async def asyncTearDown(self):
+        self.release_temp_database()
+
+    def _put_jam(self, url="https://spotify.link/jamABC", hours_ago=0, fails=0, channel_id=777):
+        import datetime as dt
+
+        set_at = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours_ago)).isoformat()
+        conn = db.connect()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO music_jam"
+                " (guild_id, url, set_by, set_at, channel_id, fails, last_checked)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (GUILD, url, 11, set_at, channel_id, fails, None),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    async def _sweep(self, status):
+        async def _probe(url, session):
+            return status
+
+        return await self.cog._sweep_jams(probe=_probe)
+
+    async def test_live_resets_fails(self):
+        self._put_jam(fails=2)
+        outcome = await self._sweep("live")
+        self.assertEqual(outcome[GUILD], "live")
+        self.assertEqual(len(_rows("music_jam")), 1)
+
+    async def test_three_dead_reads_end_it(self):
+        self._put_jam()
+        self.assertEqual((await self._sweep("dead"))[GUILD], "failing-1")
+        self.assertEqual(len(_rows("music_jam")), 1)
+        self.assertEqual((await self._sweep("dead"))[GUILD], "failing-2")
+        self.assertEqual(len(_rows("music_jam")), 1)
+        self.assertEqual((await self._sweep("dead"))[GUILD], "ended")
+        self.assertEqual(_rows("music_jam"), [])
+        self.assertTrue(any(e is not None and "Ended" in e.title for e in self.sent))
+
+    async def test_unknown_never_ends_a_session(self):
+        self._put_jam()
+        for _ in range(5):
+            self.assertEqual((await self._sweep("unknown"))[GUILD], "unknown")
+        self.assertEqual(len(_rows("music_jam")), 1)
+        self.assertEqual(self.sent, [])
+
+    async def test_old_session_expires(self):
+        self._put_jam(hours_ago=music_module.JAM_MAX_AGE_HOURS + 1)
+        self.assertEqual((await self._sweep("live"))[GUILD], "expired")
+        self.assertEqual(_rows("music_jam"), [])
+        self.assertTrue(any(e is not None and "cap" in (e.description or "") for e in self.sent))
+
+    async def test_gone_channel_still_clears(self):
+        self._put_jam(hours_ago=music_module.JAM_MAX_AGE_HOURS + 1, channel_id=999)
+        self.assertEqual((await self._sweep("live"))[GUILD], "expired")
+        self.assertEqual(_rows("music_jam"), [])
+
+    async def test_module_off_is_left_alone(self):
+        self.bot.is_module_enabled = lambda gid, mod: False
+        self._put_jam(hours_ago=music_module.JAM_MAX_AGE_HOURS + 5)
+        self.assertEqual(await self._sweep("live"), {})
+        self.assertEqual(len(_rows("music_jam")), 1)
+
+    async def test_old_table_gains_new_columns(self):
+        conn = db.connect()
+        try:
+            conn.execute("DROP TABLE music_jam")
+            conn.execute("""CREATE TABLE music_jam (
+                guild_id INTEGER PRIMARY KEY, url TEXT, set_by INTEGER, set_at TEXT)""")
+            conn.commit()
+        finally:
+            conn.close()
+        await music_module.ensure_music_schema()
+        conn = db.connect()
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(music_jam)").fetchall()}
+        finally:
+            conn.close()
+        self.assertTrue({"channel_id", "fails", "last_checked"} <= cols)
 
 
 if __name__ == "__main__":

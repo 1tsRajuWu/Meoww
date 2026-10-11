@@ -400,7 +400,10 @@ async def setup():
             guild_id INTEGER PRIMARY KEY,
             url TEXT,
             set_by INTEGER,
-            set_at TEXT
+            set_at TEXT,
+            channel_id INTEGER,
+            fails INTEGER DEFAULT 0,
+            last_checked TEXT
         )''')
 
         # Giveaway tables
