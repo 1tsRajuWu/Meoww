@@ -19,6 +19,7 @@ bot.db-shm
 
 # Logs & local noise
 *.log
+*.pid
 deploy_trigger.txt
 
 # The static site built for GitHub Pages (scripts/build_site.py). Generated
