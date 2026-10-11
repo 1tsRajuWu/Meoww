@@ -48,6 +48,34 @@ async def check_is_owner(interaction: discord.Interaction) -> bool:
         return True
     return False
 
+
+def _has_admin(interaction: discord.Interaction) -> bool:
+    perms = getattr(interaction.user, "guild_permissions", None)
+    return bool(perms is not None and perms.administrator)
+
+
+async def _deny_admin(interaction: discord.Interaction, what: str) -> None:
+    # Public denial in the same channel — never ephemeral. Currency commands
+    # used to refuse silently: only the person running them saw anything, so an
+    # exploit read as success to everyone watching. A refusal is posted where
+    # the attempt happened instead. No mention: the name must not ping anyone.
+    name = getattr(interaction.user, "display_name", "That member")
+    content = (
+        f"❌ **Permission Denied:** {name} lacks the **Administrator** "
+        f"permission, which is required to {what}."
+    )
+    try:
+        if interaction.response.is_done():
+            channel = getattr(interaction, "channel", None)
+            if channel is not None:
+                await channel.send(content)
+            else:
+                await interaction.followup.send(content)
+        else:
+            await interaction.response.send_message(content, ephemeral=False)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
 async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool | None = None):
     await ensure_eco(user_id, guild_id)
     async with aiosqlite.connect(DB_PATH) as conn:
@@ -800,6 +828,8 @@ class Economy(commands.Cog):
     @app_commands.describe(member="Target member", amount="Amount to give")
     @app_commands.checks.has_permissions(administrator=True)
     async def addmoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not _has_admin(interaction):
+            return await _deny_admin(interaction, "grant coins")
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
 
@@ -846,6 +876,8 @@ class Economy(commands.Cog):
     @app_commands.describe(member="Target member", amount="Amount to remove")
     @app_commands.checks.has_permissions(administrator=True)
     async def removemoney(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not _has_admin(interaction):
+            return await _deny_admin(interaction, "remove coins")
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be greater than 0.", ephemeral=True)
 
@@ -884,12 +916,16 @@ class Economy(commands.Cog):
 
     @eco_admin.command(name="set", description="Set a member's exact wallet and bank balance (Owner only).")
     @app_commands.describe(member="Target member", wallet="New wallet balance", bank="New bank balance (optional)")
+    @app_commands.checks.has_permissions(administrator=True)
     async def setmoney(self, interaction: discord.Interaction, member: discord.Member, wallet: int, bank: int = None):
+        # ``set`` once had no administrator gate at all — only the owner check
+        # below, which the bot owner passes in *every* server. A non-admin
+        # holding the application could rewrite any server's balances. Both
+        # gates now apply: admin first, owner second.
+        if not _has_admin(interaction):
+            return await _deny_admin(interaction, "set balances")
         if not await check_is_owner(interaction):
-            return await interaction.response.send_message(
-                "❌ **Permission Denied:** Only the **Server Owner** can directly set balances!",
-                ephemeral=True
-            )
+            return await _deny_admin(interaction, "set balances (Server Owner only)")
 
         wallet = max(0, wallet)
         if bank is not None:
@@ -915,12 +951,13 @@ class Economy(commands.Cog):
 
     @eco_admin.command(name="reset", description="Reset economy balances back to 0 (Owner only).")
     @app_commands.describe(member="Member to reset", reset_all="Reset all server balances?")
+    @app_commands.checks.has_permissions(administrator=True)
     async def resetmoney(self, interaction: discord.Interaction, member: discord.Member = None, reset_all: bool = False):
+        # Same missing-gate history as ``set`` above.
+        if not _has_admin(interaction):
+            return await _deny_admin(interaction, "reset balances")
         if not await check_is_owner(interaction):
-            return await interaction.response.send_message(
-                "❌ **Permission Denied:** Only the **Server Owner** can reset balances!",
-                ephemeral=True
-            )
+            return await _deny_admin(interaction, "reset balances (Server Owner only)")
 
         async with aiosqlite.connect(DB_PATH) as conn:
             if reset_all:
@@ -1697,6 +1734,19 @@ class Economy(commands.Cog):
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.set_footer(text="Beg cooldown: 2 minutes • /work pays better, you know")
         await send_card(interaction, embed=embed)
+
+
+@Economy.eco_admin.error
+async def eco_admin_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    # Module-level (not a cog method): Group error handlers take exactly
+    # (interaction, error). The tree-wide handler answers permission failures
+    # ephemerally, which is why abuse read as success to everyone watching.
+    # For currency commands the refusal is posted in the channel where the
+    # attempt happened instead.
+    if isinstance(error, (app_commands.MissingPermissions, app_commands.CheckFailure)):
+        await _deny_admin(interaction, "use admin economy commands")
+        return
+    raise error
 
 
 async def setup(bot: commands.Bot):

@@ -63,7 +63,11 @@ class _Member:
 
 class _Interaction:
     def __init__(self, uid=1):
-        self.user = SimpleNamespace(id=uid, display_name=f"Admin{uid}")
+        self.user = SimpleNamespace(
+            id=uid,
+            display_name=f"Admin{uid}",
+            guild_permissions=SimpleNamespace(administrator=True),
+        )
         self.guild = SimpleNamespace(id=GUILD, owner_id=999)   # someone else owns it
         self.response = _FakeResponse()
         self.client = SimpleNamespace(is_owner=_async_false)
