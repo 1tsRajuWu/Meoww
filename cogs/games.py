@@ -844,7 +844,9 @@ class Games(commands.Cog):
 
         payout = int(bet * mult)
         net = payout - bet
-        new_wallet = eco["wallet"] + net
+        # Re-read: ``eco`` predates the settle, and anything landed since
+        # (activity coins, another game) would make this figure a lie.
+        new_wallet = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
         if mult >= 2:
             result = f"🎉 **JACKPOT!** All 3 matched! Won **+{payout:,}** 🪙! (`x{mult}`)"
             color = 0xFEE75C
@@ -885,7 +887,8 @@ class Games(commands.Cog):
                 "❌ Your wallet changed while that was flipping — please try again.", ephemeral=True
             )
         change = bet if won else -bet
-        new_wallet = eco["wallet"] + change
+        # Re-read: ``eco`` predates the settle (see slots above).
+        new_wallet = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
 
         embed = discord.Embed(
             title=f"🪙 Coin Flip — {'YOU WON! 🎉' if won else 'YOU LOST! 💀'}",
@@ -919,16 +922,18 @@ class Games(commands.Cog):
                 "❌ Your wallet changed while the dice were rolling — please try again.", ephemeral=True
             )
 
+        # Re-read: ``eco`` predates the settle (see slots above).
+        fresh = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
         if mult == 2.0:
-            new_wallet = eco["wallet"] + bet
+            new_wallet = fresh
             result = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
             color = 0x23a55a
         elif mult == 0.0:
-            new_wallet = eco["wallet"] - bet
+            new_wallet = fresh
             result = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
             color = 0xf23f43
         else:
-            result = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{eco['wallet']:,}` 🪙"
+            result = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{fresh:,}` 🪙"
             color = 0xFEE75C
 
         embed = discord.Embed(title="🎲 Dice Roll Challenge", color=color, timestamp=discord.utils.utcnow())
@@ -960,13 +965,15 @@ class Games(commands.Cog):
                 "❌ Your wallet changed while that was playing — please try again.", ephemeral=True
             )
 
+        # Re-read: ``eco`` predates the settle (see slots above).
+        fresh = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
         if mult == 1.0:
-            result, color = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{eco['wallet']:,}` 🪙", 0xFEE75C
+            result, color = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{fresh:,}` 🪙", 0xFEE75C
         elif mult == 2.0:
-            new_wallet = eco["wallet"] + bet
+            new_wallet = fresh
             result, color = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0x23a55a
         else:
-            new_wallet = eco["wallet"] - bet
+            new_wallet = fresh
             result, color = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0xf23f43
 
         embed = discord.Embed(title="✂️ Rock Paper Scissors", color=color, timestamp=discord.utils.utcnow())
@@ -1199,13 +1206,14 @@ class Games(commands.Cog):
             )
         if won:
             net = payout - bet
-            new_wallet = eco["wallet"] + net
+            # Re-read: ``eco`` predates the settle (see slots above).
+            new_wallet = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
             res_text = f"🎉 **YOU WON!** Multiplier: **{mult}x** ➔ **+{net:,}** 🪙 profit!"
             color = 0x57F287
             outcome_field = ("💰 Profit", f"**+{net:,}** 🪙")
         else:
             net = -bet
-            new_wallet = eco["wallet"] + net
+            new_wallet = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
             res_text = f"💀 **YOU LOST!** The ball landed on {color_emoji} **{landed_num}**."
             color = 0xED4245
             outcome_field = ("💸 Lost", f"**-{bet:,}** 🪙")
@@ -1326,9 +1334,10 @@ class Games(commands.Cog):
                 "❌ Your wallet changed while the dice were rolling — please try again.", ephemeral=True
             )
 
+        # Re-read: ``eco`` predates the settle (see slots above).
+        new_bal = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
         if mult == 2.0:
             winnings = bet
-            new_bal = eco["wallet"] + winnings
             embed = discord.Embed(
                 title="🎲 High-Stakes Gamble — YOU WON! 🎉",
                 description=(
@@ -1340,7 +1349,6 @@ class Games(commands.Cog):
                 color=0x23a55a
             )
         elif mult == 0.0:
-            new_bal = eco["wallet"] - bet
             embed = discord.Embed(
                 title="🎲 High-Stakes Gamble — YOU LOST! 💀",
                 description=(
