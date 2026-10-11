@@ -286,6 +286,21 @@ async def _resolve_member(guild: discord.Guild, user_id: int):
         return None
 
 
+async def _move_role_to_top(guild: discord.Guild, role) -> None:
+    try:
+        me = guild.me
+        top = getattr(me, "top_role", None) if me is not None else None
+        if top is None or role is None:
+            return
+        if role.position >= top.position:
+            return
+        await role.edit(position=top.position - 1, reason="Couple role first")
+    except (discord.Forbidden, discord.HTTPException):
+        return
+    except Exception:
+        return
+
+
 async def _get_or_create_couple_role(guild: discord.Guild | None, mem_a, mem_b):
     if guild is None or mem_a is None or mem_b is None:
         return None
@@ -300,21 +315,24 @@ async def _get_or_create_couple_role(guild: discord.Guild | None, mem_a, mem_b):
         except Exception:
             member_ids = set()
         if not member_ids or member_ids <= {mem_a.id, mem_b.id}:
+            await _move_role_to_top(guild, role)
             return role
         # Name taken by a different couple — make it unique.
         name = f"{base} {attempt + 1}"[:100]
     else:
         return discord.utils.get(guild.roles, name=name)
     try:
-        return await guild.create_role(
+        role = await guild.create_role(
             name=name,
             colour=discord.Colour(COUPLE_ROLE_COLOUR),
-            hoist=False,
+            hoist=True,
             mentionable=True,
             reason=f"Couple role for {base}",
         )
     except (discord.Forbidden, discord.HTTPException):
         return None
+    await _move_role_to_top(guild, role)
+    return role
 
 
 async def _add_couple_role(guild: discord.Guild | None, id1: int, id2: int) -> str:
