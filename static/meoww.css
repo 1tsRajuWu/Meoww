@@ -716,6 +716,35 @@ code, kbd, samp {
    the top bar is already a rule and a second one would read as a box. */
 .mw-band--head { padding-block: var(--mw-space-7) var(--mw-space-6); }
 
+/* Scroll cue and sparkle divider (pricing head, closing band). The cue is a
+   plain anchor with a drawn chevron — it points, it does not perform — and the
+   divider is text. Neither carries motion of its own, so both read the same
+   for a visitor who asked for stillness. */
+.mw-scroll-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mw-space-2);
+  margin-top: var(--mw-space-5);
+  color: var(--mw-accent);
+  font-size: var(--mw-text-small);
+  text-decoration: none;
+}
+.mw-scroll-cue__arrow {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+}
+.mw-scroll-cue:hover { color: var(--mw-text); }
+.mw-sparkle {
+  text-align: center;
+  color: var(--mw-muted);
+  font-size: var(--mw-text-small);
+  letter-spacing: 0.35em;
+  margin: 0 0 var(--mw-space-5);
+}
+
 /* A band whose rows are disclosures gets its intro *stated*.
 
    The questions are the last argument on the front door and the only rows on it

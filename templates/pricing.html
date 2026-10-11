@@ -60,6 +60,9 @@
     </p>
     <p class="mw-hint">If paid plans ever come to this deployment, this page will say so first.</p>
     {% endif %}
+    <a class="mw-scroll-cue" href="{% if selling %}#tiers{% else %}#in-it{% endif %}">
+      <span class="mw-scroll-cue__arrow" aria-hidden="true"></span> See what is in it
+    </a>
   </div>
 </section>
 
@@ -170,6 +173,7 @@
 
 <section class="mw-band">
   <div class="mw-wrap mw-closing">
+    <p class="mw-sparkle" aria-hidden="true">⋆ ˚｡⋆୨୧⋆｡˚ ⋆</p>
     <h2 class="mw-closing__title mw-title">Everything on this page is enforced by the same model that serves it.</h2>
     <div class="mw-hero__actions">
       {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
