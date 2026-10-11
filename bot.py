@@ -564,6 +564,18 @@ def _global_names(everything) -> set[str]:
     return command_scope.global_names(everything)
 
 
+def _instance_is_vip(bot) -> bool | None:
+    """Whether this process is the VIP bot, or ``None`` when unknown.
+
+    Unknown (tests, pre-login) keeps everything: only a logged-in main
+    instance may narrow a scope it publishes.
+    """
+    user_id = getattr(getattr(bot, "user", None), "id", None)
+    if user_id is None:
+        return None
+    return permissions.is_vip_app_id(user_id)
+
+
 def _scope_names(bot: commands.Bot, guild, everything) -> set[str]:
     """The command names one scope should be registered with.
 
@@ -571,14 +583,19 @@ def _scope_names(bot: commands.Bot, guild, everything) -> set[str]:
     modules are off there is left out of its registration, which is the only
     thing that takes it out of that server's picker. Nothing here can reach
     another server's commands, because the scope is the server.
+
+    On top of modules, the VIP commands publish only from the VIP instance:
+    the main bot leaves ``premium`` out everywhere, which takes it off its
+    pickers and hands the ceiling slots back.
     """
+    vip = _instance_is_vip(bot)
     if guild is None:
         # Nowhere to publish a per-server list yet, and the next invitation must
         # find a working picker: until there is a server to carry the tree, the
         # global scope carries all of it.
         if not bot.guilds:
-            return set(everything)
-        return _global_names(everything)
+            return command_scope.for_identity(set(everything), is_vip=vip)
+        return command_scope.for_identity(_global_names(everything), is_vip=vip)
     try:
         states = modules.get_states(guild.id)
     except Exception as exc:
@@ -589,8 +606,11 @@ def _scope_names(bot: commands.Bot, guild, everything) -> set[str]:
             "publishing the whole tree rather than hiding a command.",
             flush=True,
         )
-        return set(everything)
-    return set(command_scope.available_names(everything, states))
+        return command_scope.for_identity(set(everything), is_vip=_instance_is_vip(bot))
+    return command_scope.for_identity(
+        set(command_scope.available_names(everything, states)),
+        is_vip=_instance_is_vip(bot),
+    )
 
 
 async def _sync_scope(

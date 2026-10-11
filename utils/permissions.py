@@ -32,6 +32,23 @@ from typing import Iterator
 
 import discord
 
+#: The VIP bot application's id. The main bot and the VIP bot run this same
+#: tree, but the VIP commands belong to the VIP picker only — the main bot
+#: leaves them out of every scope it publishes, which takes them out of its
+#: pickers and hands the ceiling slots back.
+VIP_BOT_ID = 1558691012975534222
+#: Root commands reserved to the VIP instance (see above).
+VIP_ONLY_COMMANDS = frozenset({"premium"})
+
+
+def is_vip_app_id(app_id) -> bool:
+    """Whether an application id is the VIP bot's."""
+    try:
+        return int(app_id) == VIP_BOT_ID
+    except (TypeError, ValueError):
+        return False
+
+
 # --------------------------------------------------------------------------- #
 # Audiences
 # --------------------------------------------------------------------------- #

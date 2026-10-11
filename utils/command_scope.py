@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from utils import features
+from utils.permissions import VIP_ONLY_COMMANDS
 
 
 def gate_of(command: str) -> tuple[str, ...]:
@@ -46,6 +47,20 @@ def is_available(command: str, states: Mapping[str, bool]) -> bool:
         bool(states.get(module, features.default_enabled(module)))
         for module in modules
     )
+
+
+def for_identity(names: Iterable[str], *, is_vip: bool | None) -> set[str]:
+    """The names one bot identity may publish.
+
+    The VIP commands belong to the VIP picker only: a main instance leaves
+    them out of every scope, which is what takes them off its pickers and
+    hands the ceiling slots back. ``None`` (tests, dry runs, pre-login)
+    keeps everything — only a logged-in main instance may narrow a scope.
+    """
+    names = set(names)
+    if is_vip is False:
+        names -= VIP_ONLY_COMMANDS
+    return names
 
 
 def global_names(names: Iterable[str]) -> set[str]:

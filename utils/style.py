@@ -27,6 +27,7 @@ import time
 import discord
 
 from utils import brand
+from utils.permissions import VIP_BOT_ID
 
 # Components V2 turns card text into ``TextDisplay`` components, and — unlike
 # legacy embeds, where mentions never notified — *mentions inside TextDisplay do

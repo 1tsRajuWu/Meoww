@@ -286,6 +286,19 @@ def _publish(label: str, path: str, token: str, commands: list[dict], args) -> i
     return failures
 
 
+def _identity_commands(commands: list, app_id) -> list:
+    """Drop VIP-only roots when this token is not the VIP bot's.
+
+    Same rule ``bot.py`` publishes by, so this tool cannot drift from the bot.
+    """
+    if not permissions.is_vip_app_id(app_id):
+        dropped = [c["name"] for c in commands if c.get("name") in permissions.VIP_ONLY_COMMANDS]
+        commands = [c for c in commands if c.get("name") not in permissions.VIP_ONLY_COMMANDS]
+        if dropped:
+            print(f"Main identity: leaving out {', '.join(sorted(dropped))}.")
+    return commands
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Register the slash-command tree with Discord.")
     parser.add_argument("--dry-run", action="store_true", help="report only, change nothing")
@@ -321,6 +334,7 @@ def main() -> int:
 
     commands = asyncio.run(_build_commands(bot_module.bot))
     print(f"Local tree: {len(commands)} top-level commands.")
+    commands = _identity_commands(commands, app_id)
 
     if args.global_scope:
         # The shared lane is no longer where the tree lives. Every server is
