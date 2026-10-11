@@ -377,6 +377,31 @@ async def setup():
             since_at TEXT,
             PRIMARY KEY (guild_id, user1_id, kind)
         )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS music_tracks (
+            guild_id INTEGER,
+            entity_id TEXT,
+            kind TEXT,
+            url TEXT,
+            title TEXT,
+            artist TEXT,
+            art TEXT,
+            added_by INTEGER,
+            added_at TEXT,
+            PRIMARY KEY (guild_id, entity_id)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS music_listens (
+            guild_id INTEGER,
+            entity_id TEXT,
+            user_id INTEGER,
+            listened_at TEXT,
+            PRIMARY KEY (guild_id, entity_id, user_id)
+        )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS music_jam (
+            guild_id INTEGER PRIMARY KEY,
+            url TEXT,
+            set_by INTEGER,
+            set_at TEXT
+        )''')
 
         # Giveaway tables
         await db.execute('''CREATE TABLE IF NOT EXISTS giveaways (

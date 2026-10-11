@@ -39,6 +39,7 @@ The tables keyed to one member (`user_id`, unless noted): `activity_messages`,
 `loans`, `market_holdings`, `market_trades`, `user_animals`, `user_levels`,
 `warnings`, `tempvoice_channels` (`owner_id`), `giveaway_entries`,
 `scheduled_messages` (`created_by`), `marriages` (`user1_id` / `user2_id`), `bonds` (`user1_id` / `user2_id`),
+`music_tracks` (`added_by`), `music_listens` (`user_id`),
 `mod_cases` (`user_id` and `moderator_id`), `ticket_feedback` (`author_id` and
 `claimed_by`), `qna_questions` (`user_id` and `user_name` — retired, still
 queryable, still deleted the same way).
@@ -64,6 +65,8 @@ DELETE FROM warnings          WHERE guild_id=:guild AND user_id=:member;
 DELETE FROM custom_quotes     WHERE guild_id=:guild AND user_id=:member;
 DELETE FROM marriages         WHERE guild_id=:guild AND (user1_id=:member OR user2_id=:member);
 DELETE FROM bonds             WHERE guild_id=:guild AND (user1_id=:member OR user2_id=:member);
+DELETE FROM music_tracks      WHERE guild_id=:guild AND added_by=:member;
+DELETE FROM music_listens     WHERE guild_id=:guild AND user_id=:member;
 -- text the member wrote, and records that name them
 DELETE FROM scheduled_messages WHERE guild_id=:guild AND created_by=:member;
 DELETE FROM ticket_feedback    WHERE guild_id=:guild AND (author_id=:member OR claimed_by=:member);
@@ -93,7 +96,7 @@ is a message in a bug channel. Delete the message or the channel.
 
 Everything keyed by `guild_id` (`activity_*`, `economy`, `user_levels`,
 `warnings`, `mod_cases`, `tickets`, `scheduled_messages`, `starboard_posts`,
-`marriages`, `bonds`, `user_animals`, `market_*`, `guild_settings`, `guild_modules`,
+`marriages`, `bonds`, `music_tracks`, `music_listens`, `music_jam`, `user_animals`, `market_*`, `guild_settings`, `guild_modules`,
 `level_roles`, `level_settings`, `shop`, `starboard_settings`, `tempvoice_*`,
 `reaction_roles`, `giveaways`, `giveaway_entries`, `radio_stay`, `radio_last`,
 `alone_time`, `qna_questions`), then the

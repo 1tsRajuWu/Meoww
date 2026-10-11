@@ -23,7 +23,7 @@ answers for it, and using a server that runs the Bot is agreement to it.
 * **Tickets:** ticket configuration, the transcript a closed ticket produces, and
   the rating and comment a member leaves.
 * **Server settings:** enabled features, house-channel, log and market
-  configuration, and social data members opted into (marriages, bonds, zoo, quotes).
+  configuration, and social data members opted into (marriages, bonds, music, zoo, quotes).
 * **Text a person deliberately submits:** quote text, a ticket subject and
   description, a bug report, a moderation reason, and dashboard announcements,
   including **scheduled** ones, with their text, channels, repeat rule and who

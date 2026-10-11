@@ -182,6 +182,13 @@ COMMAND_ACCESS: dict[str, str] = {
     "bond propose": EVERYONE,
     "bond break": EVERYONE,
     "bond list": EVERYONE,
+    # -- Music: sharing is everybody's ----------------------------------- #
+    "music add": EVERYONE,
+    "music my": EVERYONE,
+    "music top": EVERYONE,
+    "music jam": EVERYONE,
+    "music jamset": EVERYONE,
+    "music jamremove": EVERYONE,
     "flavor": GUILD,
     "flex": EVERYONE,
     "gamble": EVERYONE,

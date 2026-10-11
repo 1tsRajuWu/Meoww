@@ -83,6 +83,20 @@ HELP_MODULES = {
         "color": 0xE91E63,
         "emoji": "🐱"
     },
+    "music": {
+        "title": "Music & Spotify Jams",
+        "desc": (
+            "Spotify links into beautiful cards, listen counts, libraries and jam links!\n\n"
+            "> `/music add <link>` — Add a Spotify track, album, playlist or episode\n"
+            "> `/music my [member]` — Songs they added, and who listened\n"
+            "> `/music top` — The server's most-listened songs\n"
+            "> `/music jam` — Show the active Spotify Jam link\n"
+            "> `/music jamset <link>` — Post the Spotify Jam link\n"
+            "> `/music jamremove` — Remove the Spotify Jam"
+        ),
+        "color": 0x1DB954,
+        "emoji": "🎵"
+    },
     "economy": {
         "title": "💰 Economy & Currency",
         "desc": (

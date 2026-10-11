@@ -441,6 +441,29 @@ FEATURES: tuple[Feature, ...] = (
         help_key="social",
     ),
     Feature(
+        id="music",
+        name="Music & Spotify Jams",
+        icon="🎵",
+        category="Entertainment",
+        description=(
+            "Spotify links into cards with listen counts, personal libraries, "
+            "and the server's active jam link."
+        ),
+        gate_commands=(
+            "music",
+        ),
+        commands=(
+            "/music add — Add a Spotify link to the server library",
+            "/music my — Your added songs and their listens",
+            "/music top — The server's most-listened songs",
+            "/music jam — Show the active Spotify Jam",
+            "/music jamset — Post the Spotify Jam link",
+            "/music jamremove — Remove the Spotify Jam",
+        ),
+        cog="cogs.music",
+        help_key="music",
+    ),
+    Feature(
         id="fun",
         name="Fun & Memes",
         icon="🎭",
