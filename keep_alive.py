@@ -1515,6 +1515,7 @@ GATED_PREFIXES = (
     # roles a server manages from its Server page: both are the same authority
     # and the same agreement as the switches they sit beside.
     "/api/module-settings",
+    "/api/automod-native-sync",
     "/api/reaction-roles",
     # The support bridge: a message posted from here speaks as the bot in a
     # channel, which is the same authority the composer has and belongs behind

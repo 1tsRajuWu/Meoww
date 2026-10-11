@@ -1609,11 +1609,11 @@ class EveryArchivedCommandIsDeclaredRetired(unittest.IsolatedAsyncioTestCase):
 
     def test_the_two_commands_still_sitting_in_the_picker_are_on_the_list(self):
         registered = [
-            {"name": "music", "id": "1"},
+            {"name": "radio", "id": "1"},
             {"name": "play", "id": "2"},
             {"name": "rank", "id": "3"},
         ]
         self.assertEqual(
             sorted(commands_sync.retired(registered)),
-            [("music", "1"), ("play", "2")],
+            [("play", "2"), ("radio", "1")],
         )

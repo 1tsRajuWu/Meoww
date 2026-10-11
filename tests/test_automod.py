@@ -397,10 +397,10 @@ class TheSourceKeepsItsPromises(unittest.TestCase):
         source = self._source()
         self.assertEqual(
             source.count("await modlog.post("),
-            4,
+            5,
             "the invite filter, the link filter, the flood timeout and the "
             "record-only flood (timeout length 0) are the four automatic actions; "
-            "each has to leave a record, and a fifth filter must add one",
+            "each has to leave a record, and the fifth filter adds one",
         )
 
     def test_every_notice_names_the_appeal(self):

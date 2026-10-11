@@ -1840,6 +1840,13 @@ def api_reaction_roles():
     return keep_alive.api_reaction_roles()
 
 
+@app.route("/api/automod-native-sync", methods=["POST"])
+def api_automod_native_sync():
+    """Native AutoMod sync mock endpoint for preview harness."""
+    _sign_in()
+    return jsonify({"status": "ok", "message": "Synced native automod rules."})
+
+
 @app.route("/api/level-settings", methods=["POST"])
 def api_level_settings():
     """The rates form, answered by the endpoint that owns the write.

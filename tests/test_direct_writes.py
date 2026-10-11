@@ -88,7 +88,12 @@ DIRECT_WRITES = {
         "member.timeout()",
     ],
     "social.py": [
+        "guild.create_role()",   # custom bond roles for marriages & twin loyalty
+        "m.remove_roles()",      # clean up partner roles on divorce/bond break
+        "message.edit()",        # interactive views update messages
         "msg.edit()",            # the bot editing its own embed
+        "role.delete()",         # delete dynamic bond role on divorce
+        "role.edit()",           # rename or color bond role
     ],
     "tickets.py": [
         "channel.delete()",           # pre-existing: the ticket channel lifecycle

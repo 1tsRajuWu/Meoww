@@ -204,7 +204,7 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         # one voice channel, replaced by `/radio`'s stations in
         # `deleted_features/radio_2026_09/` and then by `cogs/radio.py`. Both
         # archives are here, because both of them once registered commands.
-        "music", "play", "247", "pause", "resume", "skip", "stop", "queue",
+        "play", "247", "pause", "resume", "skip", "stop", "queue",
         "nowplaying", "volume", "filter", "songinfo", "lyrics",
         # The other archived cogs, which draw their own groups.
         "reactionrole-add", "giveaway", "tempvoice", "welcome", "color",
