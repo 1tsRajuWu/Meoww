@@ -715,15 +715,33 @@ class ServerControl(commands.Cog):
         embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="lockdown", description="Lock this channel: nobody can send, and what they send is removed.")
+    @app_commands.command(
+        name="lockdown",
+        description="Lock down this channel or the entire server: messages are removed while locked.",
+    )
     @app_commands.describe(
+        scope="Lock down just this channel or the whole server ('channel' or 'server').",
         hide=(
             "Also make it private: hide it from every role that cannot manage "
-            "channels."
-        )
+            "channels (channel scope only)."
+        ),
+    )
+    @app_commands.choices(
+        scope=[
+            app_commands.Choice(name="Current Channel", value="channel"),
+            app_commands.Choice(name="Entire Server", value="server"),
+        ]
     )
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def lockdown(self, interaction: discord.Interaction, hide: bool = False):
+    async def lockdown(self, interaction: discord.Interaction, scope: str = "channel", hide: bool = False):
+        if scope == "server":
+            if not getattr(getattr(interaction, "user", None), "guild_permissions", None) or not interaction.user.guild_permissions.administrator:
+                return await interaction.response.send_message(
+                    "❌ Server-wide lockdown requires **Administrator** permissions.",
+                    ephemeral=True,
+                )
+            return await self.lockdown_server(interaction)
+
         # The lock goes through the same door the server-wide one uses, so this
         # channel lands in the ledger — which is both what `/unlock` restores from
         # and what the force-delete listener below reads. The old body wrote the
@@ -775,9 +793,29 @@ class ServerControl(commands.Cog):
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="unlock", description="Unlock this channel: stop removing messages and restore permissions.")
+    @app_commands.command(
+        name="unlock",
+        description="Unlock this channel or the entire server: stop removing messages and restore permissions.",
+    )
+    @app_commands.describe(
+        scope="Unlock just this channel or the whole server ('channel' or 'server').",
+    )
+    @app_commands.choices(
+        scope=[
+            app_commands.Choice(name="Current Channel", value="channel"),
+            app_commands.Choice(name="Entire Server", value="server"),
+        ]
+    )
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def unlock(self, interaction: discord.Interaction):
+    async def unlock(self, interaction: discord.Interaction, scope: str = "channel"):
+        if scope == "server":
+            if not getattr(getattr(interaction, "user", None), "guild_permissions", None) or not interaction.user.guild_permissions.administrator:
+                return await interaction.response.send_message(
+                    "❌ Server-wide unlock requires **Administrator** permissions.",
+                    ephemeral=True,
+                )
+            return await self.unlock_server(interaction)
+
         report = await server_control.unlock_channel(
             interaction.guild, interaction.channel, _actor(interaction)
         )
@@ -803,8 +841,6 @@ class ServerControl(commands.Cog):
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="lockdown-server", description="Lock ALL text channels in the server.")
-    @app_commands.checks.has_permissions(administrator=True)
     async def lockdown_server(self, interaction: discord.Interaction):
         await interaction.response.defer()
         report = await server_control.lockdown(interaction.guild, _actor(interaction))
@@ -832,8 +868,6 @@ class ServerControl(commands.Cog):
         embed.set_footer(text="DaCat Security")
         await send_card(interaction, embed=embed)
 
-    @app_commands.command(name="unlock-server", description="Unlock ALL text channels in the server.")
-    @app_commands.checks.has_permissions(administrator=True)
     async def unlock_server(self, interaction: discord.Interaction):
         await interaction.response.defer()
         # The server-wide undo restores each channel's *own* previous overwrite

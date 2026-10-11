@@ -224,8 +224,7 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=(
             "balance", "daily", "weekly", "work", "rob", "pay", "deposit",
             "withdraw", "shop", "buy", "inventory", "richlist", "eco-admin",
-            "addmoney", "removemoney", "setmoney", "addbank", "loan", "repay",
-            "beg",
+            "loan", "repay", "beg",
         ),
         # The admin group is spelled out by its real subcommands, not as
         # "/eco-admin": the group name is not a command a member can type, and
@@ -236,7 +235,7 @@ FEATURES: tuple[Feature, ...] = (
             "/balance", "/daily", "/weekly", "/work", "/rob", "/pay", "/deposit",
             "/withdraw", "/shop", "/buy", "/inventory", "/richlist",
             "/eco-admin add", "/eco-admin remove", "/eco-admin set",
-            "/eco-admin reset", "/eco-admin fee",
+            "/eco-admin reset", "/eco-admin fee", "/eco-admin bank",
             "/loan", "/repay", "/beg",
         ),
         cog="cogs.economy",
@@ -283,8 +282,7 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=(
             "ban", "kick", "mute", "unmute", "unban", "warn", "warnings",
             "clearwarnings", "purge", "modlog", "appeal", "lockdown",
-            "lockdown-server",
-            "unlock", "unlock-server", "slowmode", "addrole", "removerole",
+            "unlock", "slowmode", "addrole", "removerole",
             "announce",
         ),
         commands=(

@@ -169,7 +169,7 @@ And the jobs themselves:
    one, which makes `/unlock` *remove the deny* rather than pretend to restore a
    room nobody wrote down. Adoption never changes a permission, and a log that
    cannot be read adopts nothing. **A row also records who the lock holds**, not
-   only how to undo it: `/lockdown-server` is the one lock that leaves
+   only how to undo it: `/lockdown` with `scope:server` is the one lock that leaves
    administrators and the owner talking — a permission cannot stop them anyway,
    and a whole server nobody can coordinate through is a lockdown the staff
    cannot run — while `/lockdown` holds one room for everyone, and rows written

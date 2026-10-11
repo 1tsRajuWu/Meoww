@@ -2400,7 +2400,7 @@ class TheCommandAndTheListenerAreOnePath(TempDatabaseMixin, unittest.IsolatedAsy
         to be asked to deny `View Channel` on every overwrite that grants it."""
         from cogs.server_control import ServerControl
 
-        await ServerControl.lockdown.callback(self.cog, self.interaction, True)
+        await ServerControl.lockdown.callback(self.cog, self.interaction, 'channel', True)
         said = self._said().lower()
         self.assertIn("hidden", said, "the card does not say the channel was hidden")
         self.assertIn("unlock", said, "the card does not say how to bring it back")

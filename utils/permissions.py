@@ -148,13 +148,10 @@ COMMAND_ACCESS: dict[str, str] = {
     "eco-admin remove": ADMIN,
     "eco-admin set": OWNER,
     "eco-admin reset": OWNER,
-    "addmoney": ADMIN,
-    "removemoney": ADMIN,
-    "setmoney": ADMIN,
-    "addbank": ADMIN,
     # The DaCat Fee switch is the server's, not a member's: one administrator
     # flips it for everyone.
     "eco-admin fee": ADMIN,
+    "eco-admin bank": ADMIN,
     # -- Levels ------------------------------------------------------------ #
     "rank": EVERYONE,
     "leaderboard": EVERYONE,
@@ -249,8 +246,6 @@ COMMAND_ACCESS: dict[str, str] = {
     "lockdown": CHANNELS,
     "unlock": CHANNELS,
     "slowmode": CHANNELS,
-    "lockdown-server": ADMIN,
-    "unlock-server": ADMIN,
     # The audit reads every channel's overwrites — who can see a private room,
     # where a lock can be typed through — and its `fix` may rewrite any channel the
     # ledger holds, not only the one it was typed in. `ADMIN` was the first answer

@@ -200,6 +200,10 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         "dashboard", "setavatar", "setbanner", "sync", "updatedb",
         "addlevelrole", "removelevelrole", "privacy", "tos", "meowfee",
         "activity-top", "activity-channel",
+        # Consolidated commands: /eco-admin now handles admin balance operations,
+        # and /lockdown & /unlock support scope="channel" | "server".
+        "addmoney", "removemoney", "setmoney", "addbank",
+        "lockdown-server", "unlock-server",
         # The music player that `deleted_features/cogs/music.py` was: a queue in
         # one voice channel, replaced by `/radio`'s stations in
         # `deleted_features/radio_2026_09/` and then by `cogs/radio.py`. Both

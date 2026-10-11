@@ -115,7 +115,7 @@ HELP_MODULES = {
             "> `/loan [amount] [plan]` — Borrow 🪙 from DaCat Bank; your credit line grows with your level\n"
             "> `/repay [amount]` — Pay a loan back in full or in part, from wallet or bank\n"
             "> `/beg` — Beg for spare coins (2-minute cooldown, no dignity required)\n"
-            "> `/eco-admin add / remove / set / reset` — Admin currency management\n"
+            "> `/eco-admin add / remove / set / reset / bank` — Admin currency management\n"
             "> `/eco-admin fee` — See the DaCat Fee and DaCat Bank's balance, or turn the fee off (admin)"
         ),
         "color": 0x2ECC71,

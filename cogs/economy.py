@@ -959,7 +959,31 @@ class Economy(commands.Cog):
 
         await send_card(interaction, embed=embed)
 
-    # One refusal for all four admin-money commands, following the tracker's
+    @eco_admin.command(name="bank", description="Add money to a member's bank (Admin only).")
+    @app_commands.describe(member="The member to give bank money to", amount="Amount to add")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def eco_admin_bank(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        if not _has_admin(interaction):
+            return await _deny_admin(interaction, "add bank coins")
+        if amount <= 0:
+            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
+        await ensure_eco(member.id, interaction.guild.id)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE economy SET bank = bank + ? WHERE user_id=? AND guild_id=?",
+                (amount, member.id, interaction.guild.id)
+            )
+            await conn.commit()
+        embed = discord.Embed(
+            title="🏦 Bank Money Added",
+            description=f"Added **{amount:,}** 🪙 to {member.mention}'s bank.",
+            color=0x57F287,
+            timestamp=discord.utils.utcnow()
+        )
+        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
+        await send_card(interaction, embed=embed)
+
+    # One refusal for all admin-money commands, following the tracker's
     # pattern: a cog error handler runs *before* the tree's, so it must never
     # re-raise (that skips the tree handler and leaves the command unanswered).
     # The tree-wide handler answers permission failures ephemerally, which is
@@ -969,6 +993,7 @@ class Economy(commands.Cog):
     @removemoney.error
     @setmoney.error
     @resetmoney.error
+    @eco_admin_bank.error
     async def eco_admin_perm_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, (app_commands.MissingPermissions, app_commands.CheckFailure)):
             await _deny_admin(interaction, "use admin economy commands")
@@ -1202,163 +1227,8 @@ class Economy(commands.Cog):
     # Admin Economy Commands
     # -------------------------------------------------------------------------
     #
-    # These handlers must not share a name with the /eco-admin group's methods
-    # (addmoney / removemoney / setmoney). Two definitions with the same name in
-    # one class body silently re-bind the attribute, so `/eco-admin add`, `remove`
-    # and `set` were registered but pointing at the wrong functions — and because
-    # only the last definition survives, the group's own implementations were
-    # unreachable dead code. Hence the _cmd suffix; the command name the user
-    # sees comes from the decorator, not the method name.
-
-    @app_commands.command(name="addmoney", description="Add money to a member's wallet (Admin only).")
-    @app_commands.describe(member="The member to give money to", amount="Amount to add")
-    # A real check rather than a hand-rolled string compare: discord.py refuses
-    # the member before the callback runs, and the handler answers with the same
-    # "permission denied" card it uses everywhere else. `utils/permissions.py`
-    # stamps the picker visibility, and a test asserts the two agree.
-    @app_commands.checks.has_permissions(administrator=True)
-    async def addmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if amount <= 0:
-            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
-
-        from utils.admin_limits import needs_approval, ADMIN_ADDMONEY_LIMIT, request_approval
-
-        if needs_approval(amount, ADMIN_ADDMONEY_LIMIT):
-            # Request owner approval
-            async def execute():
-                await ensure_eco(member.id, interaction.guild.id)
-                await update_wallet(member.id, interaction.guild.id, amount)
-            return await request_approval(
-                interaction, member, "💰 coins", amount, execute,
-                limit=ADMIN_ADDMONEY_LIMIT,
-            )
-
-        await ensure_eco(member.id, interaction.guild.id)
-        await update_wallet(member.id, interaction.guild.id, amount)
-        
-        embed = discord.Embed(
-            title="💰 Money Added",
-            description=f"Added **{amount:,}** 🪙 to {member.mention}'s wallet.",
-            color=0x57F287,
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
-        await send_card(interaction, embed=embed)
-
-    @app_commands.command(name="removemoney", description="Remove money from a member's wallet (Admin only).")
-    @app_commands.describe(member="The member to remove money from", amount="Amount to remove")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def removemoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if amount <= 0:
-            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
-
-        from utils.admin_limits import needs_approval, ADMIN_ADDMONEY_LIMIT, request_approval
-
-        eco = await get_eco(member.id, interaction.guild.id)
-        available = max(0, int(eco["wallet"]))
-        if available == 0:
-            return await interaction.response.send_message(
-                f"❌ {member.display_name} has no coins in their wallet.", ephemeral=True
-            )
-        removed = min(amount, available)
-
-        if needs_approval(amount, ADMIN_ADDMONEY_LIMIT):
-            async def execute():
-                # Re-read at approval time — wallet may have changed.
-                current = await get_eco(member.id, interaction.guild.id)
-                avail = max(0, int(current["wallet"]))
-                if avail == 0:
-                    return
-                take = min(amount, avail)
-                await settle_bet(member.id, interaction.guild.id, take, 0.0)
-            return await request_approval(
-                interaction, member, "💰 coins (removal)", amount, execute,
-                limit=ADMIN_ADDMONEY_LIMIT,
-            )
-
-        if not await settle_bet(member.id, interaction.guild.id, removed, 0.0):
-            return await interaction.response.send_message(
-                "❌ Could not remove coins — wallet changed. Try again.", ephemeral=True
-            )
-
-        embed = discord.Embed(
-            title="💸 Money Removed",
-            description=f"Removed **{removed:,}** 🪙 from {member.mention}'s wallet.",
-            color=0xED4245,
-            timestamp=discord.utils.utcnow()
-        )
-        if removed < amount:
-            embed.add_field(
-                name="Partial removal",
-                value=f"They only held **{available:,}** 🪙, so that is all that was removed.",
-                inline=False,
-            )
-        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
-        await send_card(interaction, embed=embed)
-
-    @app_commands.command(name="setmoney", description="Set a member's wallet to a specific amount (Admin only).")
-    @app_commands.describe(member="The member to set money for", amount="New wallet amount")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def setmoney_cmd(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if amount < 0:
-            return await interaction.response.send_message("❌ Amount cannot be negative.", ephemeral=True)
-
-        from utils.admin_limits import needs_approval, ADMIN_SETMONEY_LIMIT, request_approval
-
-        if needs_approval(amount, ADMIN_SETMONEY_LIMIT):
-            async def execute():
-                await ensure_eco(member.id, interaction.guild.id)
-                async with aiosqlite.connect(DB_PATH) as conn:
-                    await conn.execute(
-                        "UPDATE economy SET wallet = ? WHERE user_id=? AND guild_id=?",
-                        (amount, member.id, interaction.guild.id)
-                    )
-                    await conn.commit()
-            return await request_approval(
-                interaction, member, "💰 coins (set)", amount, execute,
-                limit=ADMIN_SETMONEY_LIMIT,
-            )
-
-        await ensure_eco(member.id, interaction.guild.id)
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute(
-                "UPDATE economy SET wallet = ? WHERE user_id=? AND guild_id=?",
-                (amount, member.id, interaction.guild.id)
-            )
-            await conn.commit()
-        
-        embed = discord.Embed(
-            title="💰 Wallet Set",
-            description=f"Set {member.mention}'s wallet to **{amount:,}** 🪙.",
-            color=0xF1C40F,
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
-        await send_card(interaction, embed=embed)
-
-    @app_commands.command(name="addbank", description="Add money to a member's bank (Admin only).")
-    @app_commands.describe(member="The member to give bank money to", amount="Amount to add")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def addbank(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        if amount <= 0:
-            return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
-        
-        await ensure_eco(member.id, interaction.guild.id)
-        async with aiosqlite.connect(DB_PATH) as conn:
-            await conn.execute(
-                "UPDATE economy SET bank = bank + ? WHERE user_id=? AND guild_id=?",
-                (amount, member.id, interaction.guild.id)
-            )
-            await conn.commit()
-        
-        embed = discord.Embed(
-            title="🏦 Bank Money Added",
-            description=f"Added **{amount:,}** 🪙 to {member.mention}'s bank.",
-            color=0x57F287,
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_footer(text=f"Admin action by {interaction.user.display_name}")
-        await send_card(interaction, embed=embed)
+    # Note: Admin money adjustments are managed via the unified `/eco-admin` group
+    # (/eco-admin add, /eco-admin remove, /eco-admin set, /eco-admin reset, /eco-admin bank).
 
     # -------------------------------------------------------------------------
     # Bank Loan System — the credit line grows with your level, and each plan
