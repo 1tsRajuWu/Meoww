@@ -417,6 +417,42 @@ def _describe(permission: str) -> str:
     return permission.replace("_", " ").title()
 
 
+# --------------------------------------------------------------------------- #
+# Admin gate + public denial
+# --------------------------------------------------------------------------- #
+# ``/eco-admin set`` once had no administrator gate at all — only an owner
+# check the bot owner passes in *every* server — so a non-admin could rewrite
+# any server's balances. These are the shared enforcement for every
+# currency/levels command that must refuse non-admins: a pure predicate, and a
+# denial posted visibly in the channel where the attempt happened (never
+# ephemeral — a silent refusal reads as success to everyone watching). No
+# mention in the text: the name must not ping anyone.
+
+
+def has_admin(interaction) -> bool:
+    perms = getattr(getattr(interaction, "user", None), "guild_permissions", None)
+    return bool(perms is not None and perms.administrator)
+
+
+async def deny_admin(interaction, what: str) -> None:
+    name = getattr(getattr(interaction, "user", None), "display_name", "That member")
+    content = (
+        f"❌ **Permission Denied:** {name} lacks the **Administrator** "
+        f"permission, which is required to {what}."
+    )
+    try:
+        if interaction.response.is_done():
+            channel = getattr(interaction, "channel", None)
+            if channel is not None:
+                await channel.send(content)
+            else:
+                await interaction.followup.send(content)
+        else:
+            await interaction.response.send_message(content, ephemeral=False)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+
 def role_grant_problem(role, actor, guild) -> str | None:
     """Why ``actor`` may not give or take ``role``, or ``None`` if they may.
 

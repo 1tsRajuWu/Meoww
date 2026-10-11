@@ -1100,13 +1100,19 @@ class Leveling(commands.Cog):
 
     @app_commands.command(name="resetlevels", description="Reset leveling stats (Server Owner only).")
     @app_commands.describe(member="Member to reset", reset_all="Reset all server member levels?")
+    @app_commands.checks.has_permissions(administrator=True)
     async def resetlevels(self, interaction: discord.Interaction, member: discord.Member = None, reset_all: bool = False):
         if not interaction.guild:
             return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
 
+        # Same missing-gate history as `/eco-admin set`: only the owner check
+        # below, which the bot owner passes in *every* server. Both gates now
+        # apply, and the refusal lands visibly in the channel it was tried in.
+        if not permissions.has_admin(interaction):
+            return await permissions.deny_admin(interaction, "reset leveling stats")
         is_owner = (interaction.guild.owner_id == interaction.user.id) or await interaction.client.is_owner(interaction.user)
         if not is_owner:
-            return await interaction.response.send_message("❌ **Permission Denied:** Only the **Server Owner** can reset leveling progress!", ephemeral=True)
+            return await permissions.deny_admin(interaction, "reset leveling stats (Server Owner only)")
 
         async with aiosqlite.connect(DB_PATH) as conn:
             if reset_all:

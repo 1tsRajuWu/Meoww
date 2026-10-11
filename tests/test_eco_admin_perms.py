@@ -186,11 +186,12 @@ class EcoAdminRequiresAdmin(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase)
         self.assertEqual(_balances(26), (10, 0))
         self.assertTrue(self._public_denials(interaction))
 
-    async def test_group_error_handler_posts_public_denial(self):
+    async def test_command_error_handler_posts_public_denial(self):
+        cog = economy_module.Economy(bot=None)
         interaction = _interaction(7, admin=False, owner_id=999)
         error = app_commands.MissingPermissions(["administrator"])
 
-        await economy_module.eco_admin_error(interaction, error)
+        await cog.eco_admin_perm_error(interaction, error)
 
         denials = self._public_denials(interaction)
         self.assertTrue(denials, "decorator-level denial must land in-channel")

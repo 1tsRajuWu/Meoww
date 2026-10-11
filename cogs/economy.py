@@ -41,6 +41,9 @@ async def ensure_eco(user_id: int, guild_id: int):
         )
         await conn.commit()
 
+from utils.permissions import deny_admin as _deny_admin, has_admin as _has_admin
+
+
 async def check_is_owner(interaction: discord.Interaction) -> bool:
     if interaction.guild and interaction.guild.owner_id == interaction.user.id:
         return True
@@ -48,33 +51,6 @@ async def check_is_owner(interaction: discord.Interaction) -> bool:
         return True
     return False
 
-
-def _has_admin(interaction: discord.Interaction) -> bool:
-    perms = getattr(interaction.user, "guild_permissions", None)
-    return bool(perms is not None and perms.administrator)
-
-
-async def _deny_admin(interaction: discord.Interaction, what: str) -> None:
-    # Public denial in the same channel — never ephemeral. Currency commands
-    # used to refuse silently: only the person running them saw anything, so an
-    # exploit read as success to everyone watching. A refusal is posted where
-    # the attempt happened instead. No mention: the name must not ping anyone.
-    name = getattr(interaction.user, "display_name", "That member")
-    content = (
-        f"❌ **Permission Denied:** {name} lacks the **Administrator** "
-        f"permission, which is required to {what}."
-    )
-    try:
-        if interaction.response.is_done():
-            channel = getattr(interaction, "channel", None)
-            if channel is not None:
-                await channel.send(content)
-            else:
-                await interaction.followup.send(content)
-        else:
-            await interaction.response.send_message(content, ephemeral=False)
-    except (discord.Forbidden, discord.HTTPException):
-        pass
 
 async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool | None = None):
     await ensure_eco(user_id, guild_id)
@@ -983,6 +959,20 @@ class Economy(commands.Cog):
 
         await send_card(interaction, embed=embed)
 
+    # One refusal for all four admin-money commands, following the tracker's
+    # pattern: a cog error handler runs *before* the tree's, so it must never
+    # re-raise (that skips the tree handler and leaves the command unanswered).
+    # The tree-wide handler answers permission failures ephemerally, which is
+    # why abuse read as success to everyone watching — here the refusal is
+    # posted in the channel where the attempt happened instead.
+    @addmoney.error
+    @removemoney.error
+    @setmoney.error
+    @resetmoney.error
+    async def eco_admin_perm_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, (app_commands.MissingPermissions, app_commands.CheckFailure)):
+            await _deny_admin(interaction, "use admin economy commands")
+
     @app_commands.command(name="shop", description="Browse items in the community shop.")
     async def shop(self, interaction: discord.Interaction):
         if not interaction.guild:
@@ -1734,19 +1724,6 @@ class Economy(commands.Cog):
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.set_footer(text="Beg cooldown: 2 minutes • /work pays better, you know")
         await send_card(interaction, embed=embed)
-
-
-@Economy.eco_admin.error
-async def eco_admin_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    # Module-level (not a cog method): Group error handlers take exactly
-    # (interaction, error). The tree-wide handler answers permission failures
-    # ephemerally, which is why abuse read as success to everyone watching.
-    # For currency commands the refusal is posted in the channel where the
-    # attempt happened instead.
-    if isinstance(error, (app_commands.MissingPermissions, app_commands.CheckFailure)):
-        await _deny_admin(interaction, "use admin economy commands")
-        return
-    raise error
 
 
 async def setup(bot: commands.Bot):
