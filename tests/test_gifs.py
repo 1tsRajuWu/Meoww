@@ -78,12 +78,14 @@ class TheRoutes(unittest.TestCase):
     def test_every_bond_and_ceremony_has_a_picture_source(self):
         """A proposal card with the wrong picture is a bug report; a proposal
         card with no picture source is the same report waiting to happen."""
-        needed = {"propose", "wedding"}
+        needed = {"wedding"}
         for kind, spec in social_module.BOND_KINDS.items():
             needed.add(spec["gif"])
         for action in sorted(needed):
             self.assertTrue(
                 gifs.candidates(action), f"bond/proposal gif {action!r} has no route")
+        # The marriage ring is a fixed asset, not a fetched reaction.
+        self.assertTrue(gifs.NOTO_GIFS["ring"].startswith(gifs.NOTO_GIF_BASE))
 
     def test_the_hand_typed_urls_are_gone(self):
         """They were all 404, and a link left in the cog is a link somebody

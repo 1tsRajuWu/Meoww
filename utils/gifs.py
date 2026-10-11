@@ -60,6 +60,22 @@ PROVIDERS: dict[str, dict] = {
     },
 }
 
+#: Animated Noto emoji, served by Google Fonts and verified live on
+#: 2026-10-11 (HTTP 200, GIF89a, 40+ frames each). Stable CDN homes for the
+#: motion this bot is allowed: crowns and gems for premium, a ring for
+#: proposals, hearts and party for celebrations, pointing hands for direction.
+NOTO_GIF_BASE = "https://fonts.gstatic.com/s/e/notoemoji/latest"
+NOTO_GIFS = {
+    "crown": f"{NOTO_GIF_BASE}/1f451/512.gif",
+    "gem": f"{NOTO_GIF_BASE}/1f48e/512.gif",
+    "sparkles": f"{NOTO_GIF_BASE}/2728/512.gif",
+    "ring": f"{NOTO_GIF_BASE}/1f48d/512.gif",
+    "heart": f"{NOTO_GIF_BASE}/2764/512.gif",
+    "party": f"{NOTO_GIF_BASE}/1f389/512.gif",
+    "point_down": f"{NOTO_GIF_BASE}/1f447/512.gif",
+    "point_right": f"{NOTO_GIF_BASE}/1f449/512.gif",
+}
+
 #: Which providers can serve which action, in the order they are tried. Reads as
 #: "a poke is a purrbot poke, else an otakugifs poke"; ``bonk`` has no provider of
 #: its own anywhere, so it borrows a punch and then a slap, which is what a bonk
@@ -89,9 +105,6 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "spawn": (("otakugifs", "wave"), ("purrbot", "dance")),
     "stare": (("otakugifs", "stare"),),
     "handhold": (("otakugifs", "handhold"),),
-    # A proposal is a shy question, not the kiss itself — blush fits, and both
-    # providers draw it. (Dating asks with a handhold; the wedding hugs.)
-    "propose": (("purrbot", "blush"), ("otakugifs", "blush")),
     "wedding": (("otakugifs", "hug"), ("purrbot", "hug")),
 }
 

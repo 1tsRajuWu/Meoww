@@ -7,6 +7,8 @@ from utils.style import (
     send_card,
     make_vip_embed,
     VIP_BOT_ID,
+    VIP_CROWN_GIF,
+    VIP_GEM_GIF,
     VIP_SPARKLE_GIF,
     VIP_BANNER_GIF,
     VIP_INVITE_URL,
@@ -99,8 +101,8 @@ class Premium(commands.Cog):
                     False,
                 ),
             ],
-            thumbnail_url=VIP_SPARKLE_GIF,
-            author_icon=VIP_SPARKLE_GIF,
+            thumbnail_url=VIP_GEM_GIF,
+            author_icon=VIP_CROWN_GIF,
             footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
@@ -118,8 +120,8 @@ class Premium(commands.Cog):
                 "All features are unlocked with zero billing during our early-access preview."
             ),
             fields=fields,
-            thumbnail_url=VIP_SPARKLE_GIF,
-            author_icon=VIP_SPARKLE_GIF,
+            thumbnail_url=VIP_GEM_GIF,
+            author_icon=VIP_CROWN_GIF,
             footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
@@ -143,8 +145,8 @@ class Premium(commands.Cog):
                 ("VIP Bot (1558691012975534222)", f"[Direct Authorization Link]({VIP_INVITE_URL})", True),
                 ("Main Bot (1548380269776605324)", f"[Direct Authorization Link]({MAIN_INVITE_URL})", True),
             ],
-            thumbnail_url=VIP_SPARKLE_GIF,
-            author_icon=VIP_SPARKLE_GIF,
+            thumbnail_url=VIP_GEM_GIF,
+            author_icon=VIP_CROWN_GIF,
             footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())

@@ -1522,11 +1522,10 @@ class Social(commands.Cog):
         if member.bot:
             return await interaction.response.send_message("❌ Bots cannot sign marriage certificates!", ephemeral=True)
 
-        # One connection for every check, flying alongside the GIF fetch.
-        state, ring_gif = await asyncio.gather(
-            _proposal_state(interaction.guild.id, interaction.user.id, member.id),
-            gifs.action_gif("propose"),
-        )
+        # One connection for every check. The ring is a fixed asset, not a
+        # fetched one, so there is nothing to fly alongside.
+        state = await _proposal_state(interaction.guild.id, interaction.user.id, member.id)
+        ring_gif = gifs.NOTO_GIFS["ring"]
         if state["married_me"] is not None:
             return await interaction.response.send_message("❌ You are already married! Run `/divorce` first.", ephemeral=True)
         if state["married_them"] is not None:

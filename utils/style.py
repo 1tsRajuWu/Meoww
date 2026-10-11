@@ -799,11 +799,13 @@ VIP_FOOTER = f"💎 DaCat VIP • 100x Enhanced Visuals • ID: {VIP_BOT_ID}"
 #: carry. Empty means a still card. Point it at a GIF that will stay up (the
 #: server's own animated emoji or attachment), because a dead file draws the
 #: empty box this codebase refuses to send any other way.
-VIP_BANNER_GIF = ""
-#: Small-motion icons: Discord renders author and footer icons tiny (~20px),
-#: which is exactly where a little animation belongs. Verified live files;
-#: swap for the server's own animated emoji any time.
-VIP_SPARKLE_GIF = "https://cdn.discordapp.com/emojis/1062718595370602607.gif"
+VIP_BANNER_GIF = "https://fonts.gstatic.com/s/e/notoemoji/latest/1f451/512.gif"
+#: Animated Noto crown/gem/sparkles: the VIP motion set, verified live on
+#: 2026-10-11 (HTTP 200, GIF89a, 40+ frames). Author, thumbnail and footer
+#: icons render tiny, which is exactly where a little animation belongs.
+VIP_CROWN_GIF = "https://fonts.gstatic.com/s/e/notoemoji/latest/1f451/512.gif"
+VIP_GEM_GIF = "https://fonts.gstatic.com/s/e/notoemoji/latest/1f48e/512.gif"
+VIP_SPARKLE_GIF = "https://fonts.gstatic.com/s/e/notoemoji/latest/2728/512.gif"
 
 
 def is_vip_context(target) -> bool:
