@@ -87,11 +87,10 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "lick": (("purrbot", "lick"), ("otakugifs", "lick")),
     "tickle": (("purrbot", "tickle"), ("otakugifs", "tickle")),
     "stare": (("otakugifs", "stare"),),
-    # Two social cards rather than reactions: the marriage proposal and the
-    # wedding. Neither provider draws a ring, and both of these were hand-typed
-    # `media.tenor.com` links that answered 404 — the same rot as the actions,
-    # found by the media watch built for exactly that (utils/media_health.py).
-    "propose": (("purrbot", "kiss"), ("otakugifs", "kiss")),
+    "handhold": (("otakugifs", "handhold"),),
+    # A proposal is a shy question, not the kiss itself — blush fits, and both
+    # providers draw it. (Dating asks with a handhold; the wedding hugs.)
+    "propose": (("purrbot", "blush"), ("otakugifs", "blush")),
     "wedding": (("otakugifs", "hug"), ("purrbot", "hug")),
 }
 

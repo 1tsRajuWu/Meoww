@@ -710,7 +710,7 @@ BOND_KINDS: dict[str, dict] = {
         "verb": "dating",
         "colour": 0xFF6B81,
         "sep": " ❤ ",
-        "gif": "kiss",
+        "gif": "handhold",
         "propose_title": "💘 Dating Proposal",
         "propose_text": "{p} asked {t} to be their boyfriend/girlfriend! Say yes and make it official! 💘",
         "accept_title": "💘 OFFICIALLY DATING!",
