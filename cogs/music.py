@@ -17,6 +17,7 @@ Three surfaces, one group:
   jam is what a member declares it to be — set it, show it, remove it.
 """
 import datetime
+import json
 import re
 import urllib.parse
 
@@ -37,6 +38,7 @@ SPOTIFY_LINK_RE = re.compile(
 JAM_LINK_RE = re.compile(r"https?://(?:open\.spotify\.com|spotify\.link)/\S+", re.IGNORECASE)
 OEMBED_URL = "https://open.spotify.com/oembed?url={url}"
 REQUEST_TIMEOUT = 8.0
+MUSIC_ICON_GIF = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmM3anRid2tkc2llMTJuenVvc2xneGxhMXZzdWR6dW5vY3N4ZzlnaCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/UGrpkMXipFWQ06IHIM/giphy.gif"
 
 #: How often the jam watcher re-checks every server's active jam, how many
 #: consecutive dead reads end it, and the session cap after which it ends
@@ -168,30 +170,81 @@ def parse_spotify_link(text: str | None) -> dict | None:
 
 
 async def fetch_track_details(url: str) -> dict | None:
-    """Title/artist/artwork for a Spotify URL via oEmbed, or ``None``.
+    """Title/artist/artwork for a Spotify URL via embed scraper & oEmbed fallback.
 
-    Never raises: details are decoration, and a dead provider must read as
-    "could not fetch" rather than a broken command.
+    Extracts genuine metadata with artist names directly from Spotify's
+    embed entity payload, falling back to oEmbed if unreachable. Never raises.
     """
-    try:
-        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(OEMBED_URL.format(url=url)) as response:
-                if response.status != 200:
-                    return None
-                payload = await response.json(content_type=None)
-    except Exception:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    title = str(payload.get("title") or "").strip()
-    if not title:
-        return None
-    return {
-        "title": title[:200],
-        "artist": str(payload.get("author_name") or "Unknown artist")[:200],
-        "art": str(payload.get("thumbnail_url") or ""),
+    parsed = parse_spotify_link(url)
+    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
     }
+
+    if parsed:
+        try:
+            embed_url = f"https://open.spotify.com/embed/{parsed['kind']}/{parsed['entity']}"
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(embed_url) as resp:
+                    if resp.status == 200:
+                        html = await resp.text()
+                        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html)
+                        if m:
+                            data = json.loads(m.group(1))
+                            entity = (
+                                data.get("props", {})
+                                .get("pageProps", {})
+                                .get("state", {})
+                                .get("data", {})
+                                .get("entity", {})
+                            )
+                            title = entity.get("name") or entity.get("title")
+                            artists = [
+                                a.get("name")
+                                for a in entity.get("artists", [])
+                                if isinstance(a, dict) and a.get("name")
+                            ]
+                            if not artists and entity.get("subtitle"):
+                                artists = [str(entity["subtitle"]).strip()]
+                            artist = ", ".join(artists) if artists else ""
+                            images = entity.get("visualIdentity", {}).get("image") or []
+                            art = images[0].get("url") if images and isinstance(images[0], dict) else ""
+                            if title:
+                                return {
+                                    "title": str(title).strip()[:200],
+                                    "artist": (artist or "Unknown artist")[:200],
+                                    "art": str(art or ""),
+                                }
+        except Exception:
+            pass
+
+    try:
+        encoded_url = urllib.parse.quote(url, safe="")
+        oembed_url = f"https://open.spotify.com/oembed?url={encoded_url}"
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            async with session.get(oembed_url) as response:
+                if response.status == 200:
+                    payload = await response.json(content_type=None)
+                    if isinstance(payload, dict):
+                        title = str(payload.get("title") or "").strip()
+                        artist = str(payload.get("author_name") or "").strip()
+                        art = str(payload.get("thumbnail_url") or "")
+                        if not artist and " - " in title:
+                            parts = title.split(" - ", 1)
+                            artist = parts[0].strip()
+                            title = parts[1].strip()
+                        if title:
+                            return {
+                                "title": title[:200],
+                                "artist": (artist or "Unknown artist")[:200],
+                                "art": art,
+                            }
+    except Exception:
+        pass
+    return None
 
 
 async def _track(guild_id: int, entity_id: str):
@@ -223,13 +276,18 @@ async def _listen_stats(guild_id: int, entity_id: str) -> tuple[int, list[int]]:
 def build_track_embed(track: dict, listens: int, listener_names: list[str]) -> discord.Embed:
     """The beautiful card: art, details, and who actually listened."""
     kind_label = KIND_LABELS.get(track.get("kind", ""), "Music")
+    track_title = track.get("title", "Unknown title")
     embed = discord.Embed(
-        title=f"🎵 {track.get('title', 'Unknown title')}",
+        title=track_title,
         url=track.get("url"),
         color=0x1DB954,
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_author(name=f"Spotify {kind_label}")
+    embed.set_author(
+        name=f"{track_title} • Spotify {kind_label}",
+        icon_url=MUSIC_ICON_GIF,
+        url=track.get("url"),
+    )
     embed.add_field(name="🎤 Artist", value=track.get("artist", "Unknown artist") or "Unknown artist", inline=True)
     embed.add_field(name="👂 Listens", value=f"**{listens}**", inline=True)
     if track.get("art"):
@@ -238,12 +296,12 @@ def build_track_embed(track: dict, listens: int, listener_names: list[str]) -> d
         shown = ", ".join(listener_names[:10])
         more = f" (+{len(listener_names) - 10} more)" if len(listener_names) > 10 else ""
         embed.add_field(name="🎧 Listened by", value=f"{shown}{more}", inline=False)
-    embed.set_footer(text="Press ✅ below when you've listened • DaCat Music")
+    embed.set_footer(text="Click Listen below to open on Spotify • DaCat Music", icon_url=MUSIC_ICON_GIF)
     return embed
 
 
 class ListenedView(discord.ui.View):
-    """Persistent "I listened" button, one shared ``custom_id`` for every card.
+    """Persistent "Listen" button, one shared ``custom_id`` for every card.
 
     The track is read off the pressed message's own embed URL rather than the
     button, so one registered view answers every card the bot ever posted —
@@ -254,7 +312,8 @@ class ListenedView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="✅ I listened",
+        label="Listen",
+        emoji="🎧",
         style=discord.ButtonStyle.success,
         custom_id="music-listen",
     )
@@ -267,10 +326,12 @@ async def _listened_callback(interaction: discord.Interaction):
     try:
         message = interaction.message
         embeds = getattr(message, "embeds", None) or []
-        if embeds and embeds[0].url:
-            parsed = parse_spotify_link(embeds[0].url)
-            if parsed:
-                entity_id = parsed["entity"]
+        if embeds:
+            target_url = embeds[0].url or (embeds[0].author.url if getattr(embeds[0], "author", None) else None)
+            if target_url:
+                parsed = parse_spotify_link(target_url)
+                if parsed:
+                    entity_id = parsed["entity"]
     except Exception:
         entity_id = None
     if not interaction.guild or not entity_id:
@@ -280,18 +341,63 @@ async def _listened_callback(interaction: discord.Interaction):
     if track is None:
         return await interaction.response.send_message(
             "❌ That track is no longer in this server's library.", ephemeral=True)
+
+    already_listened = False
     async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute(
-            "INSERT OR IGNORE INTO music_listens (guild_id, entity_id, user_id, listened_at)"
-            " VALUES (?, ?, ?, ?)",
-            (interaction.guild.id, entity_id, interaction.user.id,
-             discord.utils.utcnow().isoformat()),
-        )
-        await conn.commit()
-    listens, user_ids = await _listen_stats(interaction.guild.id, entity_id)
-    names = [await display_name(interaction.guild, uid) for uid in user_ids]
-    await interaction.response.edit_message(
-        embed=build_track_embed(track, listens, names))
+        async with conn.execute(
+            "SELECT 1 FROM music_listens WHERE guild_id=? AND entity_id=? AND user_id=?",
+            (interaction.guild.id, entity_id, interaction.user.id),
+        ) as cur:
+            if await cur.fetchone() is not None:
+                already_listened = True
+
+        if not already_listened:
+            await conn.execute(
+                "INSERT OR IGNORE INTO music_listens (guild_id, entity_id, user_id, listened_at)"
+                " VALUES (?, ?, ?, ?)",
+                (interaction.guild.id, entity_id, interaction.user.id,
+                 discord.utils.utcnow().isoformat()),
+            )
+            await conn.commit()
+
+    link_view = discord.ui.View()
+    link_view.add_item(discord.ui.Button(
+        label="Open in Spotify",
+        style=discord.ButtonStyle.link,
+        url=track["url"],
+        emoji="🎶",
+    ))
+
+    if not already_listened:
+        listens, user_ids = await _listen_stats(interaction.guild.id, entity_id)
+        names = [await display_name(interaction.guild, uid) for uid in user_ids]
+        await interaction.response.edit_message(
+            embed=build_track_embed(track, listens, names))
+        if hasattr(interaction, "followup") and hasattr(interaction.followup, "send"):
+            try:
+                await interaction.followup.send(
+                    f"🎧 **Listen counted!** Click below to listen on Spotify:\n<{track['url']}>",
+                    view=link_view,
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
+    else:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"ℹ️ You already listened to this track! Click below to open:\n<{track['url']}>",
+                view=link_view,
+                ephemeral=True,
+            )
+        elif hasattr(interaction, "followup") and hasattr(interaction.followup, "send"):
+            try:
+                await interaction.followup.send(
+                    f"ℹ️ You already listened to this track! Click below to open:\n<{track['url']}>",
+                    view=link_view,
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 class Music(commands.Cog):
@@ -482,7 +588,9 @@ class Music(commands.Cog):
         track = {**parsed, **details, "added_by": interaction.user.id}
         embed = build_track_embed(track, 0, [])
         embed.set_footer(
-            text=f"Added by {interaction.user.display_name} • Press ✅ below when you've listened")
+            text=f"Added by {interaction.user.display_name} • Click Listen below to open & count",
+            icon_url=MUSIC_ICON_GIF,
+        )
         await interaction.response.send_message(embed=embed, view=ListenedView())
 
     @music.command(name="my", description="Show the songs you added and who listened!")

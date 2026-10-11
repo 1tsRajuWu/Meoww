@@ -7,8 +7,7 @@ classics, open-source games, and verified zero-ad distribution platforms
 from __future__ import annotations
 
 import urllib.parse
-from dataclasses import dataclass, field
-from typing import Sequence
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

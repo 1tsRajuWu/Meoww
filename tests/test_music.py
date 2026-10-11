@@ -164,6 +164,8 @@ class MusicFlows(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         second = await _press(self.fan)
         self.assertEqual(len(_rows("music_listens")), 1)
         self.assertEqual(_rows("music_listens")[0][2], 22)
+        self.assertIn("already", second.response.messages[-1]["content"].lower())
+        self.assertEqual(second.response.messages[-1]["view"].children[0].url, TRACK_URL)
 
     async def test_my_shows_songs_and_listen_counts(self):
         await self._add(self.dj, TRACK_URL)
@@ -426,5 +428,77 @@ class JamSweep(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertTrue({"channel_id", "fails", "last_checked"} <= cols)
 
 
+class MetadataAndEmbedTests(unittest.TestCase):
+    def test_build_track_embed_gif_and_no_emoji(self):
+        track = {
+            "kind": "track",
+            "title": "Never Gonna Give You Up",
+            "artist": "Rick Astley",
+            "url": "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT",
+            "art": "https://i.scdn.co/image/xyz",
+        }
+        embed = music_module.build_track_embed(track, 5, ["Alice", "Bob"])
+        self.assertEqual(embed.title, "Never Gonna Give You Up")
+        self.assertFalse(embed.title.startswith("🎵"))
+        self.assertIn("Never Gonna Give You Up", embed.author.name)
+        self.assertEqual(embed.author.icon_url, music_module.MUSIC_ICON_GIF)
+        self.assertEqual(embed.author.url, track["url"])
+        self.assertEqual(embed.footer.icon_url, music_module.MUSIC_ICON_GIF)
+        self.assertIn("Rick Astley", [f.value for f in embed.fields if f.name.startswith("🎤")][0])
+
+    def test_listened_view_button_specs(self):
+        view = music_module.ListenedView()
+        button = view.children[0]
+        self.assertEqual(button.label, "Listen")
+        self.assertEqual(str(button.emoji), "🎧")
+        self.assertEqual(button.custom_id, "music-listen")
+
+
+class FetchTrackDetailsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_embed_scraper_extracts_track_details(self):
+        fake_html = (
+            '<html><head><script id="__NEXT_DATA__" type="application/json">'
+            '{"props":{"pageProps":{"state":{"data":{"entity":{'
+            '"name":"I Belong to You",'
+            '"artists":[{"name":"Jacob Lee"}],'
+            '"visualIdentity":{"image":[{"url":"https://i.scdn.co/image/abc"}]}'
+            '}}}}}}'
+            '</script></head></html>'
+        )
+
+        class _FakeResponse:
+            status = 200
+
+            async def text(self):
+                return fake_html
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class _FakeSession:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            def get(self, url):
+                return _FakeResponse()
+
+        with mock.patch("aiohttp.ClientSession", _FakeSession):
+            details = await music_module.fetch_track_details("https://open.spotify.com/track/xyz123")
+            self.assertIsNotNone(details)
+            self.assertEqual(details["title"], "I Belong to You")
+            self.assertEqual(details["artist"], "Jacob Lee")
+            self.assertEqual(details["art"], "https://i.scdn.co/image/abc")
+
+
 if __name__ == "__main__":
     unittest.main()
+
