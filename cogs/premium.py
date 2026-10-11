@@ -7,6 +7,7 @@ from utils.style import (
     send_card,
     make_vip_embed,
     VIP_BOT_ID,
+    VIP_BANNER_GIF,
     VIP_INVITE_URL,
     MAIN_INVITE_URL,
     is_vip_context,
@@ -132,6 +133,7 @@ class Premium(commands.Cog):
                 "• **Cost:** **$0.00** (Free early-access promotional period)\n\n"
                 "Click the button below to authorize the bot on Discord in seconds!"
             ),
+            image_url=VIP_BANNER_GIF or None,
             fields=[
                 ("VIP Bot (1558691012975534222)", f"[Direct Authorization Link]({VIP_INVITE_URL})", True),
                 ("Main Bot (1548380269776605324)", f"[Direct Authorization Link]({MAIN_INVITE_URL})", True),

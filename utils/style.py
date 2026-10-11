@@ -795,6 +795,11 @@ VIP_BOT_ID = 1558691012975534222
 VIP_INVITE_URL = f"https://discord.com/oauth2/authorize?client_id={VIP_BOT_ID}&scope=bot+applications.commands&permissions=8"
 MAIN_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1548380269776605324&scope=bot+applications.commands&permissions=8"
 VIP_FOOTER = f"💎 DaCat VIP • 100x Enhanced Visuals • ID: {VIP_BOT_ID}"
+#: Animated banner for the invite card — the only motion a Discord message can
+#: carry. Empty means a still card. Point it at a GIF that will stay up (the
+#: server's own animated emoji or attachment), because a dead file draws the
+#: empty box this codebase refuses to send any other way.
+VIP_BANNER_GIF = ""
 
 
 def is_vip_context(target) -> bool:
@@ -844,6 +849,7 @@ def make_vip_embed(
     fields: list[tuple[str, str, bool]] | None = None,
     footer: str | None = None,
     thumbnail_url: str | None = None,
+    image_url: str | None = None,
     author_name: str = "👑 DaCat Premium • VIP Edition",
     author_icon: str | None = None,
 ) -> discord.Embed:
@@ -858,6 +864,10 @@ def make_vip_embed(
         embed.set_author(name=author_name, icon_url=author_icon or "")
     if thumbnail_url:
         embed.set_thumbnail(url=thumbnail_url)
+    # The only animation a Discord message can carry: an animated GIF image.
+    # Empty means no image — a still card beats a broken-image box.
+    if image_url:
+        embed.set_image(url=image_url)
     if fields:
         for name, value, inline in fields:
             embed.add_field(name=f"◈ {name}", value=value, inline=inline)
