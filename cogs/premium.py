@@ -89,6 +89,13 @@ class Premium(commands.Cog):
                     "• 👑 **100x Enhanced Visuals & VIP Cards**: **Active (VIP)**",
                     False,
                 ),
+                (
+                    "📜 Terms & Privacy",
+                    "• Terms of Service: `/legal tos` · [Read Online](https://dacat.pages.dev/terms)\n"
+                    "• Privacy Policy: `/legal privacy` · [Read Online](https://dacat.pages.dev/privacy)\n"
+                    "• Zero financial credentials collected · Compliant with Discord Developer Policy",
+                    False,
+                ),
             ],
             thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
         )

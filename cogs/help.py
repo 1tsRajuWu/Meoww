@@ -654,7 +654,7 @@ class HelpLayout(discord.ui.LayoutView):
                 )
             )
             parts.append(link_row)
-        parts.append(discord.ui.TextDisplay("-# 🌐 [Website & Pricing](https://dacat.pages.dev)  ·  Tap a category, or `/cmd` for the whole list  ·  DaCat"))
+        parts.append(discord.ui.TextDisplay("-# 🌐 [Website](https://dacat.pages.dev)  ·  [Terms](https://dacat.pages.dev/terms)  ·  [Privacy](https://dacat.pages.dev/privacy)  ·  `/tos`  ·  `/privacy`  ·  DaCat"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
 
 

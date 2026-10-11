@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils import hub
-from utils.style import send_card
+from utils.style import send_card, is_vip_context, VIP_GOLD
 
 #: Discord's embed limits, named so the pagination is readable.
 MAX_DESCRIPTION = 4096
@@ -106,7 +106,7 @@ def _fill(embed: discord.Embed, sections, *, fields: int, total: int) -> tuple[i
     return used, False
 
 
-def document_embed(title: str, text: str, filename: str = "") -> discord.Embed:
+def document_embed(title: str, text: str, filename: str = "", *, is_vip: bool = False) -> discord.Embed:
     """One embed holding the whole document, section by section.
 
     Two passes when the document does not fit. The first asks whether it fits at
@@ -116,8 +116,10 @@ def document_embed(title: str, text: str, filename: str = "") -> discord.Embed:
     than inside them plus one field.
     """
     intro, sections = split_document(text)
+    embed_color = VIP_GOLD if is_vip else 0x5865F2
+    display_title = f"👑 {title} (VIP Edition)" if is_vip else title
     embed = discord.Embed(
-        title=title, description=intro[:MAX_DESCRIPTION] or None, color=0x5865F2
+        title=display_title, description=intro[:MAX_DESCRIPTION] or None, color=embed_color
     )
 
     used, cut = _fill(embed, sections, fields=MAX_FIELDS, total=MAX_TOTAL_TEXT)
@@ -131,17 +133,15 @@ def document_embed(title: str, text: str, filename: str = "") -> discord.Embed:
         )
         embed.add_field(name="The rest of it", value=REST_OF_IT, inline=False)
     if filename:
-        embed.set_footer(text=f"{filename} • {DOCUMENTS.format(page=filename.removesuffix('.md').lower())}")
+        footer_text = f"{filename} • {DOCUMENTS.format(page=filename.removesuffix('.md').lower())}"
+        if is_vip:
+            footer_text = f"💎 DaCat VIP • {footer_text}"
+        embed.set_footer(text=footer_text)
     return embed
 
 
 class Legal(commands.Cog):
-    """Terms of Service and Privacy Policy.
-
-    Two documents, one command: at Discord's hundred-command ceiling every slot
-    spent on a document nobody types twice is a feature that cannot exist, and
-    ``/legal`` shows both without pretending they are separate features.
-    """
+    """Terms of Service and Privacy Policy."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -154,13 +154,13 @@ class Legal(commands.Cog):
     @legal_group.command(name="privacy", description="View the Bot's Privacy Policy.")
     async def privacy(self, interaction: discord.Interaction):
         text = read_document("PRIVACY.md") or "Document not found."
-        embed = document_embed("Privacy Policy", text, "PRIVACY.md")
+        embed = document_embed("Privacy Policy", text, "PRIVACY.md", is_vip=is_vip_context(interaction))
         await send_card(interaction, embed=embed, ephemeral=True)
 
     @legal_group.command(name="tos", description="View the Bot's Terms of Service.")
     async def tos(self, interaction: discord.Interaction):
         text = read_document("TERMS.md") or "Document not found."
-        embed = document_embed("Terms of Service", text, "TERMS.md")
+        embed = document_embed("Terms of Service", text, "TERMS.md", is_vip=is_vip_context(interaction))
         await send_card(interaction, embed=embed, ephemeral=True)
 
 
