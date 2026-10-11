@@ -557,7 +557,7 @@ class Music(commands.Cog):
             ))
         url, set_by, set_at, last_checked = row
         setter = await display_name(interaction.guild, set_by)
-        watched = (f"\n\n✅ Live — bot watching, auto-removes when it ends"
+        watched = ("\n\n✅ Live — bot watching, auto-removes when it ends"
                    + (f" (checked `{str(last_checked)[:16].replace('T', ' ')}`)" if last_checked else ""))
         await send_card(interaction, embed=discord.Embed(
             title="🎧 Active Spotify Jam",

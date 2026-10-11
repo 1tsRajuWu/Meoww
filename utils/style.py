@@ -790,6 +790,81 @@ def card(
     )
 
 
+VIP_GOLD = 0xFFD700
+VIP_BOT_ID = 1558691012975534222
+VIP_INVITE_URL = f"https://discord.com/oauth2/authorize?client_id={VIP_BOT_ID}&scope=bot+applications.commands&permissions=8"
+MAIN_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1548380269776605324&scope=bot+applications.commands&permissions=8"
+VIP_FOOTER = f"💎 DaCat VIP • 100x Enhanced Visuals • ID: {VIP_BOT_ID}"
+
+
+def is_vip_context(target) -> bool:
+    """Whether an interaction was handled by the VIP Bot instance."""
+    if target is None:
+        return False
+    client = getattr(target, "client", target)
+    user = getattr(client, "user", None)
+    if user and getattr(user, "id", None) == VIP_BOT_ID:
+        return True
+    return False
+
+
+def vip_card(
+    *,
+    title: str | None = None,
+    body: str | None = None,
+    thumbnail: str | None = None,
+    fields: list[tuple[str, str]] | None = None,
+    footer: str | None = None,
+    timeout: float | None = 180,
+    attachments: list | None = None,
+) -> Panel:
+    """A lavish, 100x better looking VIP Premium Components V2 card."""
+    formatted_title = f"👑 {title}" if title else "👑 DaCat Premium"
+    vip_body = (
+        "### ✦ **VIP EARLY ACCESS • 100% UNLOCKED**\n"
+        f"{body or ''}"
+    )
+    return card(
+        title=formatted_title,
+        body=vip_body,
+        accent=VIP_GOLD,
+        thumbnail=thumbnail,
+        fields=fields,
+        footer=footer or VIP_FOOTER,
+        timeout=timeout,
+        attachments=attachments,
+    )
+
+
+def make_vip_embed(
+    title: str,
+    description: str,
+    *,
+    color: int = VIP_GOLD,
+    fields: list[tuple[str, str, bool]] | None = None,
+    footer: str | None = None,
+    thumbnail_url: str | None = None,
+    author_name: str = "👑 DaCat Premium • VIP Edition",
+    author_icon: str | None = None,
+) -> discord.Embed:
+    """Create a 100x high-fidelity VIP card embed."""
+    embed = discord.Embed(
+        title=f"👑 {title}",
+        description=f"### ✦ **VIP EARLY ACCESS • 100% UNLOCKED**\n{description}",
+        color=color,
+        timestamp=discord.utils.utcnow(),
+    )
+    if author_name:
+        embed.set_author(name=author_name, icon_url=author_icon or "")
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+    if fields:
+        for name, value, inline in fields:
+            embed.add_field(name=f"◈ {name}", value=value, inline=inline)
+    embed.set_footer(text=footer or VIP_FOOTER)
+    return embed
+
+
 def unreferenced_files(attachments, media_urls) -> list:
     """The uploads no component already draws.
 
