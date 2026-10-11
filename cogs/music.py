@@ -27,7 +27,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from utils import db
-from utils.style import display_name, send_card
+from utils.style import display_name, send_card, VIP_BOT_ID, VIP_INVITE_URL
 
 DB_PATH = db.DB_PATH
 
@@ -310,6 +310,15 @@ class Music(commands.Cog):
             bot.add_view(ListenedView())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        client = getattr(interaction, "client", None)
+        user = getattr(client, "user", None)
+        if user is not None and getattr(user, "id", None) != VIP_BOT_ID:
+            await interaction.response.send_message(
+                "👑 The **Spotify Music Engine** (`/music`) is exclusive to **DaCat VIP / Meoww Premium**!\n"
+                f"Add the VIP Bot to your server to use music features: [Add VIP Bot]({VIP_INVITE_URL})",
+                ephemeral=True,
+            )
+            return False
         if interaction.guild_id and self.bot is not None and hasattr(self.bot, "is_module_enabled"):
             if not self.bot.is_module_enabled(interaction.guild_id, "music"):
                 await interaction.response.send_message(

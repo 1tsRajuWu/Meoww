@@ -66,6 +66,7 @@ PAGES = (
     ("/systems", "systems.html"),
     ("/start", "start.html"),
     ("/pricing", "pricing.html"),
+    ("/premium", "premium.html"),
     ("/privacy", "privacy.html"),
     ("/terms", "terms.html"),
     # The third document, and the one a collector is pointed at. It is built

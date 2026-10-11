@@ -16,18 +16,18 @@ from utils import command_scope, permissions
 class IdentityFilter(unittest.TestCase):
     def test_main_leaves_premium_out(self):
         names = command_scope.for_identity(
-            {"help", "marry", "premium", "bond"}, is_vip=False)
-        self.assertEqual(names, {"help", "marry", "bond"})
+            {"help", "marry", "premium", "bond", "music"}, is_vip=False)
+        self.assertEqual(names, {"help", "marry"})
 
     def test_vip_keeps_only_vip(self):
         names = command_scope.for_identity(
-            {"help", "marry", "premium"}, is_vip=True)
-        self.assertEqual(names, {"premium"})
+            {"help", "marry", "premium", "bond", "music"}, is_vip=True)
+        self.assertEqual(names, {"premium", "bond", "music"})
 
     def test_unknown_identity_keeps_everything(self):
         names = command_scope.for_identity(
-            {"help", "premium"}, is_vip=None)
-        self.assertEqual(names, {"help", "premium"})
+            {"help", "premium", "bond", "music"}, is_vip=None)
+        self.assertEqual(names, {"help", "premium", "bond", "music"})
 
     def test_app_id_match(self):
         self.assertTrue(permissions.is_vip_app_id(permissions.VIP_BOT_ID))
@@ -40,16 +40,16 @@ class ForceSyncFilter(unittest.TestCase):
     def test_main_token_sync_drops_premium(self):
         import force_sync
 
-        commands = [{"name": "marry"}, {"name": "premium"}, {"name": "bond"}]
+        commands = [{"name": "marry"}, {"name": "premium"}, {"name": "bond"}, {"name": "music"}]
         kept = force_sync._identity_commands(commands, 1548380269776605324)
-        self.assertEqual([c["name"] for c in kept], ["marry", "bond"])
+        self.assertEqual([c["name"] for c in kept], ["marry"])
 
     def test_vip_token_sync_keeps_only_premium(self):
         import force_sync
 
-        commands = [{"name": "marry"}, {"name": "premium"}]
+        commands = [{"name": "marry"}, {"name": "premium"}, {"name": "bond"}, {"name": "music"}]
         kept = force_sync._identity_commands(commands, permissions.VIP_BOT_ID)
-        self.assertEqual([c["name"] for c in kept], ["premium"])
+        self.assertEqual([c["name"] for c in kept], ["premium", "bond", "music"])
 
 
 class BootPublisherFilter(unittest.TestCase):
@@ -68,17 +68,24 @@ class BootPublisherFilter(unittest.TestCase):
             return bot_module._scope_names(bot, guild, everything)
 
     def test_main_boot_scope_has_no_premium(self):
-        names = self._scope(1548380269776605324, ["marry", "premium", "bond"])
+        names = self._scope(1548380269776605324, ["marry", "premium", "bond", "music"])
         self.assertNotIn("premium", names)
+        self.assertNotIn("bond", names)
+        self.assertNotIn("music", names)
         self.assertIn("marry", names)
 
     def test_vip_boot_scope_keeps_premium(self):
-        names = self._scope(permissions.VIP_BOT_ID, ["marry", "premium"])
+        names = self._scope(permissions.VIP_BOT_ID, ["marry", "premium", "bond", "music"])
         self.assertIn("premium", names)
+        self.assertIn("bond", names)
+        self.assertIn("music", names)
+        self.assertNotIn("marry", names)
 
     def test_unknown_identity_keeps_premium(self):
-        names = self._scope(None, ["marry", "premium"])
+        names = self._scope(None, ["marry", "premium", "bond", "music"])
         self.assertIn("premium", names)
+        self.assertIn("bond", names)
+        self.assertIn("music", names)
 
 
 if __name__ == "__main__":

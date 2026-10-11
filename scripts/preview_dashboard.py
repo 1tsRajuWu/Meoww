@@ -887,6 +887,7 @@ for _rule, _name, _view in (
     # that 404s the address it publishes invites a wrong conclusion about
     # production.
     ("/pricing", "pricing", keep_alive.pricing_page),
+    ("/premium", "premium", keep_alive.premium_page),
     ("/health", "health", keep_alive.health),
 ):
     app.add_url_rule(_rule, _name, _view, methods=["GET", "POST"])

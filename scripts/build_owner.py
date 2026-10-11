@@ -233,6 +233,7 @@ STATIC_ASSETS = [
     "market.js",
     "theme.js",
     "motion.js",
+    "premium.js",
     # One family, one author. `utils/brand.py` names every drawing the site and
     # the two static hosts ship, so a mark added to the brand cannot be forgotten
     # here — which is how the console once asked for five logos nobody had drawn.

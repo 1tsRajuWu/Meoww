@@ -6,7 +6,7 @@ import asyncio
 import aiosqlite
 from utils import db, gifs
 from cogs.economy import get_eco, update_wallet, ensure_eco, take_stake
-from utils.style import send_card, display_name, pings
+from utils.style import send_card, display_name, pings, VIP_BOT_ID, VIP_INVITE_URL
 
 DB_PATH = db.DB_PATH
 
@@ -1116,6 +1116,29 @@ class Social(commands.Cog):
         self.bot = bot
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        root_name = (
+            interaction.command.root_parent.name
+            if interaction.command and getattr(interaction.command, "root_parent", None)
+            else (interaction.command.name if interaction.command else "")
+        )
+        client = getattr(interaction, "client", None)
+        user = getattr(client, "user", None)
+        if root_name == "bond":
+            if user is not None and getattr(user, "id", None) != VIP_BOT_ID:
+                await interaction.response.send_message(
+                    "👑 **Relationship Bonds** (`/bond`) is exclusive to **DaCat VIP / Meoww Premium**!\n"
+                    f"Add the VIP Bot to your server to use this feature: [Add VIP Bot]({VIP_INVITE_URL})",
+                    ephemeral=True,
+                )
+                return False
+        elif user is not None and getattr(user, "id", None) == VIP_BOT_ID:
+            await interaction.response.send_message(
+                "ℹ️ This is **DaCat VIP Edition** (dedicated to `/bond`, `/music`, and `/premium`).\n"
+                "Use the primary **Meoww** bot for social actions, marriage, and mini-games!",
+                ephemeral=True,
+            )
+            return False
+
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
             cmd_name = interaction.command.name if interaction.command else None
             if cmd_name == "crash":

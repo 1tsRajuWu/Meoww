@@ -1,0 +1,186 @@
+{# ==========================================================================
+   premium.html — live Discord embed customizer for premium messages.
+   ========================================================================== #}
+{% extends "meoww/base.html" %}
+
+{% block title %}Premium — {{ bot_name }}{% endblock %}
+{% block body_class %}mw-page-premium{% endblock %}
+
+{% block page %}
+<!-- Hero -->
+<section class="mw-band mw-band--head">
+  <div class="mw-wrap">
+    <p class="mw-micro">💎 Premium</p>
+    <h1 class="mw-display">Customize every embed<br><em>your bot sends.</em></h1>
+    <p class="mw-lede">
+      Design welcome messages, level-up alerts, and more — with a live preview
+      that shows exactly what your members will see.
+    </p>
+  </div>
+</section>
+
+<!-- Embed Customizer -->
+<section class="mw-band" id="customizer">
+  <div class="mw-wrap">
+    <div class="mw-premium-grid">
+
+      <!-- LEFT: Customizer form -->
+      <div class="mw-card prem-form">
+
+        <!-- Variables Reference -->
+        <div>
+          <div class="prem-vars-title">Variables Reference</div>
+          <div class="mw-vars" role="group" aria-label="Available template variables">
+            <button class="mw-var-pill" type="button" data-var="member_name" title="The member's display name"># member_name</button>
+            <button class="mw-var-pill" type="button" data-var="invites" title="Total invite count"># invites</button>
+            <button class="mw-var-pill" type="button" data-var="fake" title="Fake invites count"># fake</button>
+            <button class="mw-var-pill" type="button" data-var="left" title="Left server count"># left</button>
+            <button class="mw-var-pill" type="button" data-var="rejoins" title="Rejoin count"># rejoins</button>
+            <button class="mw-var-pill" type="button" data-var="server_name" title="Your server name"># server_name</button>
+            <button class="mw-var-pill" type="button" data-var="level" title="Member's current level"># level</button>
+            <button class="mw-var-pill" type="button" data-var="xp" title="Member's XP"># xp</button>
+          </div>
+          <p class="mw-hint" style="margin-top:8px">Click a variable to insert it at the cursor in your description.</p>
+        </div>
+
+        <!-- Color -->
+        <div class="prem-field">
+          <label class="prem-label" for="prem-color">Color</label>
+          <div class="prem-color-row">
+            <input class="prem-color-swatch" type="color" id="prem-color" data-prem-color value="#c374c1">
+            <input class="prem-color-hex" type="text" id="prem-hex" data-prem-hex value="#c374c1" maxlength="7" spellcheck="false" aria-label="Color hex value">
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="prem-field">
+          <label class="prem-label" for="prem-title">Title</label>
+          <input class="prem-input" type="text" id="prem-title" data-prem-title
+                 placeholder="{member_name}'s invites" value="{member_name}'s invites">
+        </div>
+
+        <!-- Description -->
+        <div class="prem-field">
+          <label class="prem-label" for="prem-desc">Description</label>
+          <textarea class="prem-input" id="prem-desc" data-prem-desc rows="6"
+                    placeholder="Write your embed description here..."
+>{member_name} has a total of {invites} invites.
+Out of {invites} they have:
+{fake} fake invites
+{left} have left
+{rejoins} have rejoined</textarea>
+        </div>
+
+        <!-- Image URL -->
+        <div class="prem-field">
+          <label class="prem-label" for="prem-image">Main Image URL</label>
+          <input class="prem-input" type="url" id="prem-image" data-prem-image
+                 placeholder="https://example.com/image.png">
+        </div>
+
+      </div>
+
+      <!-- RIGHT: Live preview -->
+      <div class="prem-preview-wrap">
+        <div class="mw-preview-label">Live Preview</div>
+
+        <div class="mw-discord">
+          <div class="mw-discord__bar">
+            <span class="mw-discord__hash">#</span>
+            <span>welcome</span>
+          </div>
+          <div class="mw-discord__body">
+
+            <!-- Join note -->
+            <div class="mw-discord__msg prem-anim prem-anim-1" style="padding-left:16px;min-height:auto">
+              <span style="font-size:13px;color:#4e5058">
+                <strong style="color:#fff">Peter</strong> just joined the server!
+              </span>
+            </div>
+
+            <!-- Bot welcome embed -->
+            <div class="mw-discord__msg prem-anim prem-anim-2">
+              <div class="mw-discord__avatar">🐱</div>
+              <div class="mw-discord__author">
+                <span class="mw-discord__name">{{ bot_name }}</span>
+                <span class="mw-discord__badge">BOT</span>
+              </div>
+
+              <!-- The live-updated embed -->
+              <div id="prem-embed" class="mw-discord__embed prem-embed-border-color" style="border-left-color:#c374c1">
+
+                <!-- Header row: server name + avatar -->
+                <div class="prem-anim prem-anim-2" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                  <span style="font-size:12px;font-weight:600;color:#80848e">Meoww Community</span>
+                  <span style="width:24px;height:24px;border-radius:50%;background:#c374c1;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0">🐱</span>
+                </div>
+
+                <!-- Embed title -->
+                <div id="prem-preview-title" class="mw-discord__embed-title prem-anim prem-anim-3">
+                  Peter's invites
+                </div>
+
+                <!-- Separator -->
+                <div class="prem-embed-sep prem-anim prem-anim-4">· ˖ ✦ ˖ · 🐱 · ˖ ✦ ˖ ·</div>
+
+                <!-- Description lines -->
+                <div id="prem-preview-body">
+                  <div class="prem-embed-line prem-anim prem-anim-4">
+                    <span class="mw-arrow">▸</span><span>Peter has a total of <strong style="color:#fff">42</strong> invites.</span>
+                  </div>
+                  <div class="prem-embed-line prem-anim prem-anim-5">
+                    <span class="mw-arrow">▸</span><span>Out of 42 they have:</span>
+                  </div>
+                  <div class="prem-embed-line prem-anim prem-anim-5">
+                    <span class="mw-arrow">▸</span><span><strong style="color:#fff">1</strong> fake invites</span>
+                  </div>
+                  <div class="prem-embed-line prem-anim prem-anim-6">
+                    <span class="mw-arrow">▸</span><span><strong style="color:#fff">3</strong> have left</span>
+                  </div>
+                  <div class="prem-embed-line prem-anim prem-anim-6">
+                    <span class="mw-arrow">▸</span><span><strong style="color:#fff">2</strong> have rejoined</span>
+                  </div>
+                </div>
+
+                <!-- Separator -->
+                <div class="prem-embed-sep prem-anim prem-anim-6">· ˖ ✦ ˖ · 🐱 · ˖ ✦ ˖ ·</div>
+
+                <!-- Image (hidden by default) -->
+                <img id="prem-preview-img" class="prem-embed-img prem-anim prem-anim-6" src="" alt="Embed image preview" hidden>
+
+                <!-- Footer -->
+                <div class="prem-embed-footer prem-anim prem-anim-6">
+                  Enjoy your stay! 🐾
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <p class="mw-hint" style="margin-top:12px">Preview uses demo values: Peter, 42 invites, etc.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="mw-band">
+  <div class="mw-wrap mw-closing">
+    <h2 class="mw-closing__title mw-title">Ready to set it up on your server?</h2>
+    <div class="mw-hero__actions">
+      {% if invite_url %}
+      <a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>
+      {% else %}
+      <a class="mw-btn mw-btn--primary" href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+      {% endif %}
+      <a class="mw-link" href="/">Back to home</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block page_js %}
+<script src="/static/premium.js?v={{ asset_version('premium.js') }}" defer></script>
+{% endblock %}

@@ -1453,6 +1453,7 @@ PUBLIC_PREFIXES = (
     "/systems",
     "/start",
     "/pricing",
+    "/premium",
     "/privacy",
     "/terms",
     "/ai",
@@ -3306,6 +3307,15 @@ def pricing_page():
         checkout_enterprise=checkout_enterprise,
         checkout_ready=bool(checkout_pro or checkout_enterprise),
         plans_enforced=plans.enforcement_enabled(),
+    )
+
+
+@app.route("/premium")
+def premium_page():
+    return render_template(
+        "premium.html",
+        **_site_context(),
+        current="premium",
     )
 
 
