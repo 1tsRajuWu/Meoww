@@ -10,6 +10,6 @@ Pillow>=10.2.0
 # MP3/AAC from the station and encodes Opus for Discord — and imageio-ffmpeg ships
 # a self-contained binary for hosts that have none on PATH. yt-dlp is gone with
 # the extractor: radio is a direct stream and nothing here resolves anything.
-imageio-ffmpeg>=0.5.1
+imageio-ffmpeg>=0.6.0
 spaces
 a2wsgi>=1.10.0
