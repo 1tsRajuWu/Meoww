@@ -76,7 +76,7 @@ ANIMALS = {
 
 # /hunt hands out free coins and animals, so it needs a cooldown or it can be
 # spammed indefinitely.
-HUNT_COOLDOWN_SECONDS = 10 * 60
+HUNT_COOLDOWN_SECONDS = 30 * 60
 
 TIER_COLORS = {
     "common": 0x95A5A6,
@@ -430,8 +430,10 @@ async def _add_couple_role(guild: discord.Guild | None, id1: int, id2: int) -> s
 async def _add_pair_role(guild: discord.Guild | None, id1: int, id2: int, *, sep: str, colour: int, noun: str, reason: str, headline: str) -> str:
     if guild is None:
         return ""
-    mem_a = await _resolve_member(guild, id1)
-    mem_b = await _resolve_member(guild, id2)
+    # The two lookups are independent Discord calls — together, not in a row.
+    mem_a, mem_b = await asyncio.gather(
+        _resolve_member(guild, id1), _resolve_member(guild, id2)
+    )
     if mem_a is None or mem_b is None:
         return ""
     role = await _get_or_create_pair_role(guild, mem_a, mem_b, sep=sep, colour=colour, noun=noun)
@@ -488,6 +490,10 @@ async def _cleanup_pair_roles(guild: discord.Guild | None, id1: int, id2: int, *
     if guild is None:
         return ""
     removed_names: list[str] = []
+    mem_a, mem_b = await asyncio.gather(
+        _resolve_member(guild, id1), _resolve_member(guild, id2)
+    )
+    members = {id1: mem_a, id2: mem_b}
     for role in list(getattr(guild, "roles", [])):
         try:
             if sep not in role.name:
@@ -506,7 +512,7 @@ async def _cleanup_pair_roles(guild: discord.Guild | None, id1: int, id2: int, *
             if id1 not in member_ids and id2 not in member_ids:
                 continue
             for mid in (id1, id2):
-                m = await _resolve_member(guild, mid)
+                m = members.get(mid)
                 if m is not None and role in getattr(m, "roles", []):
                     try:
                         await m.remove_roles(role, reason=reason)
@@ -582,15 +588,28 @@ class MarriageView(discord.ui.View):
                 "INSERT OR REPLACE INTO marriages (guild_id, user1_id, user2_id, married_at) VALUES (?, ?, ?, ?)",
                 (interaction.guild.id, self.target.id, self.proposer.id, now)
             )
+            # Dating upgrade, decided in the same connection: marrying your
+            # bf/gf absorbs the dating bond, so the pair keeps one bond.
+            upgrading = False
+            async with conn.execute(
+                "SELECT user2_id FROM bonds WHERE guild_id=? AND user1_id=? AND kind='dating'",
+                (interaction.guild.id, self.proposer.id),
+            ) as cur:
+                row = await cur.fetchone()
+                upgrading = row is not None and row[0] == self.target.id
+            if upgrading:
+                await conn.execute(
+                    "DELETE FROM bonds WHERE guild_id=? AND kind='dating' AND (user1_id=? OR user2_id=?)",
+                    (interaction.guild.id, self.proposer.id, self.proposer.id),
+                )
             await conn.commit()
 
         role_note = await _add_couple_role(interaction.guild, self.proposer.id, self.target.id)
 
         # Dating upgrade: marrying your bf/gf absorbs the dating bond and its
         # role, so the pair keeps exactly one bond and one role.
-        if await _bond_partner(interaction.guild.id, self.proposer.id, "dating") == self.target.id:
+        if upgrading:
             dating = BOND_KINDS["dating"]
-            await _delete_bond_rows(interaction.guild.id, self.proposer.id, "dating")
             upgrade_note = await _cleanup_pair_roles(
                 interaction.guild, self.proposer.id, self.target.id,
                 sep=dating["sep"], colour=dating["colour"],
@@ -758,15 +777,6 @@ async def _user_bonds(guild_id: int, user_id: int) -> list[tuple[str, int]]:
             return [(r[0], r[1]) async for r in cur]
 
 
-async def _pair_bond_kinds(guild_id: int, a_id: int, b_id: int) -> set[str]:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT kind FROM bonds WHERE guild_id=? AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
-            (guild_id, a_id, b_id, b_id, a_id),
-        ) as cur:
-            return {r[0] async for r in cur}
-
-
 async def _delete_bond_rows(guild_id: int, user_id: int, kind: str) -> None:
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
@@ -776,14 +786,46 @@ async def _delete_bond_rows(guild_id: int, user_id: int, kind: str) -> None:
         await conn.commit()
 
 
-async def _marriage_partner(guild_id: int, user_id: int):
+async def _proposal_state(guild_id: int, me_id: int, them_id: int) -> dict:
+    """Every relationship row a proposal checks, in a single connection.
+
+    A proposal used to open one SQLite connection per question (whose bond,
+    whose marriage, what the pair shares) — five roundtrips of open, read,
+    close before the card even renders. One connection, two statements.
+    """
     async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute('''CREATE TABLE IF NOT EXISTS bonds (
+            guild_id INTEGER,
+            user1_id INTEGER,
+            user2_id INTEGER,
+            kind TEXT,
+            since_at TEXT,
+            PRIMARY KEY (guild_id, user1_id, kind)
+        )''')
         async with conn.execute(
-            "SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?",
-            (guild_id, user_id),
+            "SELECT user1_id, user2_id FROM marriages WHERE guild_id=? AND user1_id IN (?, ?)",
+            (guild_id, me_id, them_id),
         ) as cur:
-            row = await cur.fetchone()
-    return row[0] if row else None
+            married = {r[0]: r[1] async for r in cur}
+        async with conn.execute(
+            "SELECT user1_id, user2_id, kind FROM bonds WHERE guild_id=? AND user1_id IN (?, ?)",
+            (guild_id, me_id, them_id),
+        ) as cur:
+            bonds = [(r[0], r[1], r[2]) async for r in cur]
+    my_bonds = {kind: partner for (user, partner, kind) in bonds if user == me_id}
+    their_bonds = {kind: partner for (user, partner, kind) in bonds if user == them_id}
+    return {
+        "married_me": married.get(me_id),
+        "married_them": married.get(them_id),
+        "my_bonds": my_bonds,
+        "their_bonds": their_bonds,
+        "pair_kinds": {
+            kind
+            for (user, partner, kind) in bonds
+            if (user == me_id and partner == them_id)
+            or (user == them_id and partner == me_id)
+        },
+    }
 
 
 class BondView(discord.ui.View):
@@ -1312,19 +1354,21 @@ class Social(commands.Cog):
         if member.bot:
             return await interaction.response.send_message("❌ Bots cannot sign marriage certificates!", ephemeral=True)
 
-        async with aiosqlite.connect(DB_PATH) as conn:
-            async with conn.execute("SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, interaction.user.id)) as cur:
-                if await cur.fetchone():
-                    return await interaction.response.send_message("❌ You are already married! Run `/divorce` first.", ephemeral=True)
-            async with conn.execute("SELECT user2_id FROM marriages WHERE guild_id=? AND user1_id=?", (interaction.guild.id, member.id)) as cur:
-                if await cur.fetchone():
-                    return await interaction.response.send_message(f"❌ {member.mention} is already married to someone else!", ephemeral=True)
+        # One connection for every check, flying alongside the GIF fetch.
+        state, ring_gif = await asyncio.gather(
+            _proposal_state(interaction.guild.id, interaction.user.id, member.id),
+            gifs.action_gif("propose"),
+        )
+        if state["married_me"] is not None:
+            return await interaction.response.send_message("❌ You are already married! Run `/divorce` first.", ephemeral=True)
+        if state["married_them"] is not None:
+            return await interaction.response.send_message(f"❌ {member.mention} is already married to someone else!", ephemeral=True)
 
-        my_date = await _bond_partner(interaction.guild.id, interaction.user.id, "dating")
+        my_date = state["my_bonds"].get("dating")
         if my_date is not None and my_date != member.id:
             return await interaction.response.send_message(
                 "❌ You're already dating someone! Run `/bond break` first — or propose to them instead! 💘", ephemeral=True)
-        their_date = await _bond_partner(interaction.guild.id, member.id, "dating")
+        their_date = state["their_bonds"].get("dating")
         if their_date is not None and their_date != interaction.user.id:
             return await interaction.response.send_message(
                 f"❌ {member.mention} is already dating someone else!", ephemeral=True)
@@ -1339,7 +1383,6 @@ class Social(commands.Cog):
         # tenor link. Full width rather than the thumbnail it used to be, because
         # this is the card people screenshot and a 60px corner was the part of it
         # nobody could see.
-        ring_gif = await gifs.action_gif("propose")
         if ring_gif:
             embed.set_image(url=ring_gif)
         view = MarriageView(interaction.user, member)
@@ -1404,20 +1447,25 @@ class Social(commands.Cog):
         if member.bot:
             return await interaction.response.send_message("❌ Bots cannot sign bond certificates!", ephemeral=True)
 
-        await _ensure_bonds_table()
-        if await _bond_partner(interaction.guild.id, me_id, kind) is not None:
-            return await interaction.response.send_message(
+        # The database read (which heals the bonds table too) and the GIF
+        # fetch are independent — one hits the disk, the other the network —
+        # so they fly together, not in a row.
+        state, bond_gif = await asyncio.gather(
+            _proposal_state(interaction.guild.id, me_id, them_id),
+            gifs.action_gif(spec["gif"]),
+        )
+        if kind in state["my_bonds"]:            return await interaction.response.send_message(
                 f"❌ You already have a {spec['noun']}! Run `/bond break` first.", ephemeral=True)
-        if await _bond_partner(interaction.guild.id, them_id, kind) is not None:
+        if kind in state["their_bonds"]:
             return await interaction.response.send_message(
                 f"❌ {member.mention} already has a {spec['noun']} with someone else!", ephemeral=True)
 
-        pair_kinds = await _pair_bond_kinds(interaction.guild.id, me_id, them_id)
+        pair_kinds = state["pair_kinds"]
         if kind == "dating":
-            if await _marriage_partner(interaction.guild.id, me_id) is not None:
+            if state["married_me"] is not None:
                 return await interaction.response.send_message(
                     "❌ You're married! Run `/divorce` first — no cheating on my watch! 💍", ephemeral=True)
-            if await _marriage_partner(interaction.guild.id, them_id) is not None:
+            if state["married_them"] is not None:
                 return await interaction.response.send_message(
                     f"❌ {member.mention} is married to someone else!", ephemeral=True)
             if pair_kinds & {"twin", "sibling"}:
@@ -1428,10 +1476,10 @@ class Social(commands.Cog):
             if other in pair_kinds:
                 return await interaction.response.send_message(
                     f"❌ You're already {other}s — pick one family label!", ephemeral=True)
-            if await _marriage_partner(interaction.guild.id, me_id) == them_id:
+            if state["married_me"] == them_id:
                 return await interaction.response.send_message(
                     "❌ You're married to them — that's a stronger bond already! 💍", ephemeral=True)
-            if await _bond_partner(interaction.guild.id, me_id, "dating") == them_id:
+            if state["my_bonds"].get("dating") == them_id:
                 return await interaction.response.send_message(
                     "❌ You're dating them — family-zoning your partner is diabolical! 💘", ephemeral=True)
 
@@ -1441,7 +1489,6 @@ class Social(commands.Cog):
             color=spec["colour"],
             timestamp=discord.utils.utcnow()
         )
-        bond_gif = await gifs.action_gif(spec["gif"])
         if bond_gif:
             embed.set_image(url=bond_gif)
         view = BondView(interaction.user, member, kind)

@@ -328,6 +328,35 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         rows = {(r[0], r[1], r[2]) for r in _bond_rows()}
         self.assertIn((1, 2, "dating"), rows)
 
+    async def test_propose_reads_in_a_single_connection(self):
+        connects = []
+        real_connect = social_module.aiosqlite.connect
+
+        def counting(*args, **kwargs):
+            connects.append(1)
+            return real_connect(*args, **kwargs)
+
+        with mock.patch.object(social_module.aiosqlite, "connect", new=counting):
+            with mock.patch.object(social_module.gifs, "action_gif", return_value=None):
+                await self._propose(self.raj, self.ice, "dating")
+        # One connection for every check (five opens before). The GIF flies
+        # alongside it, so it is not counted here.
+        self.assertLessEqual(len(connects), 1)
+
+    async def test_marry_reads_in_a_single_connection(self):
+        connects = []
+        real_connect = social_module.aiosqlite.connect
+
+        def counting(*args, **kwargs):
+            connects.append(1)
+            return real_connect(*args, **kwargs)
+
+        with mock.patch.object(social_module.aiosqlite, "connect", new=counting):
+            with mock.patch.object(social_module.gifs, "action_gif", return_value=None):
+                interaction = _FakeInteraction(self.raj, self.guild)
+                await social_module.Social.marry.callback(self.cog, interaction, self.ice)
+        self.assertLessEqual(len(connects), 1)
+
 def _noop_edit():
     async def _edit(**_kwargs):
         return None
