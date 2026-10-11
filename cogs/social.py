@@ -192,6 +192,79 @@ ACTIONS_DATA = {
             "{author} feeds {target} a delicious sweet treat! Say 'aaahhh~' 🍓🍰",
             "{author} fed {target} yummy snacks! *nom nom nom* 🍪",
         ]
+    },
+    "blush": {
+        "title": "😊 Shy Blush!",
+        "color": 0xFFB6C1,
+        "lines": [
+            "{author} made {target} blush bright red! Look awayyy! 😊",
+            "{target} is blushing furiously because of {author}! How cute! 🌸",
+        ]
+    },
+    "smile": {
+        "title": "😄 Happy Smile!",
+        "color": 0xF9E04B,
+        "lines": [
+            "{author} put the biggest smile on {target}'s face! 😄",
+            "{author} and {target} are grinning ear to ear together! ✨",
+        ]
+    },
+    "wave": {
+        "title": "👋 Friendly Wave!",
+        "color": 0x1ABC9C,
+        "lines": [
+            "{author} waved enthusiastically at {target}! Hiiii! 👋",
+            "{author} spotted {target} and waved like they haven't seen them in years! 🌊",
+        ]
+    },
+    "wink": {
+        "title": "😉 Sly Wink!",
+        "color": 0x9B59B6,
+        "lines": [
+            "{author} shot {target} a sly little wink~ You know what that means 😉",
+            "{author} winked at {target} with maximum smoothness! 😎",
+        ]
+    },
+    "dance": {
+        "title": "💃 Dance Party!",
+        "color": 0xE91E63,
+        "lines": [
+            "{author} grabbed {target} for an impromptu dance party! 💃🕺",
+            "{author} and {target} are tearing up the dance floor together! 🎶",
+            "DJ dropped the beat and {author} dragged {target} into the spotlight! ✨",
+        ]
+    },
+    "laugh": {
+        "title": "😂 Shared Laugh!",
+        "color": 0xF1C40F,
+        "lines": [
+            "{author} burst out laughing with {target}! Absolutely hilarious! 😂",
+            "{author} and {target} are wheezing with laughter together! 🤣",
+        ]
+    },
+    "cry": {
+        "title": "😭 Shoulder To Cry On!",
+        "color": 0x5DADE2,
+        "lines": [
+            "{author} started ugly-crying on {target}'s shoulder... there, there 😭",
+            "{target} is comforting {author} through the waterworks! 🤗",
+        ]
+    },
+    "lick": {
+        "title": "👅 Surprise Lick!",
+        "color": 0xFF7675,
+        "lines": [
+            "{author} gave {target} a surprise lick?! Blehaha, what was that for! 👅",
+            "{target} just got licked by {author}! Someone's feeling mischievous today! 😜",
+        ]
+    },
+    "tickle": {
+        "title": "🪶 Tickle Attack!",
+        "color": 0xFDCB6E,
+        "lines": [
+            "{author} launched a relentless tickle attack on {target}! Stoooop! 🤣",
+            "{target} is squirming under {author}'s tickle torture! No mercy! 🪶",
+        ]
     }
 }
 
@@ -916,6 +989,15 @@ class Social(commands.Cog):
         app_commands.Choice(name="🧸 Cuddle", value="cuddle"),
         app_commands.Choice(name="👉 Poke", value="poke"),
         app_commands.Choice(name="🍰 Feed", value="feed"),
+        app_commands.Choice(name="😊 Blush", value="blush"),
+        app_commands.Choice(name="😄 Smile", value="smile"),
+        app_commands.Choice(name="👋 Wave", value="wave"),
+        app_commands.Choice(name="😉 Wink", value="wink"),
+        app_commands.Choice(name="💃 Dance", value="dance"),
+        app_commands.Choice(name="😂 Laugh", value="laugh"),
+        app_commands.Choice(name="😭 Cry", value="cry"),
+        app_commands.Choice(name="👅 Lick", value="lick"),
+        app_commands.Choice(name="🪶 Tickle", value="tickle"),
     ])
     async def action(self, interaction: discord.Interaction, action: app_commands.Choice[str], member: discord.Member):
         await self._handle_action(interaction, action.value, member)

@@ -75,6 +75,17 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
     "punch": (("otakugifs", "punch"), ("purrbot", "slap")),
     "bonk": (("otakugifs", "punch"), ("purrbot", "slap")),
     "feed": (("purrbot", "feed"),),
+    # Verified live against both providers: purrbot 403s wave/wink/laugh and
+    # otakugifs 400s highfive, so each route lists only endpoints that answer.
+    "blush": (("purrbot", "blush"), ("otakugifs", "blush")),
+    "smile": (("purrbot", "smile"), ("otakugifs", "smile")),
+    "wave": (("otakugifs", "wave"),),
+    "wink": (("otakugifs", "wink"),),
+    "dance": (("purrbot", "dance"), ("otakugifs", "dance")),
+    "laugh": (("otakugifs", "laugh"),),
+    "cry": (("purrbot", "cry"), ("otakugifs", "cry")),
+    "lick": (("purrbot", "lick"), ("otakugifs", "lick")),
+    "tickle": (("purrbot", "tickle"), ("otakugifs", "tickle")),
     # Two social cards rather than reactions: the marriage proposal and the
     # wedding. Neither provider draws a ring, and both of these were hand-typed
     # `media.tenor.com` links that answered 404 — the same rot as the actions,
