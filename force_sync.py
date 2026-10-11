@@ -230,7 +230,54 @@ def _retire(label: str, path: str, token: str, registered: list[dict], args) -> 
     return removed
 
 
-def _publish(label: str, path: str, token: str, commands: list[dict], args) -> int:
+def _prune_unwanted(
+    label: str,
+    path: str,
+    token: str,
+    registered: list[dict],
+    wanted: set[str],
+    known: set[str],
+    args,
+) -> int:
+    """Delete commands registered on this scope that must not be here.
+
+    For example, commands belonging to the other bot identity or disabled modules.
+    """
+    doomed = commands_sync.removable(registered, wanted, known)
+    if not doomed:
+        return 0
+    if args.dry_run:
+        print(
+            f"   dry run: would remove {len(doomed)} unwanted command(s): "
+            f"{', '.join(name for name, _ in doomed)}"
+        )
+        return 0
+    removed = 0
+    for name, command_id in doomed:
+        for attempt in range(3):
+            status, body = _request("DELETE", f"{path}/{command_id}", token)
+            if status == 429 and attempt < 2:
+                time.sleep(min(_rate_limit_wait(body), MAX_WAIT) + 0.5)
+                continue
+            break
+        if status in (200, 204):
+            removed += 1
+            print(f"   🗑️  removed unwanted /{name}", flush=True)
+        else:
+            print(f"   ! could not remove /{name}: {status} {body}", flush=True)
+        time.sleep(PACE_SECONDS)
+    print(f"   {removed} of {len(doomed)} unwanted command(s) deleted ({label})", flush=True)
+    return removed
+
+
+def _publish(
+    label: str,
+    path: str,
+    token: str,
+    commands: list[dict],
+    args,
+    known: set[str] | None = None,
+) -> int:
     """Sync one scope. Returns the number of failures."""
     payloads = commands_sync.index(commands)
     print(f"\n== {label}")
@@ -245,6 +292,12 @@ def _publish(label: str, path: str, token: str, commands: list[dict], args) -> i
         registered = _registered(path, token)
         if registered is None:
             return 1
+    if known:
+        wanted = {c.get("name") for c in commands if c.get("name")}
+        if _prune_unwanted(label, path, token, registered, wanted, known, args) and not args.dry_run:
+            registered = _registered(path, token)
+            if registered is None:
+                return 1
     missing, stale = commands_sync.diff(commands, registered)
     print(f"   Discord has {len(registered)}: {commands_sync.summary(commands, registered)}")
 
@@ -323,14 +376,14 @@ def main() -> int:
         help="keep waiting out the daily write window instead of stopping (slow but finishes)",
     )
     parser.add_argument(
-        "--patient-seconds", type=float, default=7200.0,
-        help="how long --patient keeps trying (default 2 hours)",
+        "--token", default=None,
+        help="Discord bot token to sync (overrides DISCORD_TOKEN / VIP_BOT_TOKEN)",
     )
     args = parser.parse_args()
 
-    token = (bot_module.TOKEN or "").strip()
+    token = (args.token or os.environ.get("DISCORD_TOKEN") or bot_module.TOKEN or "").strip()
     if not token:
-        print("No DISCORD_TOKEN found (checked the environment and .env).")
+        print("No DISCORD_TOKEN found (checked --token, environment, and .env).")
         return 1
 
     status, application = _request("GET", "/oauth2/applications/@me", token)
@@ -339,9 +392,14 @@ def main() -> int:
         return 1
     app_id = str(application["id"])
 
-    commands = asyncio.run(_build_commands(bot_module.bot))
-    print(f"Local tree: {len(commands)} top-level commands.")
-    commands = _identity_commands(commands, app_id)
+    raw_commands = asyncio.run(_build_commands(bot_module.bot))
+    all_known_names = (
+        {c["name"] for c in raw_commands if c.get("name")}
+        | set(features.MODULE_COMMAND_MAP)
+        | set(permissions.VIP_ONLY_COMMANDS)
+    )
+    print(f"Local tree: {len(raw_commands)} top-level commands.")
+    commands = _identity_commands(raw_commands, app_id)
 
     if args.global_scope:
         # The shared lane is no longer where the tree lives. Every server is
@@ -356,7 +414,7 @@ def main() -> int:
             "registered per server; run without --global to publish those."
         )
         failures = _publish(
-            "global", f"/applications/{app_id}/commands", token, scoped, args
+            "global", f"/applications/{app_id}/commands", token, scoped, args, known=all_known_names
         )
     else:
         status, guilds = _request("GET", "/users/@me/guilds", token)
@@ -386,7 +444,14 @@ def main() -> int:
                 f"command(s)" + (f", {hidden} off on this server" if hidden else "")
             )
             path = f"/applications/{app_id}/guilds/{guild['id']}/commands"
-            failures += _publish(f"{guild['name']} ({guild['id']})", path, token, scoped, args)
+            failures += _publish(
+                f"{guild['name']} ({guild['id']})",
+                path,
+                token,
+                scoped,
+                args,
+                known=all_known_names,
+            )
 
     if failures:
         print("\nSome commands are still pending — a 30034 body means that scope's daily "

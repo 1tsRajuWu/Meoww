@@ -285,7 +285,7 @@ async def rotate_status():
                 # which is a CustomActivity rather than a typed one.
                 await bot.change_presence(
                     activity=presence.build(text, kind),
-                    status=discord.Status.online,
+                    status=discord.Status.idle,
                 )
             except Exception as e:
                 print(f"[PRESENCE] Could not set the status: {e}", flush=True)
@@ -294,7 +294,7 @@ async def rotate_status():
             # gateway every cycle to clear something already clear.
             if last is not None:
                 try:
-                    await bot.change_presence(activity=None, status=discord.Status.online)
+                    await bot.change_presence(activity=None, status=discord.Status.idle)
                 except Exception as e:
                     print(f"[PRESENCE] Could not clear the status: {e}", flush=True)
             last = None
@@ -655,7 +655,7 @@ async def _sync_scope(
             removed += await _delete_scope_commands(
                 bot,
                 commands_sync.removable(
-                    registered, wanted, set(features.MODULE_COMMAND_MAP)
+                    registered, wanted, set(features.MODULE_COMMAND_MAP) | set(everything)
                 ),
                 guild,
                 "Not for this server",
@@ -750,7 +750,7 @@ async def _prune_global_lane(bot: commands.Bot, *, complete: bool = False) -> in
         return 0
     tree = [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
     everything = {payload["name"]: payload for payload in tree if payload.get("name")}
-    known = set(features.MODULE_COMMAND_MAP)
+    known = set(features.MODULE_COMMAND_MAP) | set(everything)
     wanted = _scope_names(bot, None, everything)
     candidates = commands_sync.removable(registered, wanted, known)
     if not candidates:
@@ -1108,6 +1108,12 @@ async def on_ready():
 
     await db.setup()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
+    try:
+        await bot.change_presence(status=discord.Status.idle)
+        print("[PRESENCE] Set initial status to IDLE (amber moon).", flush=True)
+    except Exception as e:
+        print(f"[PRESENCE] Could not set initial presence: {e}", flush=True)
 
     # Cache the bot's global avatar so the dashboard can show it without a
     # per-request lookup. The user object is fully populated here.
