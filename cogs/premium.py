@@ -22,6 +22,37 @@ PREMIUM_PERKS = [
 ]
 
 
+def _brand_embed(interaction: discord.Interaction, *, title: str, description: str,
+                 fields=None, thumbnail: bool = False, banner: bool = False) -> discord.Embed:
+    """Gold and animated on the VIP instance, plain everywhere else.
+
+    The motion set (crown author, gem thumbnail, sparkle footer, crown banner)
+    belongs to the premium bot only — the main bot answers the same commands
+    with the same words, minus the show.
+    """
+    if is_vip_context(interaction):
+        return make_vip_embed(
+            title=title,
+            description=description,
+            fields=fields,
+            thumbnail_url=VIP_GEM_GIF if thumbnail else None,
+            image_url=VIP_BANNER_GIF if banner else None,
+            author_icon=VIP_CROWN_GIF,
+            footer_icon=VIP_SPARKLE_GIF,
+        )
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=0x5865F2,
+        timestamp=discord.utils.utcnow(),
+    )
+    if fields:
+        for name, value, inline in fields:
+            embed.add_field(name=name, value=value, inline=inline)
+    embed.set_footer(text="DaCat • Free Early-Access Preview")
+    return embed
+
+
 class PremiumInviteView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -75,7 +106,8 @@ class Premium(commands.Cog):
     )
     async def premium_status(self, interaction: discord.Interaction):
         is_vip = is_vip_context(interaction)
-        embed = make_vip_embed(
+        embed = _brand_embed(
+            interaction,
             title="DaCat VIP Status • Complimentary Preview",
             description=(
                 "**Good news!** Premium features are currently in **Free Early-Access Preview**!\n"
@@ -101,9 +133,7 @@ class Premium(commands.Cog):
                     False,
                 ),
             ],
-            thumbnail_url=VIP_GEM_GIF,
-            author_icon=VIP_CROWN_GIF,
-            footer_icon=VIP_SPARKLE_GIF,
+            thumbnail=True,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
 
@@ -113,16 +143,15 @@ class Premium(commands.Cog):
     )
     async def premium_perks(self, interaction: discord.Interaction):
         fields = [(name, desc, False) for name, desc in PREMIUM_PERKS]
-        embed = make_vip_embed(
+        embed = _brand_embed(
+            interaction,
             title="DaCat VIP Feature Showcase",
             description=(
                 "Everything included with the **DaCat VIP Edition** (`1558691012975534222`).\n"
                 "All features are unlocked with zero billing during our early-access preview."
             ),
             fields=fields,
-            thumbnail_url=VIP_GEM_GIF,
-            author_icon=VIP_CROWN_GIF,
-            footer_icon=VIP_SPARKLE_GIF,
+            thumbnail=True,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
 
@@ -131,7 +160,8 @@ class Premium(commands.Cog):
         description="Get the official 1-click invite link to add the VIP Bot to your server.",
     )
     async def premium_invite(self, interaction: discord.Interaction):
-        embed = make_vip_embed(
+        embed = _brand_embed(
+            interaction,
             title="Invite DaCat VIP • Client ID: 1558691012975534222",
             description=(
                 "Invite the dedicated **DaCat VIP Bot** to run side-by-side with your server!\n\n"
@@ -140,14 +170,12 @@ class Premium(commands.Cog):
                 "• **Cost:** **$0.00** (Free early-access promotional period)\n\n"
                 "Click the button below to authorize the bot on Discord in seconds!"
             ),
-            image_url=VIP_BANNER_GIF or None,
+            banner=True,
             fields=[
                 ("VIP Bot (1558691012975534222)", f"[Direct Authorization Link]({VIP_INVITE_URL})", True),
                 ("Main Bot (1548380269776605324)", f"[Direct Authorization Link]({MAIN_INVITE_URL})", True),
             ],
-            thumbnail_url=VIP_GEM_GIF,
-            author_icon=VIP_CROWN_GIF,
-            footer_icon=VIP_SPARKLE_GIF,
+            thumbnail=True,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
 
