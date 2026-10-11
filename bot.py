@@ -146,7 +146,12 @@ def drop_ungranted_intents(bot, granted: tuple[bool, bool, bool] | None) -> list
     return dropped
 
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    help_command=None,
+    status=discord.Status.idle,
+)
 
 # The cog list, the command->module gates and the default states all come from
 # utils/features.py. Add or retire a feature there, not here.
@@ -2117,8 +2122,11 @@ async def main():
     except Exception as e:
         print(f"[CLOUD SYNC] Startup restore error: {e}", flush=True)
 
+    is_vip = permissions.is_vip_token(TOKEN)
     async with bot:
         for cog in INITIAL_COGS:
+            if is_vip and cog not in ("cogs.premium", "cogs.music", "cogs.social"):
+                continue
             try:
                 await bot.load_extension(cog)
                 print(f"Loaded {cog}")

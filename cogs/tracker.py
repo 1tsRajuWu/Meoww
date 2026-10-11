@@ -18,7 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from utils import db, style
+from utils import db, style, permissions
 # The duration and count spellings live in one place so the digest the scheduler
 # posts and the numbers this cog prints cannot drift apart on the same data.
 from utils.digest import human_count as _fmt_count, human_voice as _fmt_voice
@@ -174,6 +174,8 @@ class Tracker(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        if permissions.is_vip_bot(self.bot):
+            return
         # Catch members already in VC on startup
         now = time.time()
         tracked = 0
@@ -201,6 +203,8 @@ class Tracker(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel):
         """Ensure new channels are tracked when created."""
+        if permissions.is_vip_bot(self.bot):
+            return
         if not channel.guild:
             return
         if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(
@@ -213,6 +217,8 @@ class Tracker(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        if permissions.is_vip_bot(self.bot):
+            return
         if message.author.bot or not message.guild:
             return
         if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(
@@ -236,6 +242,8 @@ class Tracker(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
+        if permissions.is_vip_bot(self.bot):
+            return
         if member.bot or not member.guild:
             return
         if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(
@@ -285,6 +293,8 @@ class Tracker(commands.Cog):
 
     @tasks.loop(seconds=VOICE_FLUSH_INTERVAL)
     async def _vc_flush_loop(self):
+        if permissions.is_vip_bot(self.bot):
+            return
         now = time.time()
         flushed = 0
         for gid, users in list(self._vc_join.items()):

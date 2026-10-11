@@ -19,7 +19,7 @@ security, and policy requirements:
 |---|---|---|
 | **Privacy Policy URL** | ✅ Ready at `/privacy` | Served by `keep_alive.py` and `scripts/build_site.py` from `PRIVACY.md` |
 | **Terms of Service URL** | ✅ Ready at `/terms` | Served from `TERMS.md` through the same renderer |
-| **Global Slash Commands** | ✅ 95 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
+| **Global Slash Commands** | ✅ 96 distinct names | Declared in `utils/features.py` (`ROOT_COMMANDS`), synced via `bot.py` |
 | **Command Descriptions** | ✅ Every command documented | Provided via `@app_commands.describe` and docstrings across `cogs/*.py` |
 | **No Mandatory Privileged Intents** | ✅ Default off | Bot operates fully without privileged gateway intents (`bot.py`) |
 | **No User Bots / Self-Bots** | ✅ Compliant | Built on discord.py as an official application |
@@ -82,7 +82,7 @@ A community bot for moderation, tickets with transcripts, leveling, an economy w
 
 ### Detailed Description
 ```markdown
-DaCat is a moderation and community bot that stays out of your way. It brings 15 systems and 95 slash commands: automod on its own switch with tunable invite, link and flood filters, moderation and logging, reaction roles that hand a role out from an emoji, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, a per-channel activity tracker keeping a 365-day window, and staff meetings booked from Discord with a time, a place, notices that go out before it starts and reply buttons on the card. One ships switched off in every server until an administrator turns it on — a live market with real-time quotes.
+DaCat is a moderation and community bot that stays out of your way. It brings 15 systems and 96 slash commands: automod on its own switch with tunable invite, link and flood filters, moderation and logging, reaction roles that hand a role out from an emoji, tickets with transcripts and close-time ratings, leveling with automatic role rewards, a coin economy with a shop, loans and casino games, social roleplay, fun commands and mini-games, a per-channel activity tracker keeping a 365-day window, and staff meetings booked from Discord with a time, a place, notices that go out before it starts and reply buttons on the card. One ships switched off in every server until an administrator turns it on — a live market with real-time quotes.
 
 Everything is switched on and off per server from a web dashboard that signs in with Discord — staff see only the servers they actually administer, and nothing is ever published about a server's members: the public endpoints answer in counts, never in names.
 

@@ -78,10 +78,10 @@ STATUS_KINDS: dict[str, discord.Status] = {
     "dnd": discord.Status.dnd,
 }
 
-#: What the bot says when nothing has been configured. Empty text with streaming
-#: kind displays ONLY the purple streaming badge on the avatar with no text in bio.
+#: What the bot says when nothing has been configured. Uses watching so Discord
+#: preserves the idle presence status (amber moon icon).
 DEFAULT_LINES: tuple[tuple[str, str], ...] = (
-    ("", "streaming"),
+    ("/help", "watching"),
 )
 
 #: How long each line stays up. An hour is what this shipped with, and it is

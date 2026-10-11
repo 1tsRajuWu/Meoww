@@ -49,6 +49,30 @@ def is_vip_app_id(app_id) -> bool:
         return False
 
 
+def is_vip_bot(bot) -> bool:
+    """Whether a bot instance belongs to the VIP bot."""
+    if bot is None:
+        return False
+    user = getattr(bot, "user", None)
+    if user is None:
+        return False
+    return is_vip_app_id(getattr(user, "id", None))
+
+
+def is_vip_token(token: str | None) -> bool:
+    """Whether a token belongs to the VIP bot."""
+    if not token:
+        return False
+    try:
+        import base64
+        prefix = token.strip().split(".")[0]
+        padded = prefix + "=" * ((4 - len(prefix) % 4) % 4)
+        app_id_str = base64.b64decode(padded).decode("ascii", errors="ignore")
+        return is_vip_app_id(app_id_str)
+    except Exception:
+        return False
+
+
 # --------------------------------------------------------------------------- #
 # Audiences
 # --------------------------------------------------------------------------- #
@@ -178,6 +202,11 @@ COMMAND_ACCESS: dict[str, str] = {
     "levelroles add": ROLES,
     "levelroles remove": ROLES,
     "levelsettings": GUILD,
+    "levelexempt add": GUILD,
+    "levelexempt remove": GUILD,
+    "levelexempt list": GUILD,
+    "levelexempt owner": GUILD,
+    "levelexempt admin": GUILD,
     # `/add` binds which channel a system reports into — a decision about the
     # server's own furniture, so the audience that may change its settings.
     "add": GUILD,

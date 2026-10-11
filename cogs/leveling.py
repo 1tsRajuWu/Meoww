@@ -79,6 +79,7 @@ class Leveling(commands.Cog):
         # activity clock. Both prune themselves and never touch the database.
         self._spam = rewards.SpamScreen()
         self._pulse = rewards.PulseClock()
+        self._exempt_cache: dict[int, dict[str, set[int]]] = {}
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id and hasattr(self.bot, "is_module_enabled"):
@@ -91,8 +92,69 @@ class Leveling(commands.Cog):
                 return False
         return True
 
+    async def get_exemptions(self, guild_id: int) -> dict[str, set[int]]:
+        """Return cached or freshly loaded exemptions for a guild."""
+        if guild_id in self._exempt_cache:
+            return self._exempt_cache[guild_id]
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                """CREATE TABLE IF NOT EXISTS level_exemptions (
+                    guild_id INTEGER,
+                    target_type TEXT,
+                    target_id INTEGER,
+                    PRIMARY KEY (guild_id, target_type, target_id)
+                )"""
+            )
+            async with conn.execute(
+                "SELECT target_type, target_id FROM level_exemptions WHERE guild_id = ?",
+                (guild_id,),
+            ) as cur:
+                rows = await cur.fetchall()
+
+        exempts: dict[str, set[int]] = {
+            "user": set(),
+            "role": set(),
+            "owner": set(),
+            "admin": set(),
+        }
+        for target_type, target_id in rows:
+            if target_type in exempts:
+                exempts[target_type].add(target_id)
+
+        self._exempt_cache[guild_id] = exempts
+        return exempts
+
+    async def is_exempt(self, guild: discord.Guild, member: discord.Member) -> bool:
+        """Whether a member is exempt from leveling and rankup announcements."""
+        if member.bot or not guild:
+            return True
+
+        exempts = await self.get_exemptions(guild.id)
+
+        # 1. Server Owner exemption
+        if 0 in exempts["owner"] and member.id == guild.owner_id:
+            return True
+
+        # 2. Administrator exemption
+        if 0 in exempts["admin"] and getattr(member.guild_permissions, "administrator", False):
+            return True
+
+        # 3. Direct Member exemption
+        if member.id in exempts["user"]:
+            return True
+
+        # 4. Role-based exemption
+        member_role_ids = {r.id for r in getattr(member, "roles", ())}
+        if bool(member_role_ids & exempts["role"]):
+            return True
+
+        return False
+
     @commands.Cog.listener()
     async def on_ready(self):
+        if permissions.is_vip_bot(self.bot):
+            return
         print("[LEVELS] Leveling cog loaded, starting VC reward loop...", flush=True)
         if not self.vc_reward_loop.is_running():
             self.vc_reward_loop.start()
@@ -262,6 +324,8 @@ class Leveling(commands.Cog):
         channel: discord.TextChannel = None
     ):
         """Sends celebration embed and awards unlocked level roles."""
+        if await self.is_exempt(guild, member):
+            return
         unlocked_roles = await self.check_and_award_roles(guild, member, new_level)
         settings = await self.get_guild_settings(guild.id)
 
@@ -343,7 +407,13 @@ class Leveling(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        if permissions.is_vip_bot(self.bot):
+            return
+
         if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(message.guild.id, "leveling"):
+            return
+
+        if await self.is_exempt(message.guild, message.author):
             return
 
         settings = await self.get_guild_settings(message.guild.id)
@@ -469,6 +539,10 @@ class Leveling(commands.Cog):
         """
         if member.bot or not member.guild:
             return
+        if permissions.is_vip_bot(self.bot):
+            return
+        if await self.is_exempt(member.guild, member):
+            return
         now = time.time()
         
         # Log the voice state change
@@ -494,6 +568,8 @@ class Leveling(commands.Cog):
         a channel that has shown no sign of life for hours stops paying. The
         configured per-minute rates are the ceiling, not a flat salary.
         """
+        if permissions.is_vip_bot(self.bot):
+            return
         for guild in self.bot.guilds:
             try:
                 if hasattr(self.bot, "is_module_enabled") and not self.bot.is_module_enabled(guild.id, "leveling"):
@@ -540,6 +616,8 @@ class Leveling(commands.Cog):
                     print(f"[LEVELS] VC #{vc.name} - Channel age: {channel_age:.0f}s, Freshness: {freshness:.2f}", flush=True)
 
                     for member in humans:
+                        if await self.is_exempt(guild, member):
+                            continue
                         member_count += 1
                         state = member.voice
                         # Anti-AFK gate 3: can this member take part at all? Deafened
@@ -923,6 +1001,169 @@ class Leveling(commands.Cog):
         role = interaction.guild.get_role(row[0])
         role_name = role.name if role else f"Role {row[0]}"
         await interaction.response.send_message(f"✅ Removed role reward `{role_name}` for **Level {level}**.")
+
+    # -------------------------------------------------------------------------
+    # Level Exemptions (Ignore from Rankups & XP)
+    # -------------------------------------------------------------------------
+
+    levelexempt_group = app_commands.Group(
+        name="levelexempt",
+        description="Exempt members, roles, or admins/owner from leveling and rankups.",
+        default_permissions=discord.Permissions(manage_guild=True),
+    )
+
+    @levelexempt_group.command(name="add", description="Exempt a member or role from leveling & rankup announcements.")
+    @app_commands.describe(member="Member to exempt", role="Role to exempt")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def levelexempt_add(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member = None,
+        role: discord.Role = None,
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+        if not member and not role:
+            return await interaction.response.send_message("❌ Please specify either a member or a role to exempt.", ephemeral=True)
+
+        added = []
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if member:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO level_exemptions (guild_id, target_type, target_id) VALUES (?, 'user', ?)",
+                    (interaction.guild.id, member.id),
+                )
+                added.append(f"Member {member.mention}")
+            if role:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO level_exemptions (guild_id, target_type, target_id) VALUES (?, 'role', ?)",
+                    (interaction.guild.id, role.id),
+                )
+                added.append(f"Role {role.mention}")
+            await conn.commit()
+
+        self._exempt_cache.pop(interaction.guild.id, None)
+        await interaction.response.send_message(
+            f"✅ Successfully exempted {' and '.join(added)} from leveling and rankup announcements."
+        )
+
+    @levelexempt_group.command(name="remove", description="Remove a member or role from the leveling exemption list.")
+    @app_commands.describe(member="Member to unexempt", role="Role to unexempt")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def levelexempt_remove(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member = None,
+        role: discord.Role = None,
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+        if not member and not role:
+            return await interaction.response.send_message("❌ Please specify either a member or a role to unexempt.", ephemeral=True)
+
+        removed = []
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if member:
+                await conn.execute(
+                    "DELETE FROM level_exemptions WHERE guild_id = ? AND target_type = 'user' AND target_id = ?",
+                    (interaction.guild.id, member.id),
+                )
+                removed.append(f"Member {member.mention}")
+            if role:
+                await conn.execute(
+                    "DELETE FROM level_exemptions WHERE guild_id = ? AND target_type = 'role' AND target_id = ?",
+                    (interaction.guild.id, role.id),
+                )
+                removed.append(f"Role {role.mention}")
+            await conn.commit()
+
+        self._exempt_cache.pop(interaction.guild.id, None)
+        await interaction.response.send_message(
+            f"✅ Successfully removed {' and '.join(removed)} from leveling exemptions."
+        )
+
+    @levelexempt_group.command(name="owner", description="Toggle whether the Server Owner is exempt from rankups.")
+    @app_commands.describe(exempt="Enable or disable auto-exemption for Server Owner")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def levelexempt_owner(self, interaction: discord.Interaction, exempt: bool):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if exempt:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO level_exemptions (guild_id, target_type, target_id) VALUES (?, 'owner', 0)",
+                    (interaction.guild.id,),
+                )
+            else:
+                await conn.execute(
+                    "DELETE FROM level_exemptions WHERE guild_id = ? AND target_type = 'owner'",
+                    (interaction.guild.id,),
+                )
+            await conn.commit()
+
+        self._exempt_cache.pop(interaction.guild.id, None)
+        status = "exempt from leveling and rankups" if exempt else "no longer exempt from leveling"
+        await interaction.response.send_message(f"👑 **Server Owner** is now {status}.")
+
+    @levelexempt_group.command(name="admin", description="Toggle whether Administrators are exempt from rankups.")
+    @app_commands.describe(exempt="Enable or disable auto-exemption for Administrators")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def levelexempt_admin(self, interaction: discord.Interaction, exempt: bool):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            if exempt:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO level_exemptions (guild_id, target_type, target_id) VALUES (?, 'admin', 0)",
+                    (interaction.guild.id,),
+                )
+            else:
+                await conn.execute(
+                    "DELETE FROM level_exemptions WHERE guild_id = ? AND target_type = 'admin'",
+                    (interaction.guild.id,),
+                )
+            await conn.commit()
+
+        self._exempt_cache.pop(interaction.guild.id, None)
+        status = "exempt from leveling and rankups" if exempt else "no longer exempt from leveling"
+        await interaction.response.send_message(f"🛡️ **Administrators** are now {status}.")
+
+    @levelexempt_group.command(name="list", description="List all exempt members, roles, and admin/owner status.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def levelexempt_list(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ This command can only be used in a server!", ephemeral=True)
+
+        exempts = await self.get_exemptions(interaction.guild.id)
+        owner_exempt = "✅ Exempt" if 0 in exempts["owner"] else "❌ Not Exempt"
+        admin_exempt = "✅ Exempt" if 0 in exempts["admin"] else "❌ Not Exempt"
+
+        users_formatted = []
+        for uid in exempts["user"]:
+            m = interaction.guild.get_member(uid)
+            users_formatted.append(m.mention if m else f"<@{uid}>")
+        users_str = ", ".join(users_formatted) if users_formatted else "*None*"
+
+        roles_formatted = []
+        for rid in exempts["role"]:
+            r = interaction.guild.get_role(rid)
+            roles_formatted.append(r.mention if r else f"<@&{rid}>")
+        roles_str = ", ".join(roles_formatted) if roles_formatted else "*None*"
+
+        embed = discord.Embed(
+            title="🛡️ Level & Rankup Exemptions",
+            description="Members and roles currently exempt from earning XP and receiving rankup messages:\n",
+            color=0x5865F2,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="👑 Server Owner", value=owner_exempt, inline=True)
+        embed.add_field(name="🛡️ Administrators", value=admin_exempt, inline=True)
+        embed.add_field(name="👤 Exempt Members", value=users_str, inline=False)
+        embed.add_field(name="🎭 Exempt Roles", value=roles_str, inline=False)
+        embed.set_footer(text=f"Leveling System • {interaction.guild.name}")
+        await send_card(interaction, embed=embed)
 
     @app_commands.command(name="levelsettings", description="Configure server level announcements, payout rates and toggles.")
     @app_commands.describe(

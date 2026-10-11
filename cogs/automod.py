@@ -31,7 +31,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils import db, features, modlog
+from utils import db, features, modlog, permissions
 from utils.style import INFO, WARN
 
 try:
@@ -457,6 +457,8 @@ class AutoMod(commands.Cog):
     @commands.Cog.listener()
     async def on_automod_action(self, execution):
         """Record native Discord AutoMod actions in the same moderation log."""
+        if permissions.is_vip_bot(self.bot):
+            return
         guild = getattr(execution, "guild", None)
         if guild is None or not self._running(guild.id):
             return
@@ -485,6 +487,8 @@ class AutoMod(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
+            return
+        if permissions.is_vip_bot(self.bot):
             return
         if message.author.guild_permissions.manage_messages:
             return  # don't automod staff

@@ -202,12 +202,13 @@ FEATURES: tuple[Feature, ...] = (
         ),
         gate_commands=(
             "rank", "leaderboard", "levelsettings", "setlevel", "givexp",
-            "resetlevels", "levelroles",
+            "resetlevels", "levelroles", "levelexempt",
         ),
         commands=(
             "/rank", "/leaderboard", "/levelroles view", "/levelroles add",
             "/levelroles remove", "/levelsettings", "/setlevel", "/givexp",
-            "/resetlevels",
+            "/resetlevels", "/levelexempt add", "/levelexempt remove",
+            "/levelexempt list", "/levelexempt owner", "/levelexempt admin",
         ),
         cog="cogs.leveling",
         help_key="leveling",

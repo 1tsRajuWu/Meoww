@@ -335,6 +335,12 @@ async def setup():
             vc_coins_per_min INTEGER DEFAULT 2,
             vc_xp_per_min INTEGER DEFAULT 3
         )''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS level_exemptions (
+            guild_id INTEGER,
+            target_type TEXT,
+            target_id INTEGER,
+            PRIMARY KEY (guild_id, target_type, target_id)
+        )''')
         # ── The one-time claim's latch ──────────────────────────────────────
         # Created here and again by the claim's own writer — see
         # ``CLAIM_SCHEMA`` for what the row holds and why it is the table that
