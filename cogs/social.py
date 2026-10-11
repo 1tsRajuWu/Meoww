@@ -545,7 +545,7 @@ async def _cleanup_pair_roles(guild: discord.Guild | None, id1: int, id2: int, *
 
 
 class MarriageView(discord.ui.View):
-    def __init__(self, proposer: discord.Member, target: discord.Member, timeout: float = 300):
+    def __init__(self, proposer: discord.Member, target: discord.Member, timeout: float = 3600):
         super().__init__(timeout=timeout)
         self.proposer = proposer
         self.target = target
@@ -587,6 +587,16 @@ class MarriageView(discord.ui.View):
 
         now = discord.utils.utcnow().strftime("%B %d, %Y")
         async with aiosqlite.connect(DB_PATH) as conn:
+            # The dating check below reads the bonds table, which a live
+            # database can predate — healed here, in the same connection.
+            await conn.execute('''CREATE TABLE IF NOT EXISTS bonds (
+                guild_id INTEGER,
+                user1_id INTEGER,
+                user2_id INTEGER,
+                kind TEXT,
+                since_at TEXT,
+                PRIMARY KEY (guild_id, user1_id, kind)
+            )''')
             await conn.execute(
                 "INSERT OR REPLACE INTO marriages (guild_id, user1_id, user2_id, married_at) VALUES (?, ?, ?, ?)",
                 (interaction.guild.id, self.proposer.id, self.target.id, now)
@@ -612,6 +622,10 @@ class MarriageView(discord.ui.View):
             await conn.commit()
 
         role_note = await _add_couple_role(interaction.guild, self.proposer.id, self.target.id)
+        await _sad_news_watch(
+            interaction.guild, self.proposer.id, self.target.id,
+            couple_noun="married", partner_noun="spouse",
+        )
 
         # Dating upgrade: marrying your bf/gf absorbs the dating bond and its
         # role, so the pair keeps exactly one bond and one role.
@@ -809,6 +823,101 @@ async def _delete_bond_rows(guild_id: int, user_id: int, kind: str) -> None:
         await conn.commit()
 
 
+async def _dm_member(guild: discord.Guild | None, user_id: int, text: str) -> bool:
+    # A secret told in a channel stops being a secret. Sad news about crushes
+    # therefore travels by DM only — and never at all when DMs are closed.
+    # No mentions: there is nobody to ping, only someone to tell gently.
+    if guild is None:
+        return False
+    member = await _resolve_member(guild, user_id)
+    if member is None or getattr(member, "bot", False):
+        return False
+    try:
+        await member.send(text)
+        return True
+    except Exception:
+        return False
+
+
+async def _sad_news_watch(guild: discord.Guild | None, a_id: int, b_id: int, *, couple_noun: str, partner_noun: str) -> None:
+    """Secret-crush fallout when two members become an item.
+
+    Two deliveries, both DM-only: anyone secretly crushing on ``a`` or ``b``
+    learns their crush just got taken, and if ``a`` or ``b`` was secretly
+    crushing on someone else, their new partner learns about it — without ever
+    naming the third party. Notified crushes are deleted; closure, not a watch
+    list. Mutual crushes that just became official are skipped: they chose.
+    """
+    if guild is None:
+        return
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT user1_id, user2_id FROM bonds WHERE guild_id=? AND kind='crush'"
+                " AND (user1_id IN (?, ?) OR user2_id IN (?, ?))",
+                (guild.id, a_id, b_id, a_id, b_id),
+            ) as cur:
+                rows = [(r[0], r[1]) async for r in cur]
+    except Exception:
+        return
+    pining: list[tuple[int, int]] = []
+    stray: list[tuple[int, int]] = []
+    for crusher_id, target_id in rows:
+        if crusher_id in (a_id, b_id) and target_id in (a_id, b_id):
+            continue
+        if target_id in (a_id, b_id):
+            pining.append((crusher_id, target_id))
+        elif crusher_id in (a_id, b_id):
+            stray.append((crusher_id, target_id))
+    delivered: list[tuple[int, int]] = []
+
+    async def _tell_piner(crusher_id: int, target_id: int) -> tuple[int, int] | None:
+        crusher_name = await display_name(guild, crusher_id)
+        target_name = await display_name(guild, target_id)
+        if await _dm_member(
+            guild, crusher_id,
+            f"💔 Bad news, {crusher_name}... {target_name} just became {couple_noun}."
+            f"\nYour secret crush stays between us. Chin up. 🫂",
+        ):
+            return (crusher_id, target_id)
+        return None
+
+    async def _tell_partner(crusher_id: int, target_id: int) -> tuple[int, int] | None:
+        partner_id = b_id if crusher_id == a_id else a_id
+        partner_name = await display_name(guild, partner_id)
+        if await _dm_member(
+            guild, partner_id,
+            f"💔 Heads up, {partner_name}... your new {partner_noun} was secretly"
+            f" crushing on someone before choosing you. They chose YOU. 🤫",
+        ):
+            return (crusher_id, target_id)
+        return None
+
+    results = await asyncio.gather(
+        *[_tell_piner(c, t) for c, t in pining],
+        *[_tell_partner(c, t) for c, t in stray],
+    )
+    delivered = [pair for pair in results if pair is not None]
+    # Mutual crushes that just became official chose each other: cleared
+    # quietly, no sad news for anyone.
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "DELETE FROM bonds WHERE guild_id=? AND kind='crush'"
+                " AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
+                (guild.id, a_id, b_id, b_id, a_id),
+            )
+            for crusher_id, target_id in delivered:
+                await conn.execute(
+                    "DELETE FROM bonds WHERE guild_id=? AND kind='crush'"
+                    " AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
+                    (guild.id, crusher_id, target_id, target_id, crusher_id),
+                )
+            await conn.commit()
+    except Exception:
+        pass
+
+
 async def _proposal_state(guild_id: int, me_id: int, them_id: int) -> dict:
     """Every relationship row a proposal checks, in a single connection.
 
@@ -854,7 +963,7 @@ async def _proposal_state(guild_id: int, me_id: int, them_id: int) -> dict:
 class BondView(discord.ui.View):
     """Accept / Decline for a relationship proposal — the MarriageView pattern."""
 
-    def __init__(self, proposer: discord.Member, target: discord.Member, kind: str, timeout: float = 300):
+    def __init__(self, proposer: discord.Member, target: discord.Member, kind: str, timeout: float = 3600):
         super().__init__(timeout=timeout)
         self.proposer = proposer
         self.target = target
@@ -923,6 +1032,11 @@ class BondView(discord.ui.View):
             sep=spec["sep"], colour=spec["colour"], noun=spec["noun"],
             reason=f"Bonded ({self.kind})", headline=f"are now {spec['verb']}!",
         )
+        if self.kind == "dating":
+            await _sad_news_watch(
+                interaction.guild, self.proposer.id, self.target.id,
+                couple_noun="dating", partner_noun="boyfriend/girlfriend",
+            )
 
         embed = discord.Embed(
             title=spec["accept_title"],
@@ -1401,6 +1515,15 @@ class Social(commands.Cog):
             return await interaction.response.send_message("❌ You are already married! Run `/divorce` first.", ephemeral=True)
         if state["married_them"] is not None:
             return await interaction.response.send_message(f"❌ {member.mention} is already married to someone else!", ephemeral=True)
+        if state["pair_kinds"] & {"twin", "sibling"}:
+            return await interaction.response.send_message(
+                "❌ Family is family — marry outside the bloodline! 🚫", ephemeral=True)
+        if "twin" in state["my_bonds"]:
+            return await interaction.response.send_message(
+                "❌ You're someone's twin — twins belong to each other! Break it first. 👯", ephemeral=True)
+        if "twin" in state["their_bonds"]:
+            return await interaction.response.send_message(
+                f"❌ {member.mention} is already someone's twin — hands off! 👯", ephemeral=True)
 
         my_date = state["my_bonds"].get("dating")
         if my_date is not None and my_date != member.id:
@@ -1491,6 +1614,11 @@ class Social(commands.Cog):
         if member.bot:
             return await interaction.response.send_message("❌ Bots cannot sign bond certificates!", ephemeral=True)
 
+        # Crushes are secret: no ceremony, no role, and the target never sees
+        # a thing. The confession is recorded and answered here, ephemerally.
+        if kind == "crush":
+            return await self._confess_crush(interaction, member)
+
         # The database read (which heals the bonds table too) and the GIF
         # fetch are independent — one hits the disk, the other the network —
         # so they fly together, not in a row.
@@ -1498,7 +1626,8 @@ class Social(commands.Cog):
             _proposal_state(interaction.guild.id, me_id, them_id),
             gifs.action_gif(spec["gif"]),
         )
-        if kind in state["my_bonds"]:            return await interaction.response.send_message(
+        if kind in state["my_bonds"]:
+            return await interaction.response.send_message(
                 f"❌ You already have a {spec['noun']}! Run `/bond break` first.", ephemeral=True)
         if kind in state["their_bonds"]:
             return await interaction.response.send_message(
@@ -1506,6 +1635,12 @@ class Social(commands.Cog):
 
         pair_kinds = state["pair_kinds"]
         if kind == "dating":
+            if "twin" in state["my_bonds"]:
+                return await interaction.response.send_message(
+                    "❌ You're someone's twin — twins belong to each other! Break it first. 👯", ephemeral=True)
+            if "twin" in state["their_bonds"]:
+                return await interaction.response.send_message(
+                    f"❌ {member.mention} is already someone's twin — hands off! 👯", ephemeral=True)
             if state["married_me"] is not None:
                 return await interaction.response.send_message(
                     "❌ You're married! Run `/divorce` first — no cheating on my watch! 💍", ephemeral=True)
@@ -1515,11 +1650,29 @@ class Social(commands.Cog):
             if pair_kinds & {"twin", "sibling"}:
                 return await interaction.response.send_message(
                     "❌ Family is family — you can't date your twin or sibling! 🚫", ephemeral=True)
-        elif kind in ("twin", "sibling"):
-            other = "sibling" if kind == "twin" else "twin"
-            if other in pair_kinds:
+        elif kind == "twin":
+            if "sibling" in pair_kinds:
                 return await interaction.response.send_message(
-                    f"❌ You're already {other}s — pick one family label!", ephemeral=True)
+                    "❌ You're already siblings — pick one family label!", ephemeral=True)
+            for who, label in (
+                (state["my_bonds"].get("dating"), "You're dating someone"),
+                (state["their_bonds"].get("dating"), f"{member.mention} is dating someone"),
+                (state["married_me"], "You're married"),
+                (state["married_them"], f"{member.mention} is married"),
+            ):
+                if who is not None:
+                    return await interaction.response.send_message(
+                        f"❌ {label}! Twins give their whole heart — settle that first. 👯", ephemeral=True)
+            if state["married_me"] == them_id:
+                return await interaction.response.send_message(
+                    "❌ You're married to them — that's a stronger bond already! 💍", ephemeral=True)
+            if state["my_bonds"].get("dating") == them_id:
+                return await interaction.response.send_message(
+                    "❌ You're dating them — family-zoning your partner is diabolical! 💘", ephemeral=True)
+        elif kind == "sibling":
+            if "twin" in pair_kinds:
+                return await interaction.response.send_message(
+                    "❌ You're already twins — pick one family label!", ephemeral=True)
             if state["married_me"] == them_id:
                 return await interaction.response.send_message(
                     "❌ You're married to them — that's a stronger bond already! 💍", ephemeral=True)
@@ -1546,6 +1699,70 @@ class Social(commands.Cog):
             view.message = await interaction.original_response()
         except Exception:
             pass
+
+    async def _confess_crush(self, interaction: discord.Interaction, member: discord.Member):
+        """A crush confession: recorded secretly, answered ephemerally.
+
+        The target is never notified, tagged, or shown anything — crushing is
+        a one-sided secret until fate (or `/bond break`) intervenes. If the
+        crusher is taken, their partner gets a sad DM; if the target is
+        taken, the crusher learns it here, privately. Either way the crush is
+        recorded so the taken-watch can deliver closure later.
+        """
+        me_id, them_id = interaction.user.id, member.id
+        state = await _proposal_state(interaction.guild.id, me_id, them_id)
+        if "crush" in state["my_bonds"]:
+            return await interaction.response.send_message(
+                "❌ You're already pining for someone! Run `/bond break` to let them go first. 💔",
+                ephemeral=True,
+            )
+        if state["pair_kinds"] & {"twin", "sibling"}:
+            return await interaction.response.send_message(
+                "❌ Family is family — even secretly! 🚫", ephemeral=True)
+
+        now = discord.utils.utcnow().strftime("%B %d, %Y")
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO bonds (guild_id, user1_id, user2_id, kind, since_at) VALUES (?, ?, ?, 'crush', ?)",
+                (interaction.guild.id, me_id, them_id, now),
+            )
+            await conn.execute(
+                "INSERT OR REPLACE INTO bonds (guild_id, user1_id, user2_id, kind, since_at) VALUES (?, ?, ?, 'crush', ?)",
+                (interaction.guild.id, them_id, me_id, now),
+            )
+            await conn.commit()
+
+        my_partner = state["my_bonds"].get("dating")
+        my_spouse = state["married_me"]
+        target_taken = (
+            state["their_bonds"].get("dating") is not None
+            or state["married_them"] is not None
+        )
+        if my_partner is not None or my_spouse is not None:
+            # Taken and crushing anyway: the partner hears about it by DM.
+            # The third party is never named — drama, not doxxing.
+            partner_id = my_partner if my_partner is not None else my_spouse
+            partner_name = await display_name(interaction.guild, partner_id)
+            wounded = "boyfriend/girlfriend" if my_partner is not None else "spouse"
+            await _dm_member(
+                interaction.guild, partner_id,
+                f"💔 Heads up, {partner_name}... your {wounded} just confessed"
+                f" a secret crush on someone else. They still chose YOU. 🤫",
+            )
+            return await interaction.response.send_message(
+                "💖 Noted... and your partner has been told. Bold strategy. 😬🤫",
+                ephemeral=True,
+            )
+        if target_taken:
+            return await interaction.response.send_message(
+                "💔 Bad news, secret admirer: they're already taken..."
+                "\nYour crush is recorded anyway — if fate frees them, you'll be the first to know. 🤫",
+                ephemeral=True,
+            )
+        return await interaction.response.send_message(
+            "💖 Crush confessed — sealed, secret, and safe with me. They'll never know... unless fate intervenes. 🤫🦋",
+            ephemeral=True,
+        )
 
     @bond.command(name="break", description="End one (or all) of your relationship bonds.")
     @app_commands.checks.cooldown(1, BOND_BREAK_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
@@ -1577,6 +1794,20 @@ class Social(commands.Cog):
         spec = BOND_KINDS[kind_value]
 
         await _delete_bond_rows(interaction.guild.id, interaction.user.id, kind_value)
+        if kind_value == "crush":
+            # A broken secret stays secret: no card, no role mention, nobody
+            # told. (Legacy crush rows may still own a pair role — swept
+            # silently below.)
+            await _cleanup_pair_roles(
+                interaction.guild, interaction.user.id, partner_id,
+                sep=spec["sep"], colour=spec["colour"],
+                reason="Crush let go", delete_reason="Crush let go",
+                label="crush role",
+            )
+            return await interaction.response.send_message(
+                "💔 Let them go... your secret went with it. Nobody will ever know. 🤫",
+                ephemeral=True,
+            )
         role_note = await _cleanup_pair_roles(
             interaction.guild, interaction.user.id, partner_id,
             sep=spec["sep"], colour=spec["colour"],
@@ -1598,6 +1829,10 @@ class Social(commands.Cog):
         member = member or interaction.user
         await _ensure_bonds_table()
         rows = await _user_bonds(interaction.guild.id, member.id)
+        looking_at_self = member.id == interaction.user.id
+        if not looking_at_self:
+            # Secret crushes stay secret: other people's lists never show them.
+            rows = [(k, p) for (k, p) in rows if k != "crush"]
         if not rows:
             whose = "You have" if member.id == interaction.user.id else f"{member.display_name} has"
             return await send_card(interaction, embed=discord.Embed(

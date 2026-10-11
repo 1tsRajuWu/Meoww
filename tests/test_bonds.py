@@ -45,6 +45,7 @@ class _FakeMember:
         self.mention = f"<@{uid}>"
         self.bot = bot
         self.roles = []
+        self.sent_dms = []
 
     async def add_roles(self, role, **kwargs):
         if role not in self.roles:
@@ -57,6 +58,9 @@ class _FakeMember:
             self.roles.remove(role)
         if self in role.members:
             role.members.remove(self)
+
+    async def send(self, content=None, **kwargs):
+        self.sent_dms.append({"content": content, **kwargs})
 
 
 class _FakeGuild:
@@ -207,10 +211,18 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_bond_rows(), [])
 
     async def test_dating_family_is_refused(self):
+        await self._propose(self.raj, self.ice, "sibling")
+        await self._accept(self.raj, self.ice, "sibling")
+        interaction = await self._propose(self.raj, self.ice, "dating")
+        self.assertIn("Family", interaction.response.messages[-1]["content"])
+        kinds = {r[2] for r in _bond_rows()}
+        self.assertEqual(kinds, {"sibling"})
+
+    async def test_dating_own_twin_invokes_loyalty(self):
         await self._propose(self.raj, self.ice, "twin")
         await self._accept(self.raj, self.ice, "twin")
         interaction = await self._propose(self.raj, self.ice, "dating")
-        self.assertIn("Family", interaction.response.messages[-1]["content"])
+        self.assertIn("twin", interaction.response.messages[-1]["content"].lower())
         kinds = {r[2] for r in _bond_rows()}
         self.assertEqual(kinds, {"twin"})
 
@@ -404,6 +416,147 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # One connection for every check (five opens before). The GIF flies
         # alongside it, so it is not counted here.
         self.assertLessEqual(len(connects), 1)
+
+    async def test_marry_reads_in_a_single_connection(self):
+        connects = []
+        real_connect = social_module.aiosqlite.connect
+
+        def counting(*args, **kwargs):
+            connects.append(1)
+            return real_connect(*args, **kwargs)
+
+        with mock.patch.object(social_module.aiosqlite, "connect", new=counting):
+            with mock.patch.object(social_module.gifs, "action_gif", return_value=None):
+                interaction = _FakeInteraction(self.raj, self.guild)
+                await social_module.Social.marry.callback(self.cog, interaction, self.ice)
+        self.assertLessEqual(len(connects), 1)
+
+    async def test_crush_confession_is_secret(self):
+        interaction = await self._propose(self.raj, self.ice, "crush")
+        sent = interaction.response.messages[-1]
+        self.assertTrue(sent.get("ephemeral"), "crush must never be public")
+        self.assertNotIn("view", sent, "no ceremony for a secret")
+        self.assertNotIn("embed", sent, "no card for a secret")
+        rows = {(r[0], r[1], r[2]) for r in _bond_rows()}
+        self.assertIn((1, 2, "crush"), rows)
+        self.assertIn((2, 1, "crush"), rows)
+        self.assertEqual(self.guild.roles, [], "a secret gets no role")
+        self.assertEqual(self.ice.sent_dms, [], "the target must never know")
+
+    async def test_crush_on_taken_target_records_and_warns_crusher(self):
+        await self._propose(self.zed, self.ice, "dating")
+        await self._accept(self.zed, self.ice, "dating")
+        interaction = await self._propose(self.raj, self.ice, "crush")
+        sent = interaction.response.messages[-1]
+        self.assertTrue(sent.get("ephemeral"))
+        self.assertIn("taken", (sent.get("content") or "").lower())
+        self.assertTrue(any(r[2] == "crush" and r[0] == 1 for r in _bond_rows()))
+        self.assertEqual(self.ice.sent_dms, [])
+
+    async def test_taken_crusher_notifies_partner_not_target(self):
+        await self._propose(self.raj, self.zed, "dating")
+        await self._accept(self.raj, self.zed, "dating")
+        xeno = self.guild.add(_FakeMember(4, "XENO"))
+        interaction = await self._propose(self.raj, xeno, "crush")
+        sent = interaction.response.messages[-1]
+        self.assertTrue(sent.get("ephemeral"))
+        # The partner hears; the crush target hears nothing and is unnamed.
+        self.assertEqual(len(self.zed.sent_dms), 1)
+        dm = self.zed.sent_dms[0]["content"]
+        self.assertNotIn("XENO", dm)
+        self.assertEqual(xeno.sent_dms, [])
+        self.assertTrue(any(r[2] == "crush" and r[0] == 1 for r in _bond_rows()))
+
+    async def test_dating_notifies_pining_crusher_and_closes_it(self):
+        await self._propose(self.zed, self.ice, "crush")
+        await self._propose(self.raj, self.ice, "dating")
+        await self._accept(self.raj, self.ice, "dating")
+        self.assertEqual(len(self.zed.sent_dms), 1)
+        dm = self.zed.sent_dms[0]["content"]
+        self.assertIn("ICE", dm)
+        kinds = {(r[0], r[2]) for r in _bond_rows()}
+        self.assertNotIn((3, "crush"), kinds)
+        self.assertIn((1, "dating"), kinds)
+
+    async def test_new_partner_learns_of_stray_crushes(self):
+        xeno = self.guild.add(_FakeMember(4, "XENO"))
+        await self._propose(self.raj, xeno, "crush")
+        # RAJ is free here, so no partner news yet; now he dates ICE.
+        self.assertEqual(self.ice.sent_dms, [])
+        await self._propose(self.raj, self.ice, "dating")
+        await self._accept(self.raj, self.ice, "dating")
+        self.assertEqual(len(self.ice.sent_dms), 1)
+        dm = self.ice.sent_dms[0]["content"]
+        self.assertNotIn("XENO", dm)
+        kinds = {(r[0], r[2]) for r in _bond_rows()}
+        self.assertNotIn((1, "crush"), kinds)
+        self.assertIn((1, "dating"), kinds)
+
+    async def test_mutual_crushes_becoming_official_make_no_news(self):
+        await self._propose(self.raj, self.ice, "crush")
+        await self._propose(self.ice, self.raj, "crush")
+        await self._propose(self.raj, self.ice, "dating")
+        await self._accept(self.raj, self.ice, "dating")
+        self.assertEqual(self.raj.sent_dms, [])
+        self.assertEqual(self.ice.sent_dms, [])
+        kinds = {(r[0], r[1], r[2]) for r in _bond_rows()}
+        self.assertIn((1, 2, "dating"), kinds)
+        self.assertFalse(any(r[2] == "crush" for r in kinds))
+
+    async def test_twins_cannot_date_or_marry(self):
+        await self._propose(self.raj, self.ice, "twin")
+        await self._accept(self.raj, self.ice, "twin")
+        dating = await self._propose(self.raj, self.zed, "dating")
+        self.assertIn("twin", dating.response.messages[-1]["content"].lower())
+        bond = await self._propose(self.zed, self.raj, "dating")
+        self.assertIn("twin", bond.response.messages[-1]["content"].lower())
+        interaction = _FakeInteraction(self.raj, self.guild)
+        await social_module.Social.marry.callback(self.cog, interaction, self.zed)
+        self.assertIn("twin", interaction.response.messages[-1]["content"].lower())
+        interaction2 = _FakeInteraction(self.raj, self.guild)
+        await social_module.Social.marry.callback(self.cog, interaction2, self.ice)
+        self.assertIn("Family", interaction2.response.messages[-1]["content"])
+
+    async def test_twin_demands_a_free_heart(self):
+        await self._propose(self.raj, self.zed, "dating")
+        await self._accept(self.raj, self.zed, "dating")
+        taken = await self._propose(self.raj, self.ice, "twin")
+        self.assertIn("whole heart", taken.response.messages[-1]["content"])
+
+    async def test_list_hides_other_peoples_crushes(self):
+        await self._propose(self.raj, self.ice, "crush")
+        seen = {}
+
+        async def _capture(target, **kwargs):
+            seen["desc"] = kwargs.get("embed").description
+
+        snooping = _FakeInteraction(self.zed, self.guild)
+        with mock.patch.object(social_module, "send_card", new=_capture):
+            await social_module.Social.bond_list.callback(self.cog, snooping, self.raj)
+        self.assertNotIn("Crush", seen.get("desc", ""))
+        own = _FakeInteraction(self.raj, self.guild)
+        with mock.patch.object(social_module, "send_card", new=_capture):
+            await social_module.Social.bond_list.callback(self.cog, own, None)
+        self.assertIn("Crush", seen.get("desc", ""))
+
+    async def test_breaking_a_crush_stays_secret(self):
+        await self._propose(self.raj, self.ice, "crush")
+        calls = []
+
+        async def _loud(target, **kwargs):
+            calls.append(kwargs)
+
+        interaction = _FakeInteraction(self.raj, self.guild)
+        with mock.patch.object(social_module, "send_card", new=_loud):
+            await social_module.Social.break_bond.callback(
+                self.cog, interaction, _choice("crush"))
+        self.assertEqual(calls, [], "no public card for a broken secret")
+        self.assertTrue(interaction.response.messages[-1].get("ephemeral"))
+        self.assertEqual(_bond_rows(), [])
+
+    async def test_proposals_last_an_hour(self):
+        self.assertEqual(social_module.BondView(self.raj, self.ice, "dating").timeout, 3600)
+        self.assertEqual(social_module.MarriageView(self.raj, self.ice).timeout, 3600)
 
     async def test_marry_reads_in_a_single_connection(self):
         connects = []

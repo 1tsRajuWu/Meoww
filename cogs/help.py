@@ -74,7 +74,7 @@ HELP_MODULES = {
             "> `/action <type> <member>` — Perform roleplay actions (Bonk, Slap, Hug, Kiss, Pat, Punch, Bite, Cuddle, Poke, Feed, Blush, Smile, Wave, Wink, Dance, Laugh, Cry, Lick, Tickle)\n"
             "> `/marry <member>` — Propose marriage to another member\n"
             "> `/divorce` — End marriage\n"
-            "> `/bond propose <member> <type>` — Propose dating, bestie, twin, sibling, crush or rival bonds\n"
+            "> `/bond propose <member> <type>` — Propose dating, bestie, twin, sibling, crush or rival bonds (crushes stay secret 🤫, proposals last an hour)\n"
             "> `/bond break [type]` — End a relationship bond\n"
             "> `/bond list [member]` — Show someone's relationship bonds\n"
             "> `/ship <member1> <member2>` — Calculate love compatibility percentage\n"
