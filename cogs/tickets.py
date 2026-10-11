@@ -67,7 +67,7 @@ TICKET_CATEGORIES = {
 # Post-close feedback
 # ---------------------------------------------------------------------------
 #: The ticket channel waits this long for a rating before deleting itself.
-FEEDBACK_GRACE_SECONDS = 60
+FEEDBACK_GRACE_SECONDS = 120
 #: The DM copy of the prompt keeps working for a day, so an opener who was away
 #: when the ticket closed can still rate it.
 FEEDBACK_DM_TIMEOUT = 24 * 60 * 60
