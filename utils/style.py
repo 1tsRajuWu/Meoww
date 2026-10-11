@@ -800,6 +800,10 @@ VIP_FOOTER = f"💎 DaCat VIP • 100x Enhanced Visuals • ID: {VIP_BOT_ID}"
 #: server's own animated emoji or attachment), because a dead file draws the
 #: empty box this codebase refuses to send any other way.
 VIP_BANNER_GIF = ""
+#: Small-motion icons: Discord renders author and footer icons tiny (~20px),
+#: which is exactly where a little animation belongs. Verified live files;
+#: swap for the server's own animated emoji any time.
+VIP_SPARKLE_GIF = "https://cdn.discordapp.com/emojis/1062718595370602607.gif"
 
 
 def is_vip_context(target) -> bool:
@@ -852,6 +856,7 @@ def make_vip_embed(
     image_url: str | None = None,
     author_name: str = "👑 DaCat Premium • VIP Edition",
     author_icon: str | None = None,
+    footer_icon: str | None = None,
 ) -> discord.Embed:
     """Create a 100x high-fidelity VIP card embed."""
     embed = discord.Embed(
@@ -871,7 +876,7 @@ def make_vip_embed(
     if fields:
         for name, value, inline in fields:
             embed.add_field(name=f"◈ {name}", value=value, inline=inline)
-    embed.set_footer(text=footer or VIP_FOOTER)
+    embed.set_footer(text=footer or VIP_FOOTER, icon_url=footer_icon or "")
     return embed
 
 

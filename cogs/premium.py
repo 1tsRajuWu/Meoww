@@ -7,6 +7,7 @@ from utils.style import (
     send_card,
     make_vip_embed,
     VIP_BOT_ID,
+    VIP_SPARKLE_GIF,
     VIP_BANNER_GIF,
     VIP_INVITE_URL,
     MAIN_INVITE_URL,
@@ -99,6 +100,7 @@ class Premium(commands.Cog):
                 ),
             ],
             thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
+            footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
 
@@ -116,6 +118,7 @@ class Premium(commands.Cog):
             ),
             fields=fields,
             thumbnail_url=interaction.guild.icon.url if interaction.guild and interaction.guild.icon else None,
+            footer_icon=VIP_SPARKLE_GIF,
         )
         await send_card(interaction, embed=embed, view=PremiumInviteView())
 
