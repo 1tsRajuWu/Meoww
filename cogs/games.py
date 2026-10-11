@@ -26,7 +26,22 @@ TRIVIA_QUESTIONS = [
 TRIVIA_COOLDOWN_SECONDS = 3 * 60
 
 SLOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣", "⭐"]
-SLOT_MULTIPLIERS = {"🍒": 2, "🍋": 2.5, "🍊": 3, "🍇": 4, "⭐": 5, "💎": 10, "7️⃣": 20}
+#: Triple paytable. A triple of any of the 7 symbols lands 1/343 of spins and a
+#: matching pair 126/343, so the return-to-player is
+#: ``sum(multipliers)/343 + (126/343)*0.5`` = 262/343 + 0.184 ≈ **94.8%** —
+#: a real casino slot, not the 32% the old table (2..20) paid.
+SLOT_MULTIPLIERS = {"🍒": 10, "🍋": 12, "🍊": 15, "🍇": 20, "⭐": 25, "💎": 60, "7️⃣": 120}
+
+#: The house's cut on the even-money games. A win pays this times the stake
+#: (ties refund) instead of doubling it: coinflip lands 50/50, dice 15/36 with
+#: 6/36 ties, RPS a third each way, gamble 4950/10000 with 100/10000 ties.
+#: Every one of them used to pay 2x for an exact 100% return — a money printer.
+EVEN_MONEY_PAYOUT = 1.9
+
+#: The house's share of a fair High-Low price. Each guess pays this fraction of
+#: the true odds read off the cards still in the ladder's deck — the old table
+#: paid up to ~122% to anyone who only ever guessed the likely side.
+HIGHLOW_HOUSE_SHARE = 0.97
 
 ROULETTE_NUMBERS = {
     0: "green",
@@ -381,17 +396,29 @@ class HighLowView(discord.ui.View):
         self.deck = [(rank, suit) for rank in CARD_VALUES.keys() for suit in SUITS]
         random.shuffle(self.deck)
         self.current_card = self.deck.pop()
+        self._refresh_equal_label()
+
+    def _refresh_equal_label(self) -> None:
+        # The "equal" price moves with the deck: 3 matching ranks left of 51
+        # pays very differently from 3 of 12.
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.custom_id == "equal":
+                item.label = f"🎯 Equal ({self.calc_multiplier_gain('equal'):.2f}x)"
 
     def calc_multiplier_gain(self, choice: str) -> float:
-        val = CARD_VALUES[self.current_card[0]]
+        # Priced off the cards actually left in this ladder's deck: a guess
+        # that wins ``w`` of the ``n`` remaining cards pays 97% of the true
+        # odds ``n / w``. The old table ignored the deck and paid up to ~122%
+        # to anyone who only ever picked the likely side.
+        remaining = len(self.deck) or 1
+        cur = CARD_VALUES[self.current_card[0]]
         if choice == "higher":
-            higher_cnt = max(1, 14 - val)
-            return round(1.0 + (13 - higher_cnt) * 0.15 + 0.15, 2)
+            wins = sum(1 for (rank, _suit) in self.deck if CARD_VALUES[rank] > cur)
         elif choice == "lower":
-            lower_cnt = max(1, val - 2)
-            return round(1.0 + (13 - lower_cnt) * 0.15 + 0.15, 2)
+            wins = sum(1 for (rank, _suit) in self.deck if CARD_VALUES[rank] < cur)
         else:
-            return 8.0
+            wins = sum(1 for (rank, _suit) in self.deck if CARD_VALUES[rank] == cur)
+        return round(HIGHLOW_HOUSE_SHARE * remaining / max(1, wins), 2)
 
     def make_embed(self, status="playing", next_card=None):
         rank, suit = self.current_card
@@ -420,7 +447,7 @@ class HighLowView(discord.ui.View):
         elif status == "won":
             embed.description += f"👑 **MAX STREAK (5/5)! JACKPOT! You won `+{payout:,}` 🪙 at `{self.current_mult:.2f}x`!**"
 
-        embed.set_footer(text="DaCat High-Low • 60s turn timer")
+        embed.set_footer(text="DaCat High-Low • 60s turn timer • 97% fair-share payouts")
         return embed
 
     async def handle_guess(self, interaction: discord.Interaction, choice: str):
@@ -467,6 +494,7 @@ class HighLowView(discord.ui.View):
             if isinstance(item, discord.ui.Button) and item.custom_id == "cashout":
                 item.disabled = False
                 item.label = f"💰 Cash Out ({self.current_mult:.2f}x • +{payout:,} 🪙)"
+        self._refresh_equal_label()
 
         await interaction.response.edit_message(embed=self.make_embed("playing"), view=self)
 
@@ -478,7 +506,7 @@ class HighLowView(discord.ui.View):
     async def lower_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_guess(interaction, "lower")
 
-    @discord.ui.button(label="🎯 Equal (8x)", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="🎯 Equal (8x)", style=discord.ButtonStyle.secondary, row=0, custom_id="equal")
     async def equal_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_guess(interaction, "equal")
 
@@ -645,38 +673,56 @@ class TicTacToeView(discord.ui.View):
         elif status == "tie":
             embed.description = "🤝 **It's a draw! Both players matched evenly.**" + (" Bets refunded." if self.bet > 0 else "")
 
-        embed.set_footer(text="DaCat Tic-Tac-Toe • 60s turn timer")
+        embed.set_footer(text="DaCat Tic-Tac-Toe • 60s turn timer • Bot plays perfectly — best outcome is a draw")
         return embed
 
     def bot_find_move(self) -> tuple[int, int]:
-        b = self.board
-        for y in range(3):
-            for x in range(3):
-                if b[y][x] == 0:
-                    b[y][x] = 2
-                    if self.check_winner() == 2:
-                        b[y][x] = 0
-                        return (x, y)
-                    b[y][x] = 0
-        for y in range(3):
-            for x in range(3):
-                if b[y][x] == 0:
-                    b[y][x] = 1
-                    if self.check_winner() == 1:
-                        b[y][x] = 0
-                        return (x, y)
-                    b[y][x] = 0
-        if b[1][1] == 0:
-            return (1, 1)
-        corners = [(0, 0), (0, 2), (2, 0), (2, 2)]
-        avail_corners = [c for c in corners if b[c[1]][c[0]] == 0]
-        if avail_corners:
-            return random.choice(avail_corners)
-        edges = [(0, 1), (1, 0), (1, 2), (2, 1)]
-        avail_edges = [e for e in edges if b[e[1]][e[0]] == 0]
-        if avail_edges:
-            return random.choice(avail_edges)
-        return (0, 0)
+        # Perfect play, like real life: the bot takes a win, blocks a loss,
+        # and otherwise picks the move with the best forced outcome — so a
+        # flawless player draws every game and only mistakes get punished.
+        best_move: tuple[int, int] | None = None
+        best_score = -2
+        for (x, y) in self._ordered_moves():
+            self.board[y][x] = 2
+            score = self._minimax(depth=0, maximizing=False)
+            self.board[y][x] = 0
+            if score > best_score:
+                best_score = score
+                best_move = (x, y)
+                if best_score == 1:
+                    break
+        return best_move or (0, 0)
+
+    def _ordered_moves(self) -> list[tuple[int, int]]:
+        order = [(1, 1), (0, 0), (0, 2), (2, 0), (2, 2),
+                 (0, 1), (1, 0), (1, 2), (2, 1)]
+        return [(x, y) for (x, y) in order if self.board[y][x] == 0]
+
+    def _minimax(self, depth: int, maximizing: bool) -> int:
+        winner = self.check_winner()
+        if winner == 2:
+            return 1
+        if winner == 1:
+            return -1
+        if self.is_full():
+            return 0
+        if maximizing:
+            best = -2
+            for (x, y) in self._ordered_moves():
+                self.board[y][x] = 2
+                best = max(best, self._minimax(depth + 1, False))
+                self.board[y][x] = 0
+                if best == 1:
+                    break
+            return best
+        best = 2
+        for (x, y) in self._ordered_moves():
+            self.board[y][x] = 1
+            best = min(best, self._minimax(depth + 1, True))
+            self.board[y][x] = 0
+            if best == -1:
+                break
+        return best
 
     async def handle_move(self, interaction: discord.Interaction, x: int, y: int):
         if self.finished:
@@ -865,7 +911,7 @@ class Games(commands.Cog):
         embed.add_field(name="💰 Bet", value=f"**{bet:,}** 🪙", inline=True)
         embed.add_field(name=outcome_field[0], value=outcome_field[1], inline=True)
         embed.add_field(name="💳 New Wallet", value=f"**{new_wallet:,}** 🪙", inline=True)
-        embed.set_footer(text="DaCat Casino")
+        embed.set_footer(text="DaCat Casino • RTP ~95%")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="coinflip", description="Bet on heads or tails.")
@@ -882,11 +928,11 @@ class Games(commands.Cog):
 
         result = random.choice(["heads", "tails"])
         won = result == choice
-        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, 2.0 if won else 0.0):
+        if not await settle_bet(interaction.user.id, interaction.guild.id, bet, EVEN_MONEY_PAYOUT if won else 0.0):
             return await interaction.response.send_message(
                 "❌ Your wallet changed while that was flipping — please try again.", ephemeral=True
             )
-        change = bet if won else -bet
+        profit = int(bet * EVEN_MONEY_PAYOUT) - bet if won else -bet
         # Re-read: ``eco`` predates the settle (see slots above).
         new_wallet = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
 
@@ -896,13 +942,13 @@ class Games(commands.Cog):
                 f"The coin landed on **{result.capitalize()}**!\n\n"
                 f"• **Your Pick:** `{choice.capitalize()}`\n"
                 f"• **Result:** `{result.capitalize()}`\n\n"
-                f"{'💰 **Profit:** `+' + f'{bet:,}' + '` 🪙' if won else '💸 **Lost:** `-' + f'{bet:,}' + '` 🪙'}\n"
+                f"{'💰 **Profit:** `+' + f'{profit:,}' + '` 🪙' if won else '💸 **Lost:** `-' + f'{bet:,}' + '` 🪙'}\n"
                 f"💳 **New Wallet:** `{new_wallet:,}` 🪙"
             ),
             color=0x23a55a if won else 0xf23f43,
             timestamp=discord.utils.utcnow()
         )
-        embed.set_footer(text="DaCat Casino • High Stakes" if won else "DaCat Casino • Better luck next flip!")
+        embed.set_footer(text="DaCat Casino • Wins pay 1.9x • RTP ~95%")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="dice", description="Roll dice against the bot. Higher roll wins.")
@@ -916,7 +962,7 @@ class Games(commands.Cog):
         player_roll = random.randint(1, 6)
         bot_roll = random.randint(1, 6)
 
-        mult = 2.0 if player_roll > bot_roll else (0.0 if player_roll < bot_roll else 1.0)
+        mult = EVEN_MONEY_PAYOUT if player_roll > bot_roll else (0.0 if player_roll < bot_roll else 1.0)
         if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
             return await interaction.response.send_message(
                 "❌ Your wallet changed while the dice were rolling — please try again.", ephemeral=True
@@ -924,9 +970,10 @@ class Games(commands.Cog):
 
         # Re-read: ``eco`` predates the settle (see slots above).
         fresh = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
-        if mult == 2.0:
+        if mult == EVEN_MONEY_PAYOUT:
             new_wallet = fresh
-            result = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
+            profit = int(bet * EVEN_MONEY_PAYOUT) - bet
+            result = f"🎉 **You win!**\n💰 **Profit:** `+{profit:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙"
             color = 0x23a55a
         elif mult == 0.0:
             new_wallet = fresh
@@ -940,6 +987,7 @@ class Games(commands.Cog):
         embed.add_field(name="Your Roll", value=f"🎲 **{player_roll}**", inline=True)
         embed.add_field(name="Bot's Roll", value=f"🎲 **{bot_roll}**", inline=True)
         embed.add_field(name="Outcome", value=result, inline=False)
+        embed.set_footer(text="DaCat Casino • Wins pay 1.9x, ties refunded • RTP ~96%")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="rps", description="Rock Paper Scissors vs the bot (with a bet).")
@@ -959,7 +1007,7 @@ class Games(commands.Cog):
         emoji = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
         wins = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
 
-        mult = 1.0 if choice == bot_choice else (2.0 if wins[choice] == bot_choice else 0.0)
+        mult = 1.0 if choice == bot_choice else (EVEN_MONEY_PAYOUT if wins[choice] == bot_choice else 0.0)
         if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
             return await interaction.response.send_message(
                 "❌ Your wallet changed while that was playing — please try again.", ephemeral=True
@@ -969,9 +1017,10 @@ class Games(commands.Cog):
         fresh = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
         if mult == 1.0:
             result, color = f"🤝 **It's a tie!** Bet returned.\n💳 **Wallet:** `{fresh:,}` 🪙", 0xFEE75C
-        elif mult == 2.0:
+        elif mult == EVEN_MONEY_PAYOUT:
             new_wallet = fresh
-            result, color = f"🎉 **You win!**\n💰 **Profit:** `+{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0x23a55a
+            profit = int(bet * EVEN_MONEY_PAYOUT) - bet
+            result, color = f"🎉 **You win!**\n💰 **Profit:** `+{profit:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0x23a55a
         else:
             new_wallet = fresh
             result, color = f"💀 **You lose!**\n💸 **Lost:** `-{bet:,}` 🪙\n💳 **New Wallet:** `{new_wallet:,}` 🪙", 0xf23f43
@@ -980,6 +1029,7 @@ class Games(commands.Cog):
         embed.add_field(name="Your Pick", value=f"{emoji[choice]} {choice.capitalize()}", inline=True)
         embed.add_field(name="Bot's Pick", value=f"{emoji[bot_choice]} {bot_choice.capitalize()}", inline=True)
         embed.add_field(name="Outcome", value=result, inline=False)
+        embed.set_footer(text="DaCat Casino • Wins pay 1.9x, ties refunded • RTP ~97%")
         await send_card(interaction, embed=embed)
 
     @app_commands.command(name="blackjack", description="Play blackjack against the bot.")
@@ -1314,7 +1364,7 @@ class Games(commands.Cog):
         embed = game_view.make_embed()
         await interaction.response.send_message(embed=embed, view=game_view)
 
-    @app_commands.command(name="gamble", description="Roll the high-stakes 50/50 dice to double your coins!")
+    @app_commands.command(name="gamble", description="Roll the high-stakes dice — wins pay 1.9x, ties refunded!")
     @app_commands.describe(bet="Coins to wager on the roll")
     async def gamble(self, interaction: discord.Interaction, bet: app_commands.Range[int, 10, None]):
         if not interaction.guild:
@@ -1328,7 +1378,7 @@ class Games(commands.Cog):
         user_roll = random.randint(1, 100)
         bot_roll = random.randint(1, 100)
 
-        mult = 2.0 if user_roll > bot_roll else (0.0 if user_roll < bot_roll else 1.0)
+        mult = EVEN_MONEY_PAYOUT if user_roll > bot_roll else (0.0 if user_roll < bot_roll else 1.0)
         if not await settle_bet(interaction.user.id, interaction.guild.id, bet, mult):
             return await interaction.response.send_message(
                 "❌ Your wallet changed while the dice were rolling — please try again.", ephemeral=True
@@ -1336,14 +1386,14 @@ class Games(commands.Cog):
 
         # Re-read: ``eco`` predates the settle (see slots above).
         new_bal = (await get_eco(interaction.user.id, interaction.guild.id))["wallet"]
-        if mult == 2.0:
-            winnings = bet
+        if mult == EVEN_MONEY_PAYOUT:
+            profit = int(bet * EVEN_MONEY_PAYOUT) - bet
             embed = discord.Embed(
                 title="🎲 High-Stakes Gamble — YOU WON! 🎉",
                 description=(
                     f"**Your Roll:** 🎲 `{user_roll}`\n"
                     f"**Bot's Roll:** 🎲 `{bot_roll}`\n\n"
-                    f"💰 **Profit:** `+{winnings:,}` 🪙\n"
+                    f"💰 **Profit:** `+{profit:,}` 🪙\n"
                     f"💳 **New Wallet:** `{new_bal:,}` 🪙"
                 ),
                 color=0x23a55a
@@ -1369,7 +1419,7 @@ class Games(commands.Cog):
                 color=0xfee75c
             )
 
-        embed.set_footer(text=f"Gambler: {interaction.user.display_name}")
+        embed.set_footer(text=f"Gambler: {interaction.user.display_name} • Wins pay 1.9x, ties refunded • RTP ~95%")
         await send_card(interaction, embed=embed)
 
 

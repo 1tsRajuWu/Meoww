@@ -110,9 +110,10 @@ class GameWalletDisplay(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def test_gamble_win_shows_post_settle_wallet(self):
         _seed(50_000)
         embed = await self._run_gamble(10_000, [100, 1])
-        # 50,000 + 10,000 profit + 9 mid-flight. The old math showed 60,000.
-        self.assertEqual(_wallet(), 60_009)
-        self.assertEqual(_wallet_figure(embed), 60_009)
+        # 50,000 + 9,000 profit (1.9x) + 9 mid-flight. The old math showed the
+        # pre-settle wallet plus the full bet.
+        self.assertEqual(_wallet(), 59_009)
+        self.assertEqual(_wallet_figure(embed), 59_009)
 
     async def test_gamble_loss_shows_post_settle_wallet(self):
         _seed(50_000)

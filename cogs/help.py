@@ -148,7 +148,7 @@ HELP_MODULES = {
             "> `/blackjack <bet>` — Interactive card game with Hit/Stand buttons\n"
             "> `/roulette <bet> <choice>` — Casino roulette wheel (red/black/green/numbers)\n"
             "> `/slots <bet>` — Triple-reel slot machine\n"
-            "> `/coinflip <bet> <side>` — Double or nothing coin toss\n"
+            "> `/coinflip <bet> <side>` — Coin toss, wins pay 1.9x\n"
             "> `/dice <bet> <guess>` — 6-sided dice roll\n"
             "> `/highlow <bet>` — Guess if next card is higher or lower\n"
             "> `/tictactoe <member> [bet]` — Turn-based Tic-Tac-Toe duel with buttons\n"
