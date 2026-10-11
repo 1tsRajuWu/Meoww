@@ -59,7 +59,7 @@ from utils import (
     # import that shadows a route is a page that raises on every render.
     health as health_checks, hub, identity, levels as levels_module, media_health, meowfee,
     moderation_actions, modlog, modules, pause, permissions, plans, principal,
-    ratelimit, scheduled, server_control, sessions, site_guard, support,
+    ratelimit, scheduled, server_control, sessions, site_guard, style, support,
     uptime_status, webdocs,
 )
 
@@ -2357,11 +2357,17 @@ def _invite_context(*, guild_id: int | str | None = None) -> dict:
     id is unset is the same "no invite" every template already tests for.
     """
     if not discord_auth.client_id():
-        return {"invite_url": "", "invite_limited_url": "", "invite_here_url": ""}
+        return {
+            "invite_url": "", "invite_limited_url": "", "invite_here_url": "",
+            "vip_bot_id": style.VIP_BOT_ID,
+            "vip_invite_url": style.VIP_INVITE_URL,
+        }
     return {
         "invite_url": discord_auth.invite_url(),
         "invite_limited_url": discord_auth.invite_url(minimal=True),
         "invite_here_url": discord_auth.invite_url(guild_id=guild_id) if guild_id else "",
+        "vip_bot_id": style.VIP_BOT_ID,
+        "vip_invite_url": style.VIP_INVITE_URL,
     }
 
 

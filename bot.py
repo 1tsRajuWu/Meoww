@@ -39,7 +39,8 @@ try:
 except Exception:
     pass
 
-TOKEN = config_audit.get("DISCORD_TOKEN") or None
+TOKEN = config_audit.get("DISCORD_TOKEN") or config_audit.get("VIP_BOT_TOKEN") or None
+VIP_TOKEN = config_audit.get("VIP_BOT_TOKEN") or None
 
 
 def _env_flag(name: str) -> bool:
