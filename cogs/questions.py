@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 import time
+import uuid
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -133,6 +134,27 @@ def check_questions_access(interaction: discord.Interaction) -> bool:
     )
 
 
+def is_default_role(role: discord.Role | None) -> bool:
+    """Check if the role is the guild default (@everyone) role."""
+    if not role:
+        return False
+    if getattr(role, "name", None) == "@everyone":
+        return True
+    guild = getattr(role, "guild", None)
+    if guild and hasattr(guild, "id") and getattr(role, "id", None) == guild.id:
+        return True
+    return False
+
+
+def member_has_role(member: discord.Member | discord.User, role: discord.Role) -> bool:
+    """Verify whether a member holds the specified role or if the role is @everyone."""
+    if is_default_role(role):
+        return True
+    member_roles = getattr(member, "roles", [])
+    role_id = getattr(role, "id", None)
+    return any(getattr(r, "id", None) == role_id for r in member_roles)
+
+
 class QuestionSession:
     """Active question session state and answer aggregator."""
 
@@ -148,6 +170,7 @@ class QuestionSession:
         created_by: discord.Member | discord.User,
         message: discord.Message | None = None,
         cog: Questions | None = None,
+        channel: discord.abc.Messageable | None = None,
     ):
         self.session_id = session_id
         self.guild_id = guild_id
@@ -159,6 +182,7 @@ class QuestionSession:
         self.created_by = created_by
         self.message = message
         self.cog = cog
+        self.channel = channel
         # user_id -> {"member": Member, "answer": str, "timestamp": float}
         self.answers: dict[int, dict] = {}
         self.resolved: bool = False
@@ -184,7 +208,11 @@ class QuestionSession:
 
     def get_role_members(self) -> list[discord.Member]:
         """Get members currently holding the target role, filtering bots where possible."""
-        members = getattr(self.role, "members", [])
+        if is_default_role(self.role):
+            guild = getattr(self.role, "guild", None)
+            members = getattr(guild, "members", []) if guild else getattr(self.role, "members", [])
+        else:
+            members = getattr(self.role, "members", [])
         humans = [m for m in members if not getattr(m, "bot", False)]
         return humans if humans or not members else list(members)
 
@@ -244,31 +272,29 @@ class QuestionAnswerModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         # Verify member currently holds the target role
         member = interaction.user
-        member_roles = getattr(member, "roles", [])
-        has_role = any(getattr(r, "id", None) == self.session.role.id for r in member_roles)
-        if not has_role:
+        if not member_has_role(member, self.session.role):
+            msg = f"❌ Only members with the {self.session.role.mention} role can submit an answer to this question."
             if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"❌ Only members with the {self.session.role.mention} role can submit an answer to this question.",
-                    ephemeral=True,
-                )
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
             return
 
         answer_text = self.answer_input.value.strip()
         if not answer_text:
+            msg = "❌ Answer cannot be blank."
             if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "❌ Answer cannot be blank.",
-                    ephemeral=True,
-                )
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
             return
 
         if self.session.resolved:
+            msg = "⚠️ Time expired or question closed while you were submitting."
             if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "⚠️ Time expired while you were submitting.",
-                    ephemeral=True,
-                )
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
             return
 
         is_update = self.session.record_answer(interaction.user, answer_text)
@@ -280,6 +306,8 @@ class QuestionAnswerModal(discord.ui.Modal):
         )
         if not interaction.response.is_done():
             await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            await interaction.followup.send(msg, ephemeral=True)
 
         # Early completion check: if all role members answered, resolve immediately
         if self.session.all_members_answered() and self.session.cog:
@@ -384,7 +412,7 @@ class Questions(commands.Cog):
         percent = int((len(respondents) / total_count * 100)) if total_count > 0 else 0
         if total_count == 0:
             status_line = "⌛ **Time expired — no role members found.**"
-        elif reason == "all_answered":
+        elif reason == "all_answered" or (total_count > 0 and len(non_respondents) == 0):
             status_line = "🎉 **All role members responded before time expired!**"
         else:
             status_line = "⌛ **Time expired — question concluded.**"
@@ -403,7 +431,7 @@ class Questions(commands.Cog):
             current_len = 0
             for i, item in enumerate(respondents):
                 m = item["member"]
-                ans = item["answer"]
+                ans = " ".join(item["answer"].split())
                 display = ans[:150] + ("..." if len(ans) > 150 else "")
                 line = f"• {m.mention} (`{getattr(m, 'name', 'unknown')}`):\n  ↳ *\"{display}\"*"
                 if current_len + len(line) + 50 > 850:
@@ -453,6 +481,18 @@ class Questions(commands.Cog):
         )
         return panel
 
+    def _prune_sessions(self):
+        """Prune old resolved sessions to keep memory usage bounded."""
+        if len(self.active_sessions) > 100:
+            now_ts = time.time()
+            to_remove = [
+                sid
+                for sid, s in self.active_sessions.items()
+                if s.resolved and (now_ts - s.expires_at > 86400)
+            ]
+            for sid in to_remove:
+                self.active_sessions.pop(sid, None)
+
     async def handle_submit_button(
         self, interaction: discord.Interaction, session: QuestionSession
     ):
@@ -468,10 +508,7 @@ class Questions(commands.Cog):
             return
 
         member = interaction.user
-        member_roles = getattr(member, "roles", [])
-        has_role = any(getattr(r, "id", None) == session.role.id for r in member_roles)
-
-        if not has_role:
+        if not member_has_role(member, session.role):
             await interaction.response.send_message(
                 f"❌ Only members with the {session.role.mention} role can submit an answer to this question.",
                 ephemeral=True,
@@ -504,7 +541,7 @@ class Questions(commands.Cog):
                 return
             session.resolved = True
 
-        if session.task and not session.task.done():
+        if session.task and not session.task.done() and session.task != asyncio.current_task():
             session.task.cancel()
 
         respondents, non_respondents = session.calculate_results()
@@ -526,11 +563,21 @@ class Questions(commands.Cog):
             session.message.channel
             if session.message and hasattr(session.message, "channel")
             else (
-                self.bot.get_channel(session.channel_id)
-                if self.bot and hasattr(self.bot, "get_channel")
-                else None
+                session.channel
+                if session.channel
+                else (
+                    self.bot.get_channel(session.channel_id)
+                    if self.bot and hasattr(self.bot, "get_channel")
+                    else None
+                )
             )
         )
+
+        if target_channel is None and self.bot and hasattr(self.bot, "fetch_channel"):
+            try:
+                target_channel = await self.bot.fetch_channel(session.channel_id)
+            except Exception:
+                pass
 
         if target_channel:
             try:
@@ -540,6 +587,8 @@ class Questions(commands.Cog):
                     await target_channel.send(view=resolution_panel)
                 except Exception as e:
                     logger.error(f"Failed to post resolution panel: {e}")
+
+        self._prune_sessions()
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
@@ -583,6 +632,12 @@ class Questions(commands.Cog):
         duration: str = "1h",
     ):
         """Slash command /questions."""
+        if not getattr(interaction, "guild", None):
+            return await interaction.response.send_message(
+                "❌ The `/questions` command can only be used in a server.",
+                ephemeral=True,
+            )
+
         question_text = (question or "").strip()
         if not question_text:
             return await interaction.response.send_message(
@@ -607,7 +662,7 @@ class Questions(commands.Cog):
         channel_id = getattr(interaction, "channel_id", 0) or 0
         now = time.time()
         expires_at = now + duration_seconds
-        session_id = f"q_{int(now)}_{getattr(role, 'id', 0)}"
+        session_id = f"q_{int(now)}_{getattr(role, 'id', 0)}_{uuid.uuid4().hex[:6]}"
 
         session = QuestionSession(
             session_id=session_id,
@@ -618,6 +673,7 @@ class Questions(commands.Cog):
             duration_seconds=duration_seconds,
             expires_at=expires_at,
             created_by=interaction.user,
+            channel=getattr(interaction, "channel", None),
             cog=self,
         )
         self.active_sessions[session_id] = session

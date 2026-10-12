@@ -17,6 +17,7 @@ from cogs.questions import (
     QuestionSubmitButton,
     check_questions_access,
     format_duration,
+    member_has_role,
     parse_duration,
 )
 from utils.style import VIP_CROWN_GIF, VIP_GEM_GIF, VIP_GOLD
@@ -241,6 +242,52 @@ class TestRoleValidationGate(unittest.IsolatedAsyncioTestCase):
         self.assertIn("closed", args[0].lower())
         inter.response.send_modal.assert_not_called()
 
+    async def test_everyone_role_supported(self):
+        everyone_role = _mock_role(role_id=1, name="@everyone")
+        everyone_role.is_default.return_value = True
+        session = QuestionSession(
+            session_id="everyone_sess",
+            guild_id=1,
+            channel_id=2,
+            question_text="Question for everyone",
+            role=everyone_role,
+            duration_seconds=600,
+            expires_at=time.time() + 600,
+            created_by=_mock_member(1, "Admin"),
+            cog=self.cog,
+        )
+        # Member with empty roles should still be allowed for @everyone
+        member_no_roles = _mock_member(99, "NoRoles", roles=[])
+        self.assertTrue(member_has_role(member_no_roles, everyone_role))
+
+        inter = _mock_interaction(user=member_no_roles)
+        await self.cog.handle_submit_button(inter, session)
+        inter.response.send_modal.assert_called_once()
+
+    def test_everyone_role_members_calculated_from_guild(self):
+        m1 = _mock_member(10, "M1")
+        m2 = _mock_member(11, "M2")
+        mock_guild = mock.MagicMock(spec=discord.Guild)
+        mock_guild.members = [m1, m2]
+
+        everyone_role = _mock_role(role_id=1, name="@everyone", members=[])
+        everyone_role.is_default.return_value = True
+        everyone_role.guild = mock_guild
+
+        session = QuestionSession(
+            session_id="everyone_calc_sess",
+            guild_id=1,
+            channel_id=2,
+            question_text="Question for everyone",
+            role=everyone_role,
+            duration_seconds=600,
+            expires_at=time.time() + 600,
+            created_by=_mock_member(1, "Admin"),
+        )
+        members = session.get_role_members()
+        self.assertEqual(len(members), 2)
+        self.assertEqual([m.id for m in members], [10, 11])
+
 
 class TestModalSubmissionAndResubmission(unittest.IsolatedAsyncioTestCase):
     """R3: Modal submissions, answer storage, and updating on resubmission."""
@@ -347,6 +394,20 @@ class TestModalSubmissionAndResubmission(unittest.IsolatedAsyncioTestCase):
         args, kwargs = inter.response.send_message.call_args
         self.assertTrue(kwargs.get("ephemeral", False))
         self.assertIn("expired", args[0].lower())
+
+    async def test_modal_submission_with_done_response_uses_followup(self):
+        member = _mock_member(30, "Alice", roles=[self.role])
+        modal = QuestionAnswerModal(session=self.session)
+        modal.answer_input._value = "Followup answer"
+        inter = _mock_interaction(user=member)
+        inter.response.is_done.return_value = True
+
+        await modal.on_submit(inter)
+
+        inter.followup.send.assert_called_once()
+        args, kwargs = inter.followup.send.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("recorded", args[0].lower())
 
 
 class TestRespondentAndNonRespondentCalculation(unittest.TestCase):
@@ -544,6 +605,65 @@ class TestExpirationAndAutomatedResolution(unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.alice.mention, text_content)
         self.assertIn(self.bob.mention, text_content)
 
+    async def test_session_timer_runs_to_completion_and_posts_resolution(self):
+        # Configure session with 0 remaining seconds so timer fires immediately
+        self.session.expires_at = time.time() - 1
+        self.session.task = asyncio.create_task(self.cog._session_timer(self.session))
+
+        await self.session.task
+
+        self.assertTrue(self.session.resolved)
+        self.mock_message.edit.assert_called_once()
+        self.mock_channel.send.assert_called_once()
+
+    async def test_resolution_falls_back_to_channel_when_message_missing(self):
+        # Session where message is None (e.g. original_response timed out)
+        fallback_channel = mock.AsyncMock(spec=discord.TextChannel)
+        fallback_channel.send = mock.AsyncMock()
+
+        session_no_msg = QuestionSession(
+            session_id="fallback_test_sess",
+            guild_id=1,
+            channel_id=2,
+            question_text="Are we ready?",
+            role=self.role,
+            duration_seconds=600,
+            expires_at=time.time() + 600,
+            created_by=_mock_member(1, "Commander"),
+            message=None,
+            channel=fallback_channel,
+            cog=self.cog,
+        )
+        await self.cog.resolve_session(session_no_msg, reason="expired")
+        self.assertTrue(session_no_msg.resolved)
+        fallback_channel.send.assert_called_once()
+
+    def test_prune_sessions_cleans_up_old_resolved_sessions(self):
+        # Fill active_sessions with 105 sessions, some old and resolved
+        self.cog.active_sessions.clear()
+        now = time.time()
+        for i in range(105):
+            sess = QuestionSession(
+                session_id=f"prune_{i}",
+                guild_id=1,
+                channel_id=2,
+                question_text=f"Q {i}",
+                role=self.role,
+                duration_seconds=60,
+                expires_at=now - 100000 if i < 10 else now + 1000,
+                created_by=_mock_member(1, "Commander"),
+            )
+            if i < 10:
+                sess.resolved = True
+            self.cog.active_sessions[f"prune_{i}"] = sess
+
+        self.assertEqual(len(self.cog.active_sessions), 105)
+        self.cog._prune_sessions()
+        # 10 old resolved sessions should have been removed
+        self.assertEqual(len(self.cog.active_sessions), 95)
+        self.assertNotIn("prune_0", self.cog.active_sessions)
+        self.assertIn("prune_50", self.cog.active_sessions)
+
 
 class TestSlashCommandIntegration(unittest.IsolatedAsyncioTestCase):
     """End-to-end slash command dispatch test."""
@@ -589,6 +709,80 @@ class TestSlashCommandIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(kwargs.get("ephemeral", False))
         self.assertIn("Could not parse duration", args[0])
         self.assertEqual(len(self.cog.active_sessions), 0)
+
+    async def test_questions_command_dm_rejected(self):
+        inter = _mock_interaction()
+        inter.guild = None
+        await self.cog.questions.callback(
+            self.cog,
+            inter,
+            question="Hello?",
+            role=self.role,
+            duration="1h",
+        )
+        inter.response.send_message.assert_called_once()
+        args, kwargs = inter.response.send_message.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("only be used in a server", args[0])
+        self.assertEqual(len(self.cog.active_sessions), 0)
+
+    async def test_questions_command_empty_question(self):
+        inter = _mock_interaction()
+        await self.cog.questions.callback(
+            self.cog,
+            inter,
+            question="   ",
+            role=self.role,
+            duration="1h",
+        )
+        inter.response.send_message.assert_called_once()
+        args, kwargs = inter.response.send_message.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("cannot be empty", args[0].lower())
+        self.assertEqual(len(self.cog.active_sessions), 0)
+
+    async def test_questions_command_question_too_long(self):
+        inter = _mock_interaction()
+        long_q = "x" * 501
+        await self.cog.questions.callback(
+            self.cog,
+            inter,
+            question=long_q,
+            role=self.role,
+            duration="1h",
+        )
+        inter.response.send_message.assert_called_once()
+        args, kwargs = inter.response.send_message.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("under 500 characters", args[0])
+        self.assertEqual(len(self.cog.active_sessions), 0)
+
+    async def test_unique_session_ids(self):
+        inter1 = _mock_interaction()
+        inter2 = _mock_interaction()
+        await self.cog.questions.callback(
+            self.cog, inter1, question="Q1", role=self.role, duration="1h"
+        )
+        await self.cog.questions.callback(
+            self.cog, inter2, question="Q2", role=self.role, duration="1h"
+        )
+        self.assertEqual(len(self.cog.active_sessions), 2)
+        sess_ids = list(self.cog.active_sessions.keys())
+        self.assertNotEqual(sess_ids[0], sess_ids[1])
+        # Clean up tasks
+        for s in self.cog.active_sessions.values():
+            if s.task:
+                s.task.cancel()
+
+    async def test_interaction_check_when_disabled(self):
+        self.bot.is_module_enabled = mock.MagicMock(return_value=False)
+        inter = _mock_interaction(guild_id=123)
+        res = await self.cog.interaction_check(inter)
+        self.assertFalse(res)
+        inter.response.send_message.assert_called_once()
+        args, kwargs = inter.response.send_message.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("turned off", args[0].lower())
 
 
 class TestInteractionListener(unittest.IsolatedAsyncioTestCase):
