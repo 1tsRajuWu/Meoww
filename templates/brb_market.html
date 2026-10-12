@@ -53,43 +53,72 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 650px;
-    height: 650px;
-    background: radial-gradient(circle, rgba(255, 42, 68, 0.18) 0%, rgba(220, 38, 38, 0.08) 45%, transparent 70%);
-    filter: blur(80px);
+    width: 700px;
+    height: 700px;
+    background: radial-gradient(circle, rgba(255, 42, 68, 0.16) 0%, rgba(220, 38, 38, 0.06) 45%, transparent 70%);
+    filter: blur(90px);
     pointer-events: none;
     z-index: 0;
+    animation: ambient-breathe 8s ease-in-out infinite alternate;
+  }
+  @keyframes ambient-breathe {
+    0% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.8; }
+    100% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
   }
 
   /* Center Stage Container */
   .stage {
     position: relative;
     z-index: 1;
-    max-width: 480px;
+    max-width: 500px;
     width: 100%;
     text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
     user-select: none;
+    padding: 48px 36px;
+    border-radius: 32px;
+    background: rgba(10, 10, 16, 0.55);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 24px 64px -12px rgba(0, 0, 0, 0.75),
+      0 0 0 1px rgba(255, 42, 68, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    animation: stage-float 8s ease-in-out infinite;
+  }
+  @keyframes stage-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
   }
 
   /* Pill Tag */
   .status-pill {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
+    gap: 10px;
+    padding: 7px 16px;
     border-radius: 999px;
-    background: rgba(255, 42, 68, 0.06);
-    border: 1px solid rgba(255, 42, 68, 0.22);
+    background: rgba(255, 42, 68, 0.08);
+    border: 1px solid rgba(255, 42, 68, 0.28);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.85);
-    margin-bottom: 20px;
-    backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, 0.9);
+    margin-bottom: 22px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 0 20px rgba(255, 42, 68, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+  .pulse-dot-wrap {
+    position: relative;
+    width: 8px;
+    height: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .pulse-dot {
     width: 6px;
@@ -98,24 +127,52 @@
     background: var(--brb-red);
     box-shadow: 0 0 10px var(--brb-red), 0 0 20px var(--brb-red-glow);
     animation: pulse 2s ease-in-out infinite;
+    position: relative;
+    z-index: 2;
+  }
+  .pulse-ring {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 1.5px solid var(--brb-red);
+    animation: sonar 2.4s cubic-bezier(0.1, 0.2, 0.3, 1) infinite;
+  }
+  @keyframes sonar {
+    0% { transform: scale(1); opacity: 0.95; }
+    100% { transform: scale(3.8); opacity: 0; }
   }
   @keyframes pulse {
     0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.4); opacity: 0.7; }
+    50% { transform: scale(1.35); opacity: 0.75; }
   }
 
-  /* Typography */
+  /* Typography with animated gradient shimmer */
   .title {
     font-size: clamp(2.4rem, 5vw, 3.4rem);
     font-weight: 800;
     letter-spacing: -0.04em;
     line-height: 1.08;
     margin-bottom: 14px;
-    background: linear-gradient(180deg, #ffffff 40%, rgba(255, 255, 255, 0.65) 100%);
+    background: linear-gradient(
+      120deg,
+      #ffffff 0%,
+      #ffffff 35%,
+      #ff6b81 50%,
+      #ffffff 65%,
+      rgba(255, 255, 255, 0.65) 100%
+    );
+    background-size: 200% auto;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    animation: shimmer 5s ease-in-out infinite;
   }
+  @keyframes shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
   .subtitle {
     font-size: 15px;
     line-height: 1.6;
@@ -127,13 +184,14 @@
 
   /* Laser Progress Bar */
   .laser-track {
-    width: 140px;
-    height: 2px;
+    width: 150px;
+    height: 3px;
     background: rgba(255, 255, 255, 0.06);
     border-radius: 999px;
     position: relative;
     overflow: hidden;
     margin: 28px auto 32px;
+    box-shadow: 0 0 12px rgba(255, 42, 68, 0.2);
   }
   .laser-bar {
     position: absolute;
@@ -141,8 +199,9 @@
     left: -60%;
     width: 60%;
     height: 100%;
-    background: linear-gradient(90deg, transparent, #ff2a44, #ff6b81, transparent);
-    animation: laser-slide 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    background: linear-gradient(90deg, transparent 0%, #ff2a44 40%, #ffffff 70%, #ff6b81 90%, transparent 100%);
+    box-shadow: 0 0 16px var(--brb-red), 0 0 4px #ffffff;
+    animation: laser-slide 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
   @keyframes laser-slide {
     0% { left: -60%; }
@@ -162,7 +221,7 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 12px 28px;
+    padding: 13px 32px;
     border-radius: 999px;
     background: #ffffff;
     color: #060609;
@@ -170,16 +229,38 @@
     font-weight: 600;
     text-decoration: none;
     letter-spacing: -0.01em;
-    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+    transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1);
     box-shadow: 0 4px 20px rgba(255, 255, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.2);
   }
+  .btn-white::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 40%;
+    height: 200%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.7),
+      transparent
+    );
+    transform: rotate(25deg);
+    transition: left 0.75s ease;
+    pointer-events: none;
+  }
+  .btn-white:hover::after {
+    left: 140%;
+  }
   .btn-white:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 30px var(--brb-red-glow), 0 0 0 1px rgba(255, 255, 255, 0.4);
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 10px 36px var(--brb-red-glow), 0 0 0 1px rgba(255, 255, 255, 0.4);
     color: #000000;
   }
   .btn-white:active {
-    transform: translateY(0);
+    transform: translateY(0) scale(0.99);
   }
 
   /* Footer Note */
@@ -188,9 +269,9 @@
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.45);
     letter-spacing: 0.02em;
-    margin-top: 8px;
+    margin-top: 6px;
   }
   .meta-dot {
     width: 6px;
@@ -207,7 +288,10 @@
 
   <main class="stage">
     <div class="status-pill">
-      <span class="pulse-dot"></span>
+      <div class="pulse-dot-wrap">
+        <span class="pulse-ring"></span>
+        <span class="pulse-dot"></span>
+      </div>
       Under Construction
     </div>
 
@@ -245,15 +329,18 @@
     var width = 0, height = 0, dpr = 1;
     var dots = [];
     var SPACING = 36;
-    var INFLUENCE_RADIUS = 140;
-    var MOUSE_FORCE = 7;
+    var INFLUENCE_RADIUS = 150;
+    var MOUSE_FORCE = 7.5;
     var SPRING = 0.075;
     var DAMPING = 0.83;
 
     var mouse = { x: -9999, y: -9999, targetX: -9999, targetY: -9999, active: false };
     var shockwaves = [];
+    var cols = 0, rows = 0;
 
-    function Dot(x, y) {
+    function Dot(col, row, x, y) {
+      this.col = col;
+      this.row = row;
       this.originX = x;
       this.originY = y;
       this.x = x;
@@ -262,6 +349,7 @@
       this.vy = 0;
       this.size = 1.35;
       this.phase = Math.random() * Math.PI * 2;
+      this.displacement = 0;
     }
 
     Dot.prototype.update = function(time) {
@@ -305,15 +393,16 @@
 
       this.x += this.vx;
       this.y += this.vy;
+
+      var diffX = this.x - this.originX;
+      var diffY = this.y - this.originY;
+      this.displacement = Math.sqrt(diffX * diffX + diffY * diffY);
     };
 
-    Dot.prototype.draw = function(ctx) {
-      var cx = width / 2;
-      var cy = height / 2;
+    Dot.prototype.draw = function(ctx, cx, cy, maxDist) {
       var dx = this.x - cx;
       var dy = this.y - cy;
       var distFromCenter = Math.sqrt(dx * dx + dy * dy);
-      var maxDist = Math.sqrt(cx * cx + cy * cy);
       var vignette = Math.max(0, 1 - Math.pow(distFromCenter / maxDist, 1.4));
 
       var mouseProximity = 0;
@@ -326,15 +415,15 @@
         }
       }
 
-      var alpha = (0.12 + mouseProximity * 0.65) * vignette;
+      var alpha = (0.12 + mouseProximity * 0.7) * vignette;
       if (alpha <= 0.01) return;
 
-      var r = this.size + mouseProximity * 1.6;
+      var r = this.size + mouseProximity * 1.8;
 
       ctx.beginPath();
       ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
 
-      if (mouseProximity > 0.35) {
+      if (mouseProximity > 0.3) {
         ctx.fillStyle = 'rgba(255, 42, 68, ' + alpha + ')';
       } else {
         ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')';
@@ -351,14 +440,14 @@
       ctx.scale(dpr, dpr);
 
       dots = [];
-      var cols = Math.ceil(width / SPACING) + 1;
-      var rows = Math.ceil(height / SPACING) + 1;
+      cols = Math.ceil(width / SPACING) + 1;
+      rows = Math.ceil(height / SPACING) + 1;
       var offsetX = (width - (cols - 1) * SPACING) / 2;
       var offsetY = (height - (rows - 1) * SPACING) / 2;
 
       for (var r = 0; r < rows; r++) {
         for (var c = 0; c < cols; c++) {
-          dots.push(new Dot(offsetX + c * SPACING, offsetY + r * SPACING));
+          dots.push(new Dot(c, r, offsetX + c * SPACING, offsetY + r * SPACING));
         }
       }
     }
@@ -378,9 +467,9 @@
         x: e.clientX,
         y: e.clientY,
         radius: 0,
-        maxRadius: 280,
-        width: 50,
-        strength: 9
+        maxRadius: 320,
+        width: 55,
+        strength: 10
       });
     }
 
@@ -399,20 +488,73 @@
         mouse.y += (mouse.targetY - mouse.y) * 0.35;
       }
 
+      ctx.clearRect(0, 0, width, height);
+
+      // Cursor flashlight volumetric glow
+      if (mouse.active) {
+        var grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 220);
+        grad.addColorStop(0, 'rgba(255, 42, 68, 0.08)');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+      }
+
+      // Shockwaves update & visual rings
       for (var i = shockwaves.length - 1; i >= 0; i--) {
         var sw = shockwaves[i];
         sw.radius += 8;
         sw.strength *= 0.94;
+        var swAlpha = Math.max(0, (1 - sw.radius / sw.maxRadius) * 0.4);
+        if (swAlpha > 0.01) {
+          ctx.beginPath();
+          ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 42, 68, ' + swAlpha + ')';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
         if (sw.radius > sw.maxRadius) {
           shockwaves.splice(i, 1);
         }
       }
 
-      ctx.clearRect(0, 0, width, height);
+      var cx = width / 2;
+      var cy = height / 2;
+      var maxDist = Math.sqrt(cx * cx + cy * cy);
 
+      // Update and draw dots
       for (var j = 0; j < dots.length; j++) {
         dots[j].update(time);
-        dots[j].draw(ctx);
+        dots[j].draw(ctx, cx, cy, maxDist);
+      }
+
+      // Constellation webbing between disturbed neighbor dots
+      ctx.lineWidth = 0.75;
+      for (var k = 0; k < dots.length; k++) {
+        var d1 = dots[k];
+        if (d1.displacement > 1.2) {
+          if (d1.col + 1 < cols) {
+            var rightDot = dots[k + 1];
+            if (rightDot && rightDot.displacement > 0.8) {
+              var wAlpha = Math.min(0.4, (d1.displacement + rightDot.displacement) * 0.035);
+              ctx.strokeStyle = 'rgba(255, 42, 68, ' + wAlpha + ')';
+              ctx.beginPath();
+              ctx.moveTo(d1.x, d1.y);
+              ctx.lineTo(rightDot.x, rightDot.y);
+              ctx.stroke();
+            }
+          }
+          if (d1.row + 1 < rows) {
+            var bottomDot = dots[k + cols];
+            if (bottomDot && bottomDot.displacement > 0.8) {
+              var wAlpha2 = Math.min(0.4, (d1.displacement + bottomDot.displacement) * 0.035);
+              ctx.strokeStyle = 'rgba(255, 42, 68, ' + wAlpha2 + ')';
+              ctx.beginPath();
+              ctx.moveTo(d1.x, d1.y);
+              ctx.lineTo(bottomDot.x, bottomDot.y);
+              ctx.stroke();
+            }
+          }
+        }
       }
     }
 
