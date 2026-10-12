@@ -18,9 +18,7 @@ from discord.ext import commands
 from utils.gifs import NOTO_GIFS
 from utils.style import (
     Panel,
-    VIP_CROWN_GIF,
-    VIP_GEM_GIF,
-    VIP_GOLD,
+    ACCENT,
     edit_to_panel,
     is_vip_context,
     send_panel,
@@ -146,6 +144,22 @@ def is_default_role(role: discord.Role | None) -> bool:
     return False
 
 
+def resolve_interaction_member(interaction: discord.Interaction) -> discord.Member | discord.User:
+    """Resolve member object with roles from interaction."""
+    user = getattr(interaction, "user", None)
+    if user and getattr(user, "roles", None):
+        return user
+    member = getattr(interaction, "member", None)
+    if member and getattr(member, "roles", None):
+        return member
+    guild = getattr(interaction, "guild", None)
+    if user and guild and hasattr(guild, "get_member"):
+        guild_member = guild.get_member(getattr(user, "id", 0))
+        if guild_member:
+            return guild_member
+    return user or member
+
+
 def member_has_role(member: discord.Member | discord.User, role: discord.Role) -> bool:
     """Verify whether a member holds the specified role or if the role is @everyone."""
     if is_default_role(role):
@@ -194,10 +208,12 @@ class QuestionSession:
 
         Returns True if updating an existing answer, False if new submission.
         """
+        if self.resolved:
+            return False
         is_update = member.id in self.answers
         self.answers[member.id] = {
             "member": member,
-            "answer": answer.strip(),
+            "answer": (answer or "").strip(),
             "timestamp": time.time(),
         }
         return is_update
@@ -207,14 +223,13 @@ class QuestionSession:
         return self.answers.get(user_id, {}).get("answer", "")
 
     def get_role_members(self) -> list[discord.Member]:
-        """Get members currently holding the target role, filtering bots where possible."""
+        """Get human members currently holding the target role."""
         if is_default_role(self.role):
             guild = getattr(self.role, "guild", None)
             members = getattr(guild, "members", []) if guild else getattr(self.role, "members", [])
         else:
             members = getattr(self.role, "members", [])
-        humans = [m for m in members if not getattr(m, "bot", False)]
-        return humans if humans or not members else list(members)
+        return [m for m in members if not getattr(m, "bot", False)]
 
     def calculate_results(self) -> tuple[list[dict], list[discord.Member]]:
         """Calculate respondent list and non-respondents holding the target role."""
@@ -271,7 +286,7 @@ class QuestionAnswerModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         # Verify member currently holds the target role
-        member = interaction.user
+        member = resolve_interaction_member(interaction)
         if not member_has_role(member, self.session.role):
             msg = f"❌ Only members with the {self.session.role.mention} role can submit an answer to this question."
             if not interaction.response.is_done():
@@ -280,7 +295,7 @@ class QuestionAnswerModal(discord.ui.Modal):
                 await interaction.followup.send(msg, ephemeral=True)
             return
 
-        answer_text = self.answer_input.value.strip()
+        answer_text = (self.answer_input.value or "").strip()
         if not answer_text:
             msg = "❌ Answer cannot be blank."
             if not interaction.response.is_done():
@@ -289,15 +304,19 @@ class QuestionAnswerModal(discord.ui.Modal):
                 await interaction.followup.send(msg, ephemeral=True)
             return
 
-        if self.session.resolved:
-            msg = "⚠️ Time expired or question closed while you were submitting."
-            if not interaction.response.is_done():
-                await interaction.response.send_message(msg, ephemeral=True)
-            else:
-                await interaction.followup.send(msg, ephemeral=True)
-            return
+        should_resolve_early = False
+        async with self.session.resolution_lock:
+            if self.session.resolved:
+                msg = "⚠️ Time expired or question closed while you were submitting."
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
+                return
 
-        is_update = self.session.record_answer(interaction.user, answer_text)
+            is_update = self.session.record_answer(member, answer_text)
+            if self.session.all_members_answered():
+                should_resolve_early = True
 
         msg = (
             "✅ Your response has been updated!"
@@ -310,7 +329,7 @@ class QuestionAnswerModal(discord.ui.Modal):
             await interaction.followup.send(msg, ephemeral=True)
 
         # Early completion check: if all role members answered, resolve immediately
-        if self.session.all_members_answered() and self.session.cog:
+        if should_resolve_early and self.session.cog:
             asyncio.create_task(
                 self.session.cog.resolve_session(self.session, reason="all_answered")
             )
@@ -325,8 +344,10 @@ class Questions(commands.Cog):
 
     def cog_unload(self):
         for session in list(self.active_sessions.values()):
+            session.resolved = True
             if session.task and not session.task.done():
                 session.task.cancel()
+        self.active_sessions.clear()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if (
@@ -352,18 +373,19 @@ class Questions(commands.Cog):
             status_text = "🔒 **Submissions are closed.**"
             button_label = "Submissions Closed"
             button_emoji = "🔒"
-            footer_text = f"💎 DaCat VIP • ID: {session.session_id} • Concluded"
+            footer_text = f"DaCat • ID: {session.session_id} • Concluded"
             sub_count_text = f"`{len(session.answers)}` recorded (Closed)"
         else:
             status_text = "👇 **Role members: click below to submit or update your answer!**"
             button_label = "Submit Answer"
             button_emoji = "✍️"
-            footer_text = f"💎 DaCat VIP • ID: {session.session_id} • Closes <t:{time_ts}:R>"
+            footer_text = f"DaCat • ID: {session.session_id} • Closes <t:{time_ts}:R>"
             sub_count_text = f"`{len(session.answers)}` recorded"
 
+        q_lines = session.question_text.splitlines()
+        q_display = "\n> ".join(q_lines) if q_lines else session.question_text
         body = (
-            "### ✦ **VIP EARLY ACCESS • ROLE QUESTION**\n"
-            f"> **\"{session.question_text}\"**\n\n"
+            f"> **\"{q_display}\"**\n\n"
             f"🎯 **Target Role:** {session.role.mention}\n"
             f"⏳ **Expires:** <t:{time_ts}:R> (<t:{time_ts}:F>)\n"
             f"⏱️ **Duration:** `{dur_label}`\n\n"
@@ -372,10 +394,9 @@ class Questions(commands.Cog):
 
         role_name = getattr(session.role, "name", "Role")[:100]
         panel = Panel(
-            title=f"👑 Question for @{role_name}",
+            title=f"Question for @{role_name}",
             body=body,
-            accent=VIP_GOLD,
-            thumbnail=VIP_GEM_GIF,
+            accent=ACCENT,
             gallery=[ANIMATED_ARROW_GIF],
             fields=[
                 ("Target Role", session.role.mention),
@@ -417,9 +438,10 @@ class Questions(commands.Cog):
         else:
             status_line = "⌛ **Time expired — question concluded.**"
 
+        q_lines = session.question_text.splitlines()
+        q_display = "\n> ".join(q_lines) if q_lines else session.question_text
         body = (
-            "### ✦ **QUESTION RESOLUTION SUMMARY**\n"
-            f"> **\"{session.question_text}\"**\n\n"
+            f"> **\"{q_display}\"**\n\n"
             f"🎯 **Target Role:** {session.role.mention}\n"
             f"{status_line}\n"
             f"📊 **Participation:** `{len(respondents)} / {total_count}` ({percent}% answered)"
@@ -471,12 +493,11 @@ class Questions(commands.Cog):
 
         role_name = getattr(session.role, "name", "Role")[:100]
         panel = Panel(
-            title=f"📊 Question Results • @{role_name}",
+            title=f"Question Results • @{role_name}",
             body=body,
-            accent=VIP_GOLD,
-            thumbnail=VIP_CROWN_GIF,
+            accent=ACCENT,
             fields=fields,
-            footer=f"💎 DaCat VIP • Question ID: {session.session_id} • Total Role Members: {total_count}",
+            footer=f"DaCat • Question ID: {session.session_id} • Total Role Members: {total_count}",
             timeout=None,
         )
         return panel
@@ -501,23 +522,32 @@ class Questions(commands.Cog):
             return
 
         if session.resolved:
-            await interaction.response.send_message(
-                "⚠️ This question is closed. Submissions are no longer accepted.",
-                ephemeral=True,
-            )
+            try:
+                await interaction.response.send_message(
+                    "⚠️ This question is closed. Submissions are no longer accepted.",
+                    ephemeral=True,
+                )
+            except (discord.InteractionResponded, discord.HTTPException):
+                pass
             return
 
-        member = interaction.user
+        member = resolve_interaction_member(interaction)
         if not member_has_role(member, session.role):
-            await interaction.response.send_message(
-                f"❌ Only members with the {session.role.mention} role can submit an answer to this question.",
-                ephemeral=True,
-            )
+            try:
+                await interaction.response.send_message(
+                    f"❌ Only members with the {session.role.mention} role can submit an answer to this question.",
+                    ephemeral=True,
+                )
+            except (discord.InteractionResponded, discord.HTTPException):
+                pass
             return
 
         existing_answer = session.get_answer(member.id)
         modal = QuestionAnswerModal(session=session, existing_answer=existing_answer)
-        await interaction.response.send_modal(modal)
+        try:
+            await interaction.response.send_modal(modal)
+        except (discord.InteractionResponded, discord.HTTPException):
+            pass
 
     async def _session_timer(self, session: QuestionSession):
         """Countdown timer task that triggers resolution on expiration."""
@@ -605,13 +635,19 @@ class Questions(commands.Cog):
         session_id = custom_id.split(":", 1)[1]
         session = self.active_sessions.get(session_id)
         if not session:
-            await interaction.response.send_message(
-                "❌ This question is no longer active.",
-                ephemeral=True,
-            )
+            try:
+                await interaction.response.send_message(
+                    "❌ This question is no longer active.",
+                    ephemeral=True,
+                )
+            except (discord.InteractionResponded, discord.HTTPException):
+                pass
             return
 
-        await self.handle_submit_button(interaction, session)
+        try:
+            await self.handle_submit_button(interaction, session)
+        except (discord.InteractionResponded, discord.HTTPException):
+            pass
 
     @app_commands.command(
         name="questions",
@@ -623,7 +659,6 @@ class Questions(commands.Cog):
         duration="Expiration duration (e.g. 10m, 1h, 24h)",
     )
     @app_commands.check(check_questions_access)
-    @app_commands.default_permissions(manage_guild=True)
     async def questions(
         self,
         interaction: discord.Interaction,
@@ -679,7 +714,11 @@ class Questions(commands.Cog):
         self.active_sessions[session_id] = session
 
         panel = self.build_question_card(session)
-        await send_panel(interaction, panel)
+        try:
+            await send_panel(interaction, panel)
+        except Exception:
+            self.active_sessions.pop(session_id, None)
+            raise
 
         try:
             if hasattr(interaction, "original_response"):

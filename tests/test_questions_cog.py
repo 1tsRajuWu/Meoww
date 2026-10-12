@@ -847,5 +847,172 @@ class TestInteractionListener(unittest.IsolatedAsyncioTestCase):
         inter.response.send_modal.assert_called_once()
 
 
+class TestAdversarialReviewerRound3(unittest.IsolatedAsyncioTestCase):
+    """Adversarial stress and edge case tests probing race conditions, nulls, and error paths."""
+
+    async def asyncSetUp(self):
+        self.bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+        self.cog = Questions(self.bot)
+        self.role = _mock_role(role_id=909, name="AdversarialRole")
+        self.alice = _mock_member(301, "Alice", roles=[self.role])
+        self.session = QuestionSession(
+            session_id="adv_sess_1",
+            guild_id=1,
+            channel_id=2,
+            question_text="Adversarial prompt text?",
+            role=self.role,
+            duration_seconds=600,
+            expires_at=time.time() + 600,
+            created_by=_mock_member(1, "Commander"),
+            cog=self.cog,
+        )
+        self.cog.active_sessions[self.session.session_id] = self.session
+
+    async def test_modal_submission_with_none_value_handled_as_blank(self):
+        modal = QuestionAnswerModal(session=self.session)
+        modal.answer_input._value = None
+        inter = _mock_interaction(user=self.alice)
+
+        await modal.on_submit(inter)
+
+        inter.response.send_message.assert_called_once()
+        args, kwargs = inter.response.send_message.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("blank", args[0].lower())
+        self.assertNotIn(self.alice.id, self.session.answers)
+
+    def test_record_answer_rejected_when_session_resolved(self):
+        self.session.resolved = True
+        result = self.session.record_answer(self.alice, "Late response")
+        self.assertFalse(result)
+        self.assertNotIn(self.alice.id, self.session.answers)
+
+    async def test_modal_submission_race_with_concurrent_resolution(self):
+        modal = QuestionAnswerModal(session=self.session)
+        modal.answer_input._value = "Race condition answer"
+        inter = _mock_interaction(user=self.alice)
+
+        # Mark resolved under the lock right before on_submit acquires it
+        self.session.resolved = True
+        await modal.on_submit(inter)
+
+        inter.response.send_message.assert_called_once()
+        args, kwargs = inter.response.send_message.call_args
+        self.assertTrue(kwargs.get("ephemeral", False))
+        self.assertIn("expired", args[0].lower())
+        self.assertNotIn(self.alice.id, self.session.answers)
+
+    async def test_interaction_member_resolution_with_user_object_and_guild_member(self):
+        # inter.user is a discord.User (no roles attribute)
+        user_only = mock.MagicMock(spec=discord.User)
+        user_only.id = 401
+        user_only.name = "GuildGuy"
+        user_only.roles = None
+
+        guild_member = _mock_member(401, "GuildGuy", roles=[self.role])
+        mock_guild = mock.MagicMock(spec=discord.Guild)
+        mock_guild.get_member.return_value = guild_member
+
+        inter = _mock_interaction(user=user_only)
+        inter.guild = mock_guild
+        inter.member = None
+
+        await self.cog.handle_submit_button(inter, self.session)
+        inter.response.send_modal.assert_called_once()
+
+    def test_role_with_only_bot_members_filters_out_bots(self):
+        b1 = _mock_member(901, "Bot1", is_bot=True)
+        b2 = _mock_member(902, "Bot2", is_bot=True)
+        bot_only_role = _mock_role(role_id=888, name="BotOnly", members=[b1, b2])
+
+        sess = QuestionSession(
+            session_id="bot_only_sess",
+            guild_id=1,
+            channel_id=2,
+            question_text="Any humans?",
+            role=bot_only_role,
+            duration_seconds=600,
+            expires_at=time.time() + 600,
+            created_by=_mock_member(1, "Commander"),
+        )
+        members = sess.get_role_members()
+        self.assertEqual(members, [])
+        respondents, non_respondents = sess.calculate_results()
+        self.assertEqual(respondents, [])
+        self.assertEqual(non_respondents, [])
+
+    def test_cog_unload_cancels_tasks_marks_resolved_and_cleans_sessions(self):
+        mock_task = mock.MagicMock(spec=asyncio.Task)
+        mock_task.done.return_value = False
+        self.session.task = mock_task
+
+        self.assertEqual(len(self.cog.active_sessions), 1)
+        self.cog.cog_unload()
+
+        mock_task.cancel.assert_called_once()
+        self.assertTrue(self.session.resolved)
+        self.assertEqual(len(self.cog.active_sessions), 0)
+
+    async def test_interaction_double_response_suppression(self):
+        inter = _mock_interaction(user=self.alice)
+        inter.response.send_modal.side_effect = discord.InteractionResponded(mock.MagicMock())
+
+        # Should not raise exception
+        await self.cog.handle_submit_button(inter, self.session)
+
+    def test_multiline_question_card_and_resolution_formatting(self):
+        multiline_sess = QuestionSession(
+            session_id="multi_sess",
+            guild_id=1,
+            channel_id=2,
+            question_text="Line 1: Question\nLine 2: Details\nLine 3: Notes",
+            role=self.role,
+            duration_seconds=600,
+            expires_at=time.time() + 600,
+            created_by=_mock_member(1, "Commander"),
+        )
+        card = self.cog.build_question_card(multiline_sess)
+        card_text = layout_text(card)
+        self.assertIn("Line 1: Question", card_text)
+        self.assertIn("Line 2: Details", card_text)
+
+        panel = self.cog.build_resolution_panel(multiline_sess, [], [])
+        panel_text = layout_text(panel)
+        self.assertIn("Line 1: Question", panel_text)
+        self.assertIn("Line 2: Details", panel_text)
+
+    async def test_questions_command_send_panel_failure_cleans_up_session(self):
+        self.cog.active_sessions.clear()
+        inter = _mock_interaction()
+        with mock.patch.dict(
+            self.cog.questions.callback.__globals__,
+            {"send_panel": mock.AsyncMock(side_effect=discord.HTTPException(mock.MagicMock(), "API Down"))},
+        ):
+            with self.assertRaises(discord.HTTPException):
+                await self.cog.questions.callback(
+                    self.cog,
+                    inter,
+                    question="Will this fail?",
+                    role=self.role,
+                    duration="1h",
+                )
+        self.assertEqual(len(self.cog.active_sessions), 0)
+
+    def test_member_role_removed_after_submission_still_included_in_respondents(self):
+        # Alice submits answer while having the role
+        self.session.record_answer(self.alice, "Submitted when I had the role")
+
+        # Now Alice loses the role
+        self.alice.roles = []
+        bob = _mock_member(302, "Bob", roles=[self.role])
+        self.role.members = [bob]
+
+        respondents, non_respondents = self.session.calculate_results()
+        self.assertEqual(len(respondents), 1)
+        self.assertEqual(respondents[0]["member"].id, self.alice.id)
+        self.assertEqual(len(non_respondents), 1)
+        self.assertEqual(non_respondents[0].id, bob.id)
+
+
 if __name__ == "__main__":
     unittest.main()

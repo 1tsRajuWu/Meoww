@@ -38,7 +38,7 @@ import discord
 #: pickers and hands the ceiling slots back.
 VIP_BOT_ID = 1558691012975534222
 #: Root commands reserved to the VIP instance (see above).
-VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music", "game"})
+VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music", "game", "questions"})
 
 
 def is_vip_app_id(app_id) -> bool:

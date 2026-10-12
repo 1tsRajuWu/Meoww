@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -379,11 +380,18 @@ def main() -> int:
         "--token", default=None,
         help="Discord bot token to sync (overrides DISCORD_TOKEN / VIP_BOT_TOKEN)",
     )
+    parser.add_argument(
+        "--vip", action="store_true",
+        help="sync using VIP_BOT_TOKEN instead of DISCORD_TOKEN",
+    )
     args = parser.parse_args()
 
-    token = (args.token or os.environ.get("DISCORD_TOKEN") or bot_module.TOKEN or "").strip()
+    if args.vip:
+        token = (args.token or os.environ.get("VIP_BOT_TOKEN") or getattr(bot_module, "VIP_TOKEN", None) or "").strip()
+    else:
+        token = (args.token or os.environ.get("DISCORD_TOKEN") or bot_module.TOKEN or "").strip()
     if not token:
-        print("No DISCORD_TOKEN found (checked --token, environment, and .env).")
+        print("No bot token found (checked --token, environment, and .env).")
         return 1
 
     status, application = _request("GET", "/oauth2/applications/@me", token)
