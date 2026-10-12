@@ -805,7 +805,7 @@ class TestTier4RealWorldAcceptance(unittest.TestCase):
     def test_flask_render_template_custom_bot_name_injected(self):
         """Verifies custom bot_name parameter is accurately reflected in title and document."""
         html = render_page(bot_name="DaCat Canary")
-        self.assertIn("Building The Next Generation — DaCat Canary", html)
+        self.assertIn("Building The Website — DaCat Canary", html)
 
     def test_live_endpoint_hook_intercepts_root_path(self):
         """Verifies keep_alive._enforce_be_right_back() intercepts root / request."""
@@ -818,7 +818,7 @@ class TestTier4RealWorldAcceptance(unittest.TestCase):
                 resp = keep_alive._enforce_be_right_back()
                 self.assertIsNotNone(resp, "_enforce_be_right_back() must return a Response for /")
                 self.assertEqual(resp.status_code, 200)
-                self.assertIn("DaCat", resp.get_data(as_text=True))
+                self.assertIn("DeCat", resp.get_data(as_text=True))
             finally:
                 if orig:
                     sys.modules["pytest"] = orig

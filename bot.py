@@ -2122,7 +2122,7 @@ async def main():
     is_vip = permissions.is_vip_token(TOKEN)
     async with bot:
         for cog in INITIAL_COGS:
-            if is_vip and cog not in ("cogs.premium", "cogs.music", "cogs.social"):
+            if is_vip and cog not in ("cogs.premium", "cogs.music", "cogs.social", "cogs.questions"):
                 continue
             try:
                 await bot.load_extension(cog)

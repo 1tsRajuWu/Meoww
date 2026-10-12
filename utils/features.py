@@ -546,6 +546,22 @@ FEATURES: tuple[Feature, ...] = (
         help_key="meetings",
     ),
     Feature(
+        id="questions",
+        name="Role Questions",
+        icon="❓",
+        category="Management",
+        description=(
+            "Interactive role-targeted questions with animated VIP cards, "
+            "modal text responses, and automated respondent summaries."
+        ),
+        gate_commands=("questions",),
+        commands=(
+            "/questions",
+        ),
+        cog="cogs.questions",
+        help_key="questions",
+    ),
+    Feature(
         id="tracker",
         name="Activity Tracker",
         icon="📊",

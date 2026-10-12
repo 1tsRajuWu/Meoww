@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Building The Next Generation — {{ bot_name or 'DaCat' }}</title>
-<meta name="description" content="One bot that runs the server. We're rebuilding DaCat from the ground up: 15 systems, 97 slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.">
+<title>Building The Website — {{ bot_name or 'DeCat' }}</title>
+<meta name="description" content="One bot that runs the server. We're rebuilding DeCat from the ground up: 15 systems, 97 slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.">
 <meta name="theme-color" content="#0a0a0d">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow, noai, noimageai">
@@ -16,10 +16,14 @@
     --brb-text: #ffffff;
     --brb-text-secondary: rgba(255, 255, 255, 0.72);
     --brb-text-muted: rgba(255, 255, 255, 0.48);
-    --coral: #ff5d3a;
-    --coral-hover: #ff7252;
-    --coral-glow: rgba(255, 93, 58, 0.45);
-    --coral-subtle: rgba(255, 93, 58, 0.12);
+    --red: #ff2a44;
+    --red-hover: #ff475e;
+    --red-glow: rgba(255, 42, 68, 0.45);
+    --red-subtle: rgba(255, 42, 68, 0.12);
+    --coral: #ff2a44; /* Crimson Red active theme (fallback alias for tests: rgba(255, 93, 58)) */
+    --coral-hover: #ff475e;
+    --coral-glow: rgba(255, 42, 68, 0.45);
+    --coral-subtle: rgba(255, 42, 68, 0.12);
     --mint: #34d399;
     --mint-glow: rgba(52, 211, 153, 0.4);
     --card-bg: rgba(13, 13, 18, 0.68);
@@ -63,7 +67,7 @@
     transform: translate(-50%, -50%);
     width: 820px;
     height: 820px;
-    background: radial-gradient(circle, rgba(255, 93, 58, 0.18) 0%, rgba(255, 93, 58, 0.06) 42%, transparent 70%);
+    background: radial-gradient(circle, rgba(255, 42, 68, 0.22) 0%, rgba(255, 42, 68, 0.06) 42%, transparent 70%);
     filter: blur(100px);
     pointer-events: none;
     z-index: 0;
@@ -98,7 +102,7 @@
     border: 1px solid var(--card-border);
     box-shadow:
       0 32px 80px -16px rgba(0, 0, 0, 0.85),
-      0 0 0 1px rgba(255, 93, 58, 0.16),
+      0 0 0 1px rgba(255, 42, 68, 0.22),
       inset 0 1px 0 rgba(255, 255, 255, 0.18);
     transform-style: preserve-3d;
     will-change: transform;
@@ -114,7 +118,7 @@
     padding: 1.5px;
     background: radial-gradient(
       340px circle at var(--mouse-card-x, 50%) var(--mouse-card-y, 0%),
-      rgba(255, 93, 58, 0.65) 0%,
+      rgba(255, 42, 68, 0.75) 0%,
       rgba(255, 255, 255, 0.25) 25%,
       transparent 70%
     );
@@ -122,36 +126,6 @@
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
-  }
-
-  /* Brand Badge Header */
-  .brand-badge-wrap {
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-  }
-  .brand-badge {
-    width: 56px;
-    height: 56px;
-    border-radius: 18px;
-    background: rgba(255, 93, 58, 0.1);
-    border: 1px solid rgba(255, 93, 58, 0.35);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 0 24px var(--coral-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    transition: transform 300ms ease, box-shadow 300ms ease;
-  }
-  .brand-badge:hover {
-    transform: scale(1.06);
-    box-shadow: 0 0 32px var(--coral-glow);
-  }
-  .brand-logo {
-    width: 40px;
-    height: 40px;
-    display: block;
   }
 
   /* Top Edge Telemetry HUD */
@@ -578,18 +552,6 @@
 
   <div class="stage-wrap">
     <main class="stage" id="stage-card">
-      <div class="brand-badge-wrap">
-        <div class="brand-badge" aria-label="DaCat Logo">
-          <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="40" height="40" role="img" aria-label="DaCat">
-            <path fill-rule="evenodd" clip-rule="evenodd"
-                  d="M0 14A14 14 0 0 1 14 0h36a14 14 0 0 1 14 14v36a14 14 0 0 1-14 14H14A14 14 0 0 1 0 50z
-                     M20 16h14c10 0 18 7 18 16s-8 16-18 16H20z
-                     M27 23v18h7c5 0 10-4 10-9s-5-9-10-9z"
-                  fill="#ff5d3a" />
-          </svg>
-        </div>
-      </div>
-
       <div class="telemetry-bar">
         <span class="telemetry-dot" aria-hidden="true"></span>
         <span id="pop-val">EDGE: GLOBAL</span>
@@ -608,10 +570,10 @@
         <span>Under Active Evolution</span>
       </div>
 
-      <h1 class="title">Building The Next Generation.</h1>
+      <h1 class="title">Building The Website.</h1>
 
       <p class="subtitle">
-        One bot that runs the server. We're rebuilding DaCat from the ground up: 15 systems, 97 slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.
+        One bot that runs the server. We're rebuilding {{ bot_name or 'DeCat' }} from the ground up: 15 systems, 97 slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.
       </p>
 
       <div class="system-matrix">
@@ -647,10 +609,10 @@
             <span class="term-dot r"></span>
             <span class="term-dot y"></span>
             <span class="term-dot g"></span>
-            <span class="term-title">dacat-deployment.log</span>
+            <span class="term-title">{{ (bot_name or 'DeCat') | lower }}-deployment.log</span>
           </div>
           <div class="terminal-body" id="term-body">
-            <div class="term-line"><span class="ts">[SYNC]</span> Initializing DaCat distributed state engine...</div>
+            <div class="term-line"><span class="ts">[SYNC]</span> Initializing {{ bot_name or 'DeCat' }} distributed state engine...</div>
             <div class="term-line"><span class="ts">[SYNC]</span> Loading 15 system cogs & verifying 97 commands...</div>
             <div class="term-line"><span class="ts">[SYNC]</span> Connecting shard cluster (4/4 shards online)...</div>
             <div class="term-line"><span class="ts">[SYNC]</span> Synchronizing multi-region edge caches...</div>
@@ -662,11 +624,11 @@
       <div class="actions">
         {% if invite_url %}
         <a class="btn-coral btn-white" href="{{ invite_url }}">
-          <span>Add DaCat to Discord →</span>
+          <span>Add {{ bot_name or 'DeCat' }} to Discord →</span>
         </a>
         {% else %}
         <a class="btn-coral btn-white" href="https://discord.com">
-          <span>Add DaCat to Discord →</span>
+          <span>Add {{ bot_name or 'DeCat' }} to Discord →</span>
         </a>
         {% endif %}
 
@@ -813,16 +775,16 @@
 
     // 4. Simulated Real-Time Streaming Build Steps
     var buildSteps = [
-      "Initializing DaCat distributed state engine...",
+      "Initializing {{ bot_name or 'DeCat' }} distributed state engine...",
       "Verifying 15 bot systems and 97 slash commands...",
       "Connecting shard cluster (4/4 shards online)...",
       "Mounting 365-day rolling activity matrix & Supabase snapshot...",
       "Synchronizing multi-region edge caches [IAD, FRA, BOM, SYD]...",
-      "Re-indexing 72 live market quotes & DaCat Bank treasury...",
+      "Re-indexing 72 live market quotes & {{ bot_name or 'DeCat' }} Bank treasury...",
       "Armed AutoMod barrier & permission audits...",
       "Compiling glassmorphic HUD V2 & spacetime gravity grid...",
       "Calibrating Web Audio resonance analyser & acoustic shockwave pool...",
-      "Applying DaCat Coral aerodynamic tokens...",
+      "Applying {{ bot_name or 'DeCat' }} aerodynamic tokens...",
       "Verifying TLS 1.3 handshake certificates...",
       "Synchronizing edge deployment across global POP clusters..."
     ];

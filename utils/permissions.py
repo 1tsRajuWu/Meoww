@@ -341,6 +341,8 @@ COMMAND_ACCESS: dict[str, str] = {
     "meeting cancel": GUILD,
     "meeting list": EVERYONE,
     "meeting view": EVERYONE,
+    # -- Role Questions ---------------------------------------------------- #
+    "questions": GUILD,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
     # The directory is everybody's, and it is the one command whose *content* is

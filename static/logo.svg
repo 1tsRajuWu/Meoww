@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="DaCat">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="DeCat">
   <!--
-    DaCat — the mark is the product's own letter, not a picture of a bot.
+    DeCat — the mark is the product's own letter, not a picture of a bot.
 
     It is drawn as a **badge**: an accent tile with a `D` knocked out of it.
     That is a decision about failure modes rather than about looks, and this

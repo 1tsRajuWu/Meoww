@@ -49,7 +49,7 @@ from __future__ import annotations
 #: application's name, which reads well until the application cannot be renamed:
 #: a verified application refuses the API rename, so the field went stale and
 #: every backend-rendered page kept announcing the name this product retired.
-NAME = "DaCat"
+NAME = "DeCat"
 
 #: What it is, in one line — the sentence a `og:description` or a footer wants.
 TAGLINE = "One bot that runs the server."

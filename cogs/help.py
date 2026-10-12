@@ -208,6 +208,17 @@ HELP_MODULES = {
         "color": 0x5865F2,
         "emoji": "📅"
     },
+    "questions": {
+        "title": "❓ Role Questions",
+        "desc": (
+            "Interactive role-targeted questions with VIP animated cards and automated summaries.\n\n"
+            "> `/questions <question> <role> [duration]` — Ask a role-targeted question with modal answers and automated summary\n\n"
+            "Role members submit responses through Discord text modals, and when time expires "
+            "or all members respond, a resolution summary of answers and non-respondents is posted."
+        ),
+        "color": 0xFFD700,
+        "emoji": "❓"
+    },
     "tickets": {
         "title": "🎫 Support Tickets",
         "desc": (
