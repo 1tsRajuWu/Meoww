@@ -1660,6 +1660,93 @@ textarea.prem-input { resize: vertical; min-height: 100px; line-height: 1.5; }
   align-items: start;
 }
 
+.mw-gradient-text {
+  background: linear-gradient(135deg, var(--mw-text) 30%, var(--mw-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.mw-gold-banner {
+  position: relative;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.04) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: var(--mw-radius-lg);
+  padding: var(--mw-space-6) var(--mw-space-7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mw-space-5);
+  margin-block: var(--mw-space-6);
+  overflow: hidden;
+}
+.mw-gold-banner::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+.mw-gold-banner__copy { max-width: 58ch; }
+.mw-gold-banner__title {
+  font-family: var(--mw-font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #fbbf24;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-gold-banner__desc {
+  font-size: var(--mw-text-small);
+  color: var(--mw-muted);
+  line-height: 1.5;
+}
+.mw-gold-banner .mw-btn {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mw-gold-banner .mw-btn:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #fbbf24;
+  color: #fff;
+}
+
+.mw-discord__reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #2b2d31;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  color: #b9bbbe;
+  margin-top: 8px;
+}
+.mw-discord__reaction:hover {
+  border-color: #5865f2;
+  background: rgba(88, 101, 242, 0.15);
+}
+
+.mw-discord__role {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(88, 101, 242, 0.18);
+  color: #5865f2;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 
 /* --------------------------------------------------------------------------
    11. Narrow
@@ -1749,6 +1836,7 @@ textarea.prem-input { resize: vertical; min-height: 100px; line-height: 1.5; }
   .mw-stat-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mw-showcase { grid-template-columns: minmax(0, 1fr); }
   .mw-premium-grid { grid-template-columns: minmax(0, 1fr); }
+  .mw-gold-banner { flex-direction: column; align-items: flex-start; }
 
 }
 
@@ -1852,6 +1940,8 @@ textarea.prem-input { resize: vertical; min-height: 100px; line-height: 1.5; }
   .prem-input { transition: border-color var(--mw-fast) var(--mw-ease); }
   .mw-var-pill { transition: border-color var(--mw-fast) var(--mw-ease), color var(--mw-fast) var(--mw-ease), background var(--mw-fast) var(--mw-ease); }
   .prem-embed-border-color { transition: border-left-color var(--mw-fast) var(--mw-ease); }
+  .mw-gold-banner .mw-btn,
+  .mw-discord__reaction { transition: background var(--mw-fast) var(--mw-ease), border-color var(--mw-fast) var(--mw-ease), color var(--mw-fast) var(--mw-ease); }
 
 }
 

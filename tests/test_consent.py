@@ -168,6 +168,19 @@ class NeedsAgreement(TempDatabaseMixin, unittest.TestCase):
         self.assertEqual(rows[0]["scope"], "global")
         self.assertNotIn("203.0", rows[0].get("ip") or "", "the address is not masked")
 
+    def test_persistent_cookie_prevents_repeated_asks(self):
+        self._sign_in()
+        agree_to_the_policies(self.client, next_url="/dashboard")
+        # Clear the session (simulating a fresh sign-in / browser session)
+        with self.client.session_transaction() as session:
+            session.clear()
+            session["authenticated"] = True
+            session["auth_scope"] = "global"
+        # Since the cookie is held, it does not intercept again:
+        response = self.client.get("/agree?next=/dashboard")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/dashboard")
+
     def test_the_recorded_address_is_masked_in_the_reading(self):
         consent.accept(scope="global", ip="203.0.113.9", agent="Mozilla/5.0 (X11)")
         rows = consent.reading()

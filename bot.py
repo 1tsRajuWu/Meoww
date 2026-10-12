@@ -595,9 +595,8 @@ def _scope_names(bot: commands.Bot, guild, everything) -> set[str]:
     """
     vip = _instance_is_vip(bot)
     if guild is None:
-        # Nowhere to publish a per-server list yet, and the next invitation must
-        # find a working picker: until there is a server to carry the tree, the
-        # global scope carries all of it.
+        if vip is True:
+            return permissions.VIP_ONLY_COMMANDS & set(everything)
         if not bot.guilds:
             return command_scope.for_identity(set(everything), is_vip=vip)
         return command_scope.for_identity(_global_names(everything), is_vip=vip)

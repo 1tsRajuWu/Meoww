@@ -44,19 +44,10 @@
     </p>
     {% else %}
     <p class="mw-lede">
-      There is no paid tier on this deployment, because there is nothing on it to pay for:
-      everything the registry declares is already in the bot for every server that runs it —
-      {{ system_count }} systems, {{ entry_count }} commands, {{ features | length }} of them
-      switchable per server.
-      {% if plans_enforced %}
-      Limits are enforced, so a server with more than its share is told which one it is over.
-      {% else %}
-      Nothing is withheld, and nothing is metered — this is a free product's page, not a
-      free trial's.
-      {% endif %}
+      There is no paid tier on this deployment. All {{ system_count }} systems and {{ entry_count }} commands are 100% free for every server.
     </p>
     <p class="mw-hint">
-      👑 <strong>DaCat VIP Edition:</strong> Early-access preview for the VIP Bot (Client ID: <code>1558691012975534222</code>) is complimentary ($0.00), featuring the premium <strong>Relationship Bonds</strong> (<code>/bond</code>) and <strong>Spotify Music Engine &amp; Jams</strong> (<code>/music</code>) suites with 100x enhanced VIP gold card visuals.
+      👑 <strong>DaCat VIP Edition:</strong> Free early access to Relationship Bonds (<code>/bond</code>) and Music Engine (<code>/music</code>).
     </p>
     <p class="mw-hint">If paid plans ever come to this deployment, this page will say so first.</p>
     {% endif %}
@@ -152,7 +143,7 @@
         <p class="mw-micro">{{ mark(sections, 'in-it') }}</p>
         <h2>Every system with a switch, listed</h2>
       </div>
-      <p class="mw-hint">Read from the registry, so this page cannot sell a feature the bot does not have.</p>
+      <p class="mw-hint">All systems included in your server.</p>
     </div>
 
     <ul class="mw-list">
@@ -165,8 +156,7 @@
       {% endfor %}
     </ul>
     <p class="mw-hint">
-      That is {{ features | length }} of the {{ system_count }} — System &amp; Server Control
-      has no switch and is always on.
+      {{ features | length }} configurable systems. Core controls are always active.
     </p>
   </div>
 </section>
@@ -174,7 +164,7 @@
 <section class="mw-band">
   <div class="mw-wrap mw-closing">
     <p class="mw-sparkle" aria-hidden="true">⋆ ˚｡⋆୨୧⋆｡˚ ⋆</p>
-    <h2 class="mw-closing__title mw-title">Everything on this page is enforced by the same model that serves it.</h2>
+    <h2 class="mw-closing__title mw-title">Add it to your Discord server today.</h2>
     <div class="mw-hero__actions">
       {% if invite_url %}<a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>{% endif %}
       {% if vip_invite_url %}<a class="mw-btn" href="{{ vip_invite_url }}">Add VIP Bot 👑</a>{% endif %}

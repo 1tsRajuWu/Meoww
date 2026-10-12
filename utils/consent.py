@@ -70,6 +70,9 @@ BUNDLE_EXTRAS = ("docs/legal/sub-processors.md",)
 #: the day it was added: a stale key from an older deploy is ignored, not read.
 SESSION_KEY = "legal_revision"
 
+#: Name of the persistent cookie used to remember consent across sessions.
+COOKIE_NAME = "legal_agree"
+
 #: How many characters of the digest are shown and stored. Twelve hex characters
 #: is 48 bits — plenty to tell two revisions of a policy apart, and short enough
 #: that somebody can read it off a card and type it into a message.
@@ -184,7 +187,20 @@ def needs(session) -> bool:
         # does not ask, and the console's Access page says the revision is
         # unknown.
         return False
-    return session.get(SESSION_KEY) != live
+    if session.get(SESSION_KEY) == live:
+        return False
+    if session.get(SESSION_KEY) and session.get(SESSION_KEY) != live:
+        return True
+    try:
+        from flask import has_request_context, request
+        if has_request_context():
+            cookie_val = request.cookies.get(COOKIE_NAME)
+            if cookie_val == live:
+                session[SESSION_KEY] = live
+                return False
+    except Exception:
+        pass
+    return True
 
 
 # --------------------------------------------------------------------------- #

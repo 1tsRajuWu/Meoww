@@ -26,9 +26,7 @@
     <p class="mw-micro">Get started</p>
     <h1 class="mw-display">Add it once. <em>Then switch off what you do not want.</em></h1>
     <p class="mw-lede">
-      Three steps from here to a server that does what you told it to. No account of ours
-      sits in the middle of them: the bot holds only what Discord gives it, and the dashboard
-      runs on this deployment, not on somebody else's service.
+      Three quick steps to set up DaCat and configure your server.
     </p>
   </div>
 </section>
@@ -41,15 +39,9 @@
         <h2 class="mw-step__title">Put it in the server</h2>
         <p>
           {% if invite_url %}
-          <a href="{{ invite_url }}">The full invite</a> asks for Administrator, which is one
-          permission bit and the reason no feature ever answers “Missing Permissions”.
-          {% if invite_limited_url %}
-          <a href="{{ invite_limited_url }}">The least-privilege invite</a> is the other half:
-          only the permissions a command is known to need.
-          {% endif %}
+          <a href="{{ invite_url }}">Add the bot</a> to your server with one click{% if invite_limited_url %} (<a href="{{ invite_limited_url }}">limited permissions</a>){% endif %}.
           {% else %}
-          This deployment has no invite link configured yet — set a Discord client id and
-          restart it.
+          Invite link not configured yet.
           {% endif %}
         </p>
       </li>
@@ -57,17 +49,14 @@
         <span class="mw-step__number">02</span>
         <h2 class="mw-step__title">Open the dashboard</h2>
         <p>
-          Run <code>/help</code> in your server and press the dashboard button. That mints a
-          one-time link for the server you ran it in — it works once, expires quickly, and
-          reaches no other server.
+          Run <code>/help</code> in your server and tap the dashboard button.
         </p>
       </li>
       <li class="mw-step">
         <span class="mw-step__number">03</span>
         <h2 class="mw-step__title">Decide what runs</h2>
         <p>
-          {{ system_count }} systems, {{ entry_count }} commands. Each system has one switch
-          per server, and the switch decides what that server's members can type.
+          {{ system_count }} systems, {{ entry_count }} commands. Switch any system on or off instantly.
         </p>
       </li>
     </ol>
@@ -81,7 +70,7 @@
         <p class="mw-micro">{{ mark(sections, 'ways-in') }}</p>
         <h2>Three doors, and what each one reaches</h2>
       </div>
-      <p class="mw-hint">A page must not offer a method this deployment does not have, so this list is read from the environment.</p>
+      <p class="mw-hint">Sign-in methods available for this deployment.</p>
     </div>
 
     <ul class="mw-list">

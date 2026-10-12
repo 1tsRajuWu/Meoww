@@ -38,7 +38,7 @@ SPOTIFY_LINK_RE = re.compile(
 JAM_LINK_RE = re.compile(r"https?://(?:open\.spotify\.com|spotify\.link)/\S+", re.IGNORECASE)
 OEMBED_URL = "https://open.spotify.com/oembed?url={url}"
 REQUEST_TIMEOUT = 8.0
-MUSIC_ICON_GIF = "https://huggingface.co/spaces/1tsRajOwO/meow/raw/main/static/music_visualizer.gif"
+MUSIC_ICON_GIF = "https://1tsrajowo-meow.hf.space/static/music_visualizer.gif"
 
 #: How often the jam watcher re-checks every server's active jam, how many
 #: consecutive dead reads end it, and the session cap after which it ends

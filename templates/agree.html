@@ -2,12 +2,7 @@
 {# The console's own nav, for the one page of that host with no page of its own.
    This clickwrap is served on all three addresses — the public site, the member
    dashboard and the operator console — and it extends the shared frame, so it
-   inherits the marketing header wherever it is drawn. On the member address
-   `_frame_nav` hands it the app's destinations; on the console's address
-   `_console_frame_nav` says so here, and every link this page would otherwise
-   offer (Home, Systems, Radio, Get started) is one that host answers with a 301.
-   The macro is the same one `/owner` and its door draw, so the console's header
-   still has exactly one author. #}
+   inherits the marketing header wherever it is drawn. #}
 {% from "_owner_nav.html" import console_nav %}
 {% block title %}Before you carry on — {{ bot_name }}{% endblock %}
 
@@ -23,9 +18,7 @@
     <p class="micro">Before you carry on</p>
     <h1>{{ documents | length }} documents, one decision</h1>
     <p class="lede">
-      You are signed in, and the dashboard is about to act on a server — so this is the
-      moment to say what you are agreeing to. Both answers below are the same size and
-      neither is chosen for you.
+      Review and accept the terms to continue to your dashboard.
     </p>
 
     {% if notice %}
@@ -36,7 +29,7 @@
       {% for document in documents %}
       <li>
         <span>
-          <a href="{{ document.href }}">{{ document.title }}</a>
+          <a href="{{ document.href }}">{{ document.title | safe }}</a>
           <span class="hint">— {{ document.label }}</span>
         </span>
         <span class="mono small">{{ document.href }}</span>
@@ -44,29 +37,14 @@
       {% endfor %}
     </ul>
 
-    <p class="hint tiles">
-      Revision <span class="mono">{{ revision }}</span> — the digest of these three files
-      themselves, so a sentence added today is not covered by an agreement made last month.
-      Changing one of them means this page asks again.
+    <p class="hint">
+      Revision <span class="mono">{{ revision }}</span>
     </p>
-
-    {% if not ledger %}
-    <p class="notice notice--bad">
-      This host cannot write the agreement ledger, so accepting will let you in and record
-      nothing. That is a fact about the host rather than about you, and it is reported on the
-      operator's console instead of being hidden behind a refusal.
-    </p>
-    {% endif %}
 
     <form method="post" action="/agree">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="next" value="{{ next_url }}">
       <div class="decision">
-        {# One class for both answers, and that is the rule rather than a
-           preference: the accept button carried `btn--primary` for one rebuild,
-           which drew one answer as the accent action and the other as a plain
-           one. `consent.py` states it — declining is "not a smaller button" —
-           and `WhatThePageNeverDoes` fails on a page where it is. #}
         <button class="btn" type="submit" name="decision" value="accept">
           I agree — take me to the {{ 'console' if next_url.startswith('/owner') else 'dashboard' }}
         </button>
@@ -76,11 +54,18 @@
       </div>
     </form>
 
-    <p class="hint tiles">
-      Declining signs this session out, changes nothing on any server, and records nothing
-      except that you are signed out. The three documents stay readable without an account:
-      <a href="/privacy">Privacy</a>, <a href="/terms">Terms</a>, <a href="/ai">AI &amp; crawling</a>.
+    <p class="hint" style="margin-top: 1rem;">
+      Declining signs this session out. Public policies:
+      <a href="/privacy">Privacy</a>, <a href="/terms">Terms</a>, <a href="/ai">AI policy</a>.
     </p>
+
+    {% if session.get('legal_revision') == revision and not declined %}
+    <script>
+      setTimeout(function() {
+        window.location.href = {{ next_url | tojson }};
+      }, 1000);
+    </script>
+    {% endif %}
   </div>
 </section>
 {% endblock %}

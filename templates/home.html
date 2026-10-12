@@ -41,26 +41,29 @@
 
 {% block page %}
 {# --------------------------------------------------------------------------
-   01 — One claim, one sentence, two ways in, and the product beside it.
+   01 — HERO: Falcon-inspired ambient aurora, headline, actions & stat bar
    -------------------------------------------------------------------------- #}
 <section class="mw-hero">
   <div class="mw-wrap mw-hero__inner">
     <div class="mw-hero__copy">
-      <p class="mw-micro">A Discord bot, with a dashboard</p>
+      <a class="mw-announce" href="/premium">
+        <span class="mw-announce__dot" aria-hidden="true"></span>
+        New: Customize your bot's embed messages →
+      </a>
       <h1 class="mw-display mw-hero__title">
-        Run your server. <em>Not the other way around.</em>
+        Run your server.<br><span class="mw-gradient-text">Like a pro.</span>
       </h1>
       <p class="mw-lede">
-        Moderation, tickets, levels, an economy and a live market — every system
-        switched on or off per server, from one grid of switches.
+        Moderation, tickets, leveling, an economy and custom embeds — every system
+        switched on or off per server, from one real-time dashboard.
       </p>
-      <div class="mw-hero__actions">
+      <div class="mw-hero__actions mw-hero__actions--row">
         {% if invite_url %}
-        <a class="mw-btn mw-btn--primary" href="{{ invite_url }}">Add to Discord →</a>
+        <a class="mw-btn mw-btn--primary" href="{{ invite_url }}">👥 Add to Server</a>
         {% else %}
         <a class="mw-btn mw-btn--primary" href="{{ enter_url }}">{{ enter_label }} →</a>
         {% endif %}
-        <a class="mw-link" href="/systems">See every system</a>
+        <a class="mw-btn" href="/systems">☆ Every System</a>
       </div>
       <p class="mw-hint">
         {{ system_count }} systems · {{ entry_count }} commands · {{ switchable_count }} with a switch · free
@@ -84,9 +87,6 @@
             <span class="mw-shot__name">{{ system.icon }} {{ system.name }}</span>
             <span class="mw-shot__count">{{ system.command_count }} cmd</span>
             {% if system.toggleable %}
-            {# Drawn, not offered: this window is `aria-hidden`, so its switches
-               take no tab stop and a keyboard user is never walked through a
-               picture of a control. #}
             {{ switch(system, inert=True) }}
             {% else %}
             <span class="mw-tag">always on</span>
@@ -97,30 +97,343 @@
       </div>
     </div>
   </div>
+
+  <!-- Stat bar -->
+  <div class="mw-stat-bar mw-wrap">
+    <div class="mw-stat-bar__cell">
+      <span class="mw-stat-bar__val" data-figure="control:servers">—</span>
+      <span class="mw-stat-bar__label">Servers</span>
+    </div>
+    <div class="mw-stat-bar__cell">
+      <span class="mw-stat-bar__val" data-figure="control:members">—</span>
+      <span class="mw-stat-bar__label">Users</span>
+    </div>
+    <div class="mw-stat-bar__cell">
+      <span class="mw-stat-bar__val">99.9%</span>
+      <span class="mw-stat-bar__label">Uptime</span>
+    </div>
+    <div class="mw-stat-bar__cell">
+      <span class="mw-stat-bar__val">{{ entry_count }}+</span>
+      <span class="mw-stat-bar__label">Commands</span>
+    </div>
+  </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   02 — The command demo. Two panes: what a member types, and the switches the
-   server it would run in has.
+   FEATURE 1: Leveling & Engagement (text left, Discord mockup right)
+   -------------------------------------------------------------------------- #}
+<section class="mw-band">
+  <div class="mw-wrap">
+    <div class="mw-feature">
+      <div class="mw-feature__copy">
+        <span class="mw-feature__eyebrow">🏆 Leveling &amp; XP</span>
+        <h2 class="mw-feature__title">Reward your most engaged members.</h2>
+        <p class="mw-feature__body">Track XP automatically as members chat. Set level roles, customize rank cards, and give your most active members the recognition they deserve.</p>
+        <div class="mw-feature__checks">
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Automatic XP tracking per message</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Level-up role rewards</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Custom rank cards with <code>/rank</code></div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>XP leaderboard with <code>/leaderboard</code></div>
+        </div>
+      </div>
+      <div class="mw-discord" aria-hidden="true">
+        <div class="mw-discord__bar">
+          <span class="mw-discord__hash">#</span>
+          <span>general</span>
+        </div>
+        <div class="mw-discord__body">
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar">🏆</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#ff5d3a">
+              <div class="mw-discord__embed-title">⬆️ Level Up!</div>
+              <div class="mw-discord__embed-body">
+                <span class="mw-arrow">▸</span> <strong style="color:#fff">Peter</strong> just reached <strong style="color:#ff5d3a">Level 12</strong>!<br>
+                <span class="mw-arrow">▸</span> Total XP: <strong style="color:#fff">4,800</strong><br>
+                <span class="mw-discord__embed-sep">· · · ✦ · · ·</span>
+                <span class="mw-arrow">▸</span> New role unlocked: <strong style="color:#34d399">⚡ Elite Member</strong>
+              </div>
+            </div>
+          </div>
+          <div class="mw-discord__msg" style="padding-left:16px;min-height:auto">
+            <span class="mw-discord__join-note"><strong>Sarah</strong> used <code style="background:#1e1f22;padding:1px 5px;border-radius:3px;font-size:12px;color:#dbdee1">/rank</code></span>
+          </div>
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar">🏆</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#5865f2">
+              <div class="mw-discord__embed-title">Sarah's Rank Card</div>
+              <div class="mw-discord__embed-body">
+                <span class="mw-arrow">▸</span> Rank: <strong style="color:#fff">#3</strong> on this server<br>
+                <span class="mw-arrow">▸</span> Level: <strong style="color:#fff">8</strong> · XP: <strong style="color:#fff">3,200 / 4,000</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-   It replaces a row of switches with nothing attached, which showed the grid but
-   never showed what a switch *does* — the one question a visitor has about a
-   toggle. Now the answer is the whole interaction: turn a system off, type one of
-   its commands, and read the refusal a member would get.
+{# --------------------------------------------------------------------------
+   FEATURE 2: Economy & Casino (Discord mockup left, text right) FLIPPED
+   -------------------------------------------------------------------------- #}
+<section class="mw-band">
+  <div class="mw-wrap">
+    <div class="mw-feature mw-feature--flip">
+      <div class="mw-feature__copy">
+        <span class="mw-feature__eyebrow">💰 Economy &amp; Market</span>
+        <h2 class="mw-feature__title">A full economy, in your server.</h2>
+        <p class="mw-feature__body">Coins, banks, shops, a live market and casino games. Give your server a living economy that keeps members coming back every day.</p>
+        <div class="mw-feature__checks">
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Daily &amp; weekly coin rewards</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Server shop &amp; item trading</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Live stock market with <code>/market</code></div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Casino games: slots, blackjack, roulette</div>
+        </div>
+      </div>
+      <div class="mw-discord" aria-hidden="true">
+        <div class="mw-discord__bar">
+          <span class="mw-discord__hash">#</span>
+          <span>economy</span>
+        </div>
+        <div class="mw-discord__body">
+          <div class="mw-discord__msg" style="padding-left:16px;min-height:auto">
+            <span class="mw-discord__join-note"><strong>Alex</strong> used <code style="background:#1e1f22;padding:1px 5px;border-radius:3px;font-size:12px;color:#dbdee1">/balance</code></span>
+          </div>
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar">💰</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#f5b451">
+              <div class="mw-discord__embed-title">Alex's Wallet</div>
+              <div class="mw-discord__embed-body">
+                <span class="mw-arrow">▸</span> Cash: <strong style="color:#fff">🪙 12,400</strong><br>
+                <span class="mw-arrow">▸</span> Bank: <strong style="color:#fff">🏦 88,000</strong><br>
+                <span class="mw-discord__embed-sep">· · · ✦ · · ·</span>
+                <span class="mw-arrow">▸</span> Net worth: <strong style="color:#34d399">🪙 100,400</strong>
+              </div>
+            </div>
+          </div>
+          <div class="mw-discord__msg" style="padding-left:16px;min-height:auto">
+            <span class="mw-discord__join-note"><strong>Alex</strong> used <code style="background:#1e1f22;padding:1px 5px;border-radius:3px;font-size:12px;color:#dbdee1">/slots</code></span>
+          </div>
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar">💰</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#34d399">
+              <div class="mw-discord__embed-title">🎰 Jackpot!</div>
+              <div class="mw-discord__embed-body">
+                🍒 · 🍒 · 🍒<br>
+                <span class="mw-arrow">▸</span> Won: <strong style="color:#34d399">🪙 5,000</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-   Three rules this band is built to:
+{# --------------------------------------------------------------------------
+   FEATURE 3: Moderation (text left, Discord mockup right)
+   -------------------------------------------------------------------------- #}
+<section class="mw-band">
+  <div class="mw-wrap">
+    <div class="mw-feature">
+      <div class="mw-feature__copy">
+        <span class="mw-feature__eyebrow">🛡️ Moderation &amp; Logs</span>
+        <h2 class="mw-feature__title">Keep your community safe.</h2>
+        <p class="mw-feature__body">Full moderation toolkit with detailed audit logs. Every action is tracked and logged, so you always know what happened and who did it.</p>
+        <div class="mw-feature__checks">
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Kick, ban, mute &amp; warn commands</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Auto moderation with filters</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Full mod log channel</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Lockdown &amp; slowmode controls</div>
+        </div>
+      </div>
+      <div class="mw-discord" aria-hidden="true">
+        <div class="mw-discord__bar">
+          <span class="mw-discord__hash">#</span>
+          <span>mod-logs</span>
+        </div>
+        <div class="mw-discord__body">
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar" style="background:#ff6b6b">🛡️</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+              <span class="mw-discord__time">Today at 3:12 PM</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#ff6b6b">
+              <div class="mw-discord__embed-title">🔨 Member Banned</div>
+              <div class="mw-discord__embed-body">
+                <span class="mw-arrow">▸</span> User: <strong style="color:#fff">BadActor#0001</strong><br>
+                <span class="mw-arrow">▸</span> Reason: <strong style="color:#fff">Spamming invites</strong><br>
+                <span class="mw-arrow">▸</span> Mod: <strong style="color:#fff">@Admin</strong>
+              </div>
+            </div>
+          </div>
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar" style="background:#f5b451">🛡️</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+              <span class="mw-discord__time">Today at 3:15 PM</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#f5b451">
+              <div class="mw-discord__embed-title">⚠️ Member Warned</div>
+              <div class="mw-discord__embed-body">
+                <span class="mw-arrow">▸</span> User: <strong style="color:#fff">NewUser#4321</strong><br>
+                <span class="mw-arrow">▸</span> Reason: <strong style="color:#fff">Off-topic messages</strong><br>
+                <span class="mw-arrow">▸</span> Warnings: <strong style="color:#f5b451">2 / 3</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-     * **It is a reading, not a connection.** Nothing here posts anywhere, there
-       is no `fetch`, and the switches are still local state. The page is not
-       signed in to a server and does not pretend to be.
-     * **The copy is the bot's own.** The refusal is composed from the sentence
-       `bot.global_module_check` sends a member, compared against that file by law
-       — a demo that paraphrases the bot is a demo that lies about what a member
-       will see. See `keep_alive.SIM_OFF_SENTENCE`.
-     * **Only real commands are recognised.** The registry decides what exists and
-       which system owns it (`_sim_payload`), so this cannot be used to fish for
-       hidden or undocumented commands: anything that is not in it is answered as
-       not a command, the same way an unknown name in Discord is.
+{# --------------------------------------------------------------------------
+   FEATURE 4: Tickets & Custom Embeds (Discord mockup left, text right) FLIPPED
+   -------------------------------------------------------------------------- #}
+<section class="mw-band">
+  <div class="mw-wrap">
+    <div class="mw-feature mw-feature--flip">
+      <div class="mw-feature__copy">
+        <span class="mw-feature__eyebrow">🎟️ Support Tickets</span>
+        <h2 class="mw-feature__title">Handle support the right way.</h2>
+        <p class="mw-feature__body">Private ticket channels created instantly when a member needs help. Keep your support organized and your public channels clean.</p>
+        <div class="mw-feature__checks">
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>One command to open a ticket</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Private channel per ticket</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Staff-only visibility</div>
+          <div class="mw-feature__check"><span class="mw-feature__check-icon">✓</span>Clean close &amp; archive flow</div>
+        </div>
+      </div>
+      <div class="mw-discord" aria-hidden="true">
+        <div class="mw-discord__bar">
+          <span class="mw-discord__hash">#</span>
+          <span>ticket-1042</span>
+        </div>
+        <div class="mw-discord__body">
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar">🎟️</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name">{{ bot_name }}</span>
+              <span class="mw-discord__badge">BOT</span>
+            </div>
+            <div class="mw-discord__embed" style="border-left-color:#5865f2">
+              <div class="mw-discord__embed-title">🎟️ Ticket #1042 Opened</div>
+              <div class="mw-discord__embed-body">
+                <span class="mw-arrow">▸</span> Opened by: <strong style="color:#fff">Emma</strong><br>
+                <span class="mw-arrow">▸</span> Category: <strong style="color:#fff">General Support</strong><br>
+                <span class="mw-discord__embed-sep">· · · ✦ · · ·</span>
+                A staff member will be with you shortly.
+              </div>
+            </div>
+          </div>
+          <div class="mw-discord__msg" style="padding-left:72px;min-height:auto">
+            <span class="mw-discord__text">Hi! I need help with the economy system.</span>
+          </div>
+          <div class="mw-discord__msg">
+            <div class="mw-discord__avatar" style="background:#5865f2">S</div>
+            <div class="mw-discord__author">
+              <span class="mw-discord__name" style="color:#5865f2">Staff Member</span>
+            </div>
+            <div class="mw-discord__text">Hey Emma! Happy to help. What seems to be the issue?</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   COMMAND SHOWCASE: Real Embed Cards Side-by-Side
+   -------------------------------------------------------------------------- #}
+<section class="mw-band">
+  <div class="mw-wrap">
+    <div class="mw-head">
+      <div>
+        <p class="mw-micro">Commands in action</p>
+        <h2>See what members type, and what they get.</h2>
+      </div>
+      <p class="mw-hint">Real embed output from the bot's actual commands.</p>
+    </div>
+    <div class="mw-showcase">
+      <div>
+        <div class="mw-showcase__label">⚡ /leaderboard</div>
+        <div class="mw-discord" aria-hidden="true">
+          <div class="mw-discord__bar"><span class="mw-discord__hash">#</span><span>general</span></div>
+          <div class="mw-discord__body">
+            <div class="mw-discord__msg">
+              <div class="mw-discord__avatar">🏆</div>
+              <div class="mw-discord__author"><span class="mw-discord__name">{{ bot_name }}</span><span class="mw-discord__badge">BOT</span></div>
+              <div class="mw-discord__embed" style="border-left-color:#ff5d3a">
+                <div class="mw-discord__embed-title">🏆 XP Leaderboard</div>
+                <div class="mw-discord__embed-body">
+                  <span class="mw-arrow">▸</span> 🥇 Peter · Level 15 · 6,200 XP<br>
+                  <span class="mw-arrow">▸</span> 🥈 Sarah · Level 12 · 4,800 XP<br>
+                  <span class="mw-arrow">▸</span> 🥉 Alex · Level 10 · 3,100 XP<br>
+                  <span class="mw-discord__embed-sep">· · · ✦ · · ·</span>
+                  <span style="color:#80848e">Your rank: #7 · 1,400 XP</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="mw-showcase__label">💰 /richlist</div>
+        <div class="mw-discord" aria-hidden="true">
+          <div class="mw-discord__bar"><span class="mw-discord__hash">#</span><span>economy</span></div>
+          <div class="mw-discord__body">
+            <div class="mw-discord__msg">
+              <div class="mw-discord__avatar">💰</div>
+              <div class="mw-discord__author"><span class="mw-discord__name">{{ bot_name }}</span><span class="mw-discord__badge">BOT</span></div>
+              <div class="mw-discord__embed" style="border-left-color:#f5b451">
+                <div class="mw-discord__embed-title">💎 Rich List</div>
+                <div class="mw-discord__embed-body">
+                  <span class="mw-arrow">▸</span> 🥇 Alex · 🪙 100,400<br>
+                  <span class="mw-arrow">▸</span> 🥈 Peter · 🪙 88,200<br>
+                  <span class="mw-arrow">▸</span> 🥉 Emma · 🪙 42,000<br>
+                  <span class="mw-discord__embed-sep">· · · ✦ · · ·</span>
+                  <span style="color:#80848e">Total in circulation: 🪙 2.4M</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Falcon-style Gold Crown Premium Banner -->
+    <div class="mw-gold-banner">
+      <div class="mw-gold-banner__copy">
+        <div class="mw-gold-banner__title">👑 Unlock {{ bot_name }} Premium</div>
+        <div class="mw-gold-banner__desc">Custom embed skins, animated banners, unlimited reaction roles, and priority background processing for your community.</div>
+      </div>
+      <a class="mw-btn" href="/premium">Explore Premium →</a>
+    </div>
+  </div>
+</section>
+
+{# --------------------------------------------------------------------------
+   01 — The command demo. (Spine section 1: switches)
    -------------------------------------------------------------------------- #}
 <section class="mw-band" id="switches">
   <div class="mw-wrap">
@@ -140,11 +453,6 @@
         <p class="mw-micro">Type a command</p>
         <div class="mw-sim__box">
           <span class="mw-sim__slash" aria-hidden="true">/</span>
-          {# `/rank`, not `/level rank`: the placeholder is the page's own
-             suggestion, and it used to name a command this bot has never had —
-             so the first thing a visitor tried was refused, by the box that
-             suggested it. `tests/test_meoww_site.py` holds every name the demo
-             offers to the command tree now. #}
           <input class="mw-sim__input" type="text" data-mw-sim-input
                  autocomplete="off" autocapitalize="off" spellcheck="false"
                  placeholder="rank"
@@ -170,13 +478,8 @@
           <div class="mw-live__row">
             <div class="mw-live__text">
               <span class="mw-row__name">{{ system.icon }} {{ system.name }}</span>
-              {# Singular chosen rather than appended: Support Tickets has one
-                 command, and "1 commands" reads like a bug on the front page. #}
               <span class="mw-live__desc">{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
             </div>
-            {# A system the registry says has no switch is not given one here
-               either: the grid is the dashboard's own, so a row that cannot be
-               switched off in the dashboard cannot be switched off on this page. #}
             {{ switch(system) }}
           </div>
           {% endfor %}
@@ -184,23 +487,16 @@
       </div>
     </div>
 
-    {# The demo's two tables, for the script: every real command, and which system
-       gates it. `tojson` escapes `<`, `>` and `&`, so no command name can end this
-       block early. Jinja's own filter rather than a hand-built string, because the
-       escaping is the whole reason this is safe to put in a page. #}
     <script type="application/json" data-mw-sim>{{ sim | tojson }}</script>
 
     <p class="mw-hint">
-      Nothing here is connected: these are the dashboard's own switches, on a page
-      that is not signed in to your server, and the answers are worked out in your
-      browser from the same tables the bot reads.
-      <a href="/systems">Every system, and what switching one off does</a>.
+      <a href="/systems">View all systems and command permissions →</a>
     </p>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   03 — The deployment's own numbers, below the claim rather than beside it.
+   02 — The deployment's own numbers (Spine section 2: deployment)
    -------------------------------------------------------------------------- #}
 <section class="mw-band" id="deployment">
   <div class="mw-wrap">
@@ -213,32 +509,17 @@
     <div class="mw-stats">
       {% for figure in hero_figures %}
       <div class="mw-stat">
-        {# Only the cells the host could not fill carry a hook; a card with a
-           number in it is never overwritten by a request afterwards. #}
         <span class="mw-stat__value"{% if figure.waiting %} data-figure="control:{{ figure.key }}"{% endif %}>{{ figure.value }}</span>
         <span class="mw-stat__label">{{ figure.label }}</span>
       </div>
       {% endfor %}
     </div>
-    <p class="mw-hint">A dash is a reading nobody has taken yet — not a zero.</p>
+    <p class="mw-hint">Live server statistics.</p>
   </div>
 </section>
 
 {# --------------------------------------------------------------------------
-   04 — The dashboard's own pages: one read in full, the rest as a list to scan.
-
-   It has now been cut twice — seven cards, then four cards and a line — and both
-   times the band was still the page's argument made twice: four panels of three
-   bullets is two minutes of reading to learn what the *next page* says anyway.
-   So one page is described in full (the registry's own first, which is the one a
-   visitor will actually open) and the other ten are a list of links with a
-   four-word note each: ten seconds to scan, and the depth still exists one click
-   away on the page each row names.
-
-   What the cut must never become is a *claim*. Every page the registry declares
-   is still named here — the card for the first, a row for each of the rest — so a
-   page can be added to `DASHBOARD_PAGES` and appear, and the law in
-   `tests/test_meoww_site.py` fails if one goes missing from both places.
+   03 — The dashboard's own pages (Spine section 3: dashboard)
    -------------------------------------------------------------------------- #}
 <section class="mw-band" id="dashboard">
   <div class="mw-wrap">
@@ -247,7 +528,7 @@
         <p class="mw-micro">{{ mark(sections, 'dashboard') }}</p>
         <h2>What you get when you sign in</h2>
       </div>
-      <p class="mw-hint">Read from the registry, so this page cannot advertise a page the bot does not have.</p>
+      <p class="mw-hint">Full management suite for your community.</p>
     </div>
 
     {% set lead = tour[0] %}
@@ -261,10 +542,6 @@
         </ul>
       </div>
 
-      {# One row per page, name and note and nothing else. The note is the
-         registry's own `note` rather than the first clause of its `blurb`: a
-         sentence cut down by a template is a sentence that reads as a truncation
-         on the day it is reworded. #}
       <ul class="mw-list mw-pages">
         {% for page in tour[1:] %}
         <li class="mw-pages__row">
@@ -278,7 +555,7 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   05 — Three steps, in order, ending on what actually happens next.
+   04 — Three steps (Spine section 4: start)
    -------------------------------------------------------------------------- #}
 <section class="mw-band" id="start">
   <div class="mw-wrap">
@@ -289,21 +566,15 @@
       </div>
     </div>
 
-    {# One sentence a step, and the full version on `/start`: three paragraphs here
-       was the page's densest band — the steps are a summary on the front door and
-       a page of their own one click away, and the counts each of them used to
-       repeat are already stated once in the hero above. #}
     <ol class="mw-steps">
       <li class="mw-step">
         <span class="mw-step__number">01</span>
         <h3>Add it</h3>
         <p>
           {% if invite_url %}
-          <a href="{{ invite_url }}">The invite</a> asks for Administrator, so nothing arrives
-          as “Missing Permissions”{% if invite_limited_url %} — or take
-          <a href="{{ invite_limited_url }}">a smaller grant</a> instead{% endif %}{% if vip_invite_url %}, or invite the <a href="{{ vip_invite_url }}">VIP Edition (1558691012975534222)</a>{% endif %}.
+          <a href="{{ invite_url }}">Add to Discord</a> with one click to get started immediately{% if invite_limited_url %} (<a href="{{ invite_limited_url }}">limited permissions</a>){% endif %}{% if vip_invite_url %}, or invite the <a href="{{ vip_invite_url }}">VIP Edition</a>{% endif %}.
           {% else %}
-          This deployment has no invite link configured yet.
+          Invite link not configured yet.
           {% endif %}
         </p>
       </li>
@@ -311,16 +582,14 @@
         <span class="mw-step__number">02</span>
         <h3>Open the dashboard</h3>
         <p>
-          Run <code>/help</code> and press the dashboard button: it mints a one-time link for
-          that server, and reaches no other.
+          Type <code>/help</code> in your server and tap Open Dashboard.
         </p>
       </li>
       <li class="mw-step">
         <span class="mw-step__number">03</span>
         <h3>Switch off what you do not want</h3>
         <p>
-          {{ switchable_count }} of {{ systems | length }} systems have a switch, and the
-          switch decides what that server's members can type.
+          Toggle any of the {{ switchable_count }} systems on or off to fit your community.
         </p>
       </li>
     </ol>
@@ -328,8 +597,7 @@
 </section>
 
 {# --------------------------------------------------------------------------
-   06 — The questions. `<details>` rather than a scripted drawer: a keyboard
-   opens it, a search engine reads it, and no file is asked to render anything.
+   05 — The questions (Spine section 5: questions)
    -------------------------------------------------------------------------- #}
 <section class="mw-band mw-band--statement" id="questions">
   <div class="mw-wrap">

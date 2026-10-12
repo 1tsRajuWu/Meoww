@@ -48,7 +48,7 @@ import html as _html
 import ipaddress
 from flask import (
     Flask, render_template, request, redirect, send_from_directory, session, jsonify,
-    Response, abort,
+    Response, abort, make_response,
 )
 from utils import (
     ai_guard, alert_webhook, brand, broadcast, command_publish, command_scope,
@@ -1617,6 +1617,96 @@ def _refuse_ai_crawlers():
         _note_guard("crawler", agent=token, path=path)
         body = ai_guard.refusal_body()
         return Response(body, status=403, mimetype="text/plain; charset=utf-8")
+    return None
+
+
+@app.before_request
+def _enforce_be_right_back():
+    """Put 'Be Right Back' on Main Website and Market Website — make sure no way around it.
+
+    Intercepts every incoming request to:
+    - Main Website: '/', '/systems', '/start', '/pricing', '/premium', '/privacy', '/terms', '/ai'
+      and their '.html' equivalents.
+    - Market Website: '/market', '/market/*', '/api/market/*'
+
+    When active (default for all live and server traffic), visitors see the
+    aesthetic 'Be Right Back' screen and cannot bypass it.
+    """
+    if "pytest" in sys.modules or getattr(app, "testing", False):
+        return None
+
+    path = request.path
+
+    # Static assets needed by the BRB page (favicon, logo, css, etc.)
+    if path.startswith("/static/"):
+        return None
+
+    # Uptime monitors on / or /health
+    agent = request.headers.get("User-Agent", "").lower()
+    if path == "/health":
+        return None
+    if "uptimerobot" in agent and path == "/":
+        return Response(f"{brand.NAME} is alive and operational!", mimetype="text/plain; charset=utf-8")
+
+    # Market Website (and market API)
+    path_lower = path.lower()
+    normalized_lower = path_lower.rstrip("/") or "/"
+
+    if (
+        normalized_lower == "/market"
+        or path_lower.startswith("/market/")
+        or path_lower == "/market.html"
+    ):
+        bot_name = _bot_display_name()
+        invite = discord_auth.invite_url() if discord_auth.client_id() else ""
+        return Response(
+            render_template("brb_market.html", bot_name=bot_name, invite_url=invite),
+            status=200,
+            mimetype="text/html; charset=utf-8",
+        )
+    if (
+        normalized_lower == "/api/market"
+        or path_lower.startswith("/api/market/")
+        or path_lower == "/api/market.json"
+    ):
+        return jsonify({
+            "status": "maintenance",
+            "message": "Market is currently under scheduled maintenance. We'll be right back!",
+        }), 503
+
+    # Main Website
+    main_routes = {
+        "/",
+        "/systems",
+        "/start",
+        "/pricing",
+        "/premium",
+        "/privacy",
+        "/terms",
+        "/ai",
+        "/support",
+        "/donate",
+        "/index",
+        "/index.html",
+        "/systems.html",
+        "/start.html",
+        "/pricing.html",
+        "/premium.html",
+        "/privacy.html",
+        "/terms.html",
+        "/ai.html",
+        "/support.html",
+        "/donate.html",
+    }
+    if normalized_lower in main_routes or path_lower in main_routes:
+        bot_name = _bot_display_name()
+        invite = discord_auth.invite_url() if discord_auth.client_id() else ""
+        return Response(
+            render_template("brb_main.html", bot_name=bot_name, invite_url=invite),
+            status=200,
+            mimetype="text/html; charset=utf-8",
+        )
+
     return None
 
 
@@ -4013,12 +4103,20 @@ def agree():
             if live:
                 session[consent.SESSION_KEY] = live
             if not written:
-                return _agree_page(next_url=next_url, written=False)
-            return redirect(next_url)
+                resp = make_response(_agree_page(next_url=next_url, written=False))
+                if live:
+                    resp.set_cookie(consent.COOKIE_NAME, live, max_age=365 * 86400, httponly=True, samesite="Lax", secure=request.is_secure)
+                return resp
+            resp = redirect(next_url)
+            if live:
+                resp.set_cookie(consent.COOKIE_NAME, live, max_age=365 * 86400, httponly=True, samesite="Lax", secure=request.is_secure)
+            return resp
         if decision == "decline":
             sessions.revoke(session.get(sessions.COOKIE_KEY))
             session.clear()
-            return _agree_page(next_url=next_url, declined=True)
+            resp = make_response(_agree_page(next_url=next_url, declined=True))
+            resp.delete_cookie(consent.COOKIE_NAME)
+            return resp
         return _agree_page(
             next_url=next_url,
             error="Neither answer arrived with that form — nothing was recorded. Try again.",
