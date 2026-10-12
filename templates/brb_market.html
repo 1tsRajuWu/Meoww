@@ -11,12 +11,13 @@
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <style>
   :root {
-    --brb-bg: #060609;
+    --brb-bg: #050508;
     --brb-text: #ffffff;
-    --brb-text-muted: rgba(255, 255, 255, 0.5);
+    --brb-text-muted: rgba(255, 255, 255, 0.55);
     --brb-red: #ff2a44;
-    --brb-red-glow: rgba(255, 42, 68, 0.4);
+    --brb-red-glow: rgba(255, 42, 68, 0.45);
     --brb-good: #10b981;
+    --card-bg: rgba(10, 10, 16, 0.6);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -33,11 +34,12 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: 32px 24px;
+    padding: 40px 24px;
     position: relative;
+    perspective: 1200px;
   }
 
-  /* Interactive Gravity Dots Canvas */
+  /* Interactive Gravity Canvas */
   #dots-canvas {
     position: fixed;
     inset: 0;
@@ -47,70 +49,117 @@
     z-index: 0;
   }
 
-  /* Ambient atmospheric background */
+  /* Ambient Atmospheric Background Glow */
   .ambient-glow {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 700px;
-    height: 700px;
-    background: radial-gradient(circle, rgba(255, 42, 68, 0.16) 0%, rgba(220, 38, 38, 0.06) 45%, transparent 70%);
-    filter: blur(90px);
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(255, 42, 68, 0.16) 0%, rgba(220, 38, 38, 0.05) 45%, transparent 70%);
+    filter: blur(100px);
     pointer-events: none;
     z-index: 0;
-    animation: ambient-breathe 8s ease-in-out infinite alternate;
+    animation: ambient-pulse 9s ease-in-out infinite alternate;
   }
-  @keyframes ambient-breathe {
-    0% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.8; }
-    100% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+  @keyframes ambient-pulse {
+    0% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.75; }
+    100% { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
   }
 
-  /* Center Stage Container */
-  .stage {
+  /* Center Stage Container with 3D Parallax Tilt */
+  .stage-wrap {
     position: relative;
     z-index: 1;
-    max-width: 500px;
+    max-width: 540px;
+    width: 100%;
+    perspective: 1200px;
+  }
+  .stage {
+    position: relative;
     width: 100%;
     text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
     user-select: none;
-    padding: 48px 36px;
+    padding: 44px 36px 36px;
     border-radius: 32px;
-    background: rgba(10, 10, 16, 0.55);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    background: var(--card-bg);
+    backdrop-filter: blur(32px) saturate(190%);
+    -webkit-backdrop-filter: blur(32px) saturate(190%);
     border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow:
-      0 24px 64px -12px rgba(0, 0, 0, 0.75),
-      0 0 0 1px rgba(255, 42, 68, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    animation: stage-float 8s ease-in-out infinite;
-  }
-  @keyframes stage-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-6px); }
+      0 32px 80px -16px rgba(0, 0, 0, 0.8),
+      0 0 0 1px rgba(255, 42, 68, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transform-style: preserve-3d;
+    transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 300ms ease;
   }
 
-  /* Pill Tag */
+  /* Specular Highlight that follows Cursor around Card Border */
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 32px;
+    padding: 1.5px;
+    background: radial-gradient(
+      320px circle at var(--mouse-card-x, 50%) var(--mouse-card-y, 0%),
+      rgba(255, 42, 68, 0.5) 0%,
+      rgba(255, 255, 255, 0.15) 30%,
+      transparent 70%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Top Edge Telemetry HUD */
+  .telemetry-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 18px;
+  }
+  .telemetry-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--brb-good);
+    box-shadow: 0 0 6px var(--brb-good);
+  }
+  .telemetry-sep {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Status Pill with Sonar Radar Wave */
   .status-pill {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    padding: 7px 16px;
+    padding: 7px 18px;
     border-radius: 999px;
     background: rgba(255, 42, 68, 0.08);
-    border: 1px solid rgba(255, 42, 68, 0.28);
+    border: 1px solid rgba(255, 42, 68, 0.32);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.9);
-    margin-bottom: 22px;
+    color: rgba(255, 255, 255, 0.95);
+    margin-bottom: 20px;
     backdrop-filter: blur(12px);
-    box-shadow: 0 0 20px rgba(255, 42, 68, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    box-shadow: 0 0 24px rgba(255, 42, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
   .pulse-dot-wrap {
     position: relative;
@@ -172,26 +221,72 @@
     0%, 100% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
   }
-
   .subtitle {
     font-size: 15px;
     line-height: 1.6;
     color: var(--brb-text-muted);
-    max-width: 400px;
-    margin: 0 auto;
+    max-width: 420px;
+    margin: 0 auto 20px;
     font-weight: 400;
   }
 
-  /* Laser Progress Bar */
+  /* Live Subsystem Matrix Chips */
+  .system-matrix {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: 100%;
+    max-width: 440px;
+    margin: 4px auto 22px;
+  }
+  .sys-chip {
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    text-align: left;
+  }
+  .sys-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+  }
+  .sys-val {
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #ffffff;
+  }
+  .sys-val .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--brb-good);
+    box-shadow: 0 0 6px var(--brb-good);
+  }
+  .sys-val .dot.pulse {
+    background: var(--brb-red);
+    box-shadow: 0 0 6px var(--brb-red);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  /* Optical Laser Progress Bar */
   .laser-track {
-    width: 150px;
+    width: 160px;
     height: 3px;
     background: rgba(255, 255, 255, 0.06);
     border-radius: 999px;
     position: relative;
     overflow: hidden;
-    margin: 28px auto 32px;
-    box-shadow: 0 0 12px rgba(255, 42, 68, 0.2);
+    margin: 4px auto 24px;
+    box-shadow: 0 0 14px rgba(255, 42, 68, 0.25);
   }
   .laser-bar {
     position: absolute;
@@ -208,6 +303,105 @@
     100% { left: 100%; }
   }
 
+  /* Live Terminal Logs Drawer */
+  .terminal-wrap {
+    width: 100%;
+    max-width: 440px;
+    margin-bottom: 22px;
+  }
+  .terminal-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 8px;
+    transition: color 180ms, background 180ms;
+  }
+  .terminal-toggle:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .terminal-toggle .arrow {
+    font-size: 12px;
+    transition: transform 200ms ease;
+  }
+  .terminal-toggle.open .arrow {
+    transform: rotate(180deg);
+  }
+  .terminal-drawer {
+    margin-top: 10px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    text-align: left;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .terminal-head {
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .term-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .term-dot.r { background: #ff5f56; }
+  .term-dot.y { background: #ffbd2e; }
+  .term-dot.g { background: #27c93f; }
+  .term-title {
+    margin-left: 6px;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 12px;
+  }
+  .terminal-body {
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 130px;
+    overflow-y: auto;
+  }
+  .term-line {
+    color: rgba(255, 255, 255, 0.65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .term-line .ts {
+    color: rgba(255, 42, 68, 0.7);
+    margin-right: 6px;
+  }
+  .term-line.live {
+    color: #ffffff;
+  }
+  .term-cursor {
+    display: inline-block;
+    width: 7px;
+    height: 12px;
+    background: var(--brb-red);
+    margin-left: 4px;
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
   /* Action Buttons */
   .actions {
     display: flex;
@@ -221,7 +415,7 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 13px 32px;
+    padding: 13px 34px;
     border-radius: 999px;
     background: #ffffff;
     color: #060609;
@@ -244,7 +438,7 @@
     background: linear-gradient(
       90deg,
       transparent,
-      rgba(255, 255, 255, 0.7),
+      rgba(255, 255, 255, 0.75),
       transparent
     );
     transform: rotate(25deg);
@@ -256,29 +450,52 @@
   }
   .btn-white:hover {
     transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 10px 36px var(--brb-red-glow), 0 0 0 1px rgba(255, 255, 255, 0.4);
+    box-shadow: 0 12px 40px var(--brb-red-glow), 0 0 0 1px rgba(255, 255, 255, 0.4);
     color: #000000;
   }
   .btn-white:active {
     transform: translateY(0) scale(0.99);
   }
 
-  /* Footer Note */
-  .meta-note {
-    display: inline-flex;
+  /* Footer Interactive Equalizer & Micro Hints */
+  .footer-hud {
+    display: flex;
+    flex-direction: column;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.45);
-    letter-spacing: 0.02em;
-    margin-top: 6px;
+    margin-top: 14px;
   }
-  .meta-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--brb-good);
-    box-shadow: 0 0 8px var(--brb-good);
+  .eq-strip {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 12px;
+  }
+  .eq-bar {
+    width: 2.5px;
+    background: var(--brb-red);
+    border-radius: 999px;
+    animation: eq-bounce 1.2s ease-in-out infinite alternate;
+  }
+  .eq-bar:nth-child(1) { height: 4px; animation-delay: 0.1s; }
+  .eq-bar:nth-child(2) { height: 9px; animation-delay: 0.3s; }
+  .eq-bar:nth-child(3) { height: 12px; animation-delay: 0.5s; }
+  .eq-bar:nth-child(4) { height: 6px; animation-delay: 0.2s; }
+  .eq-bar:nth-child(5) { height: 10px; animation-delay: 0.4s; }
+  @keyframes eq-bounce {
+    0% { transform: scaleY(0.4); opacity: 0.5; }
+    100% { transform: scaleY(1); opacity: 1; }
+  }
+
+  .meta-note {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.02em;
+  }
+
+  @media (max-width: 480px) {
+    .stage { padding: 32px 20px 28px; }
+    .system-matrix { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -286,41 +503,141 @@
   <canvas id="dots-canvas" aria-hidden="true"></canvas>
   <div class="ambient-glow"></div>
 
-  <main class="stage">
-    <div class="status-pill">
-      <div class="pulse-dot-wrap">
-        <span class="pulse-ring"></span>
-        <span class="pulse-dot"></span>
+  <div class="stage-wrap">
+    <main class="stage" id="stage-card">
+      <div class="telemetry-bar">
+        <span class="telemetry-dot"></span>
+        <span>EDGE: GLOBAL</span>
+        <span class="telemetry-sep">/</span>
+        <span id="ping-val">12ms</span>
+        <span class="telemetry-sep">/</span>
+        <span>BUILD: 2.4-RC</span>
       </div>
-      Under Construction
-    </div>
 
-    <h1 class="title">Building The Market.</h1>
-
-    <p class="subtitle">
-      A completely redesigned market and trading terminal is currently being built. All balances and portfolios remain secure.
-    </p>
-
-    <div class="laser-track" aria-hidden="true">
-      <div class="laser-bar"></div>
-    </div>
-
-    <div class="actions">
-      {% if invite_url %}
-      <a class="btn-white" href="{{ invite_url }}">
-        Discord Commands Available →
-      </a>
-      {% endif %}
-
-      <div class="meta-note">
-        <span class="meta-dot"></span>
-        <span>Ledger &amp; Portfolio Database Secured</span>
+      <div class="status-pill">
+        <div class="pulse-dot-wrap">
+          <span class="pulse-ring"></span>
+          <span class="pulse-dot"></span>
+        </div>
+        <span>Under Active Construction</span>
       </div>
-    </div>
-  </main>
+
+      <h1 class="title">Building The Market.</h1>
+
+      <p class="subtitle">
+        A completely redesigned market and trading terminal is currently being built. All balances and portfolios remain secure.
+      </p>
+
+      <div class="system-matrix">
+        <div class="sys-chip">
+          <span class="sys-label">Core Pricing</span>
+          <span class="sys-val"><span class="dot"></span> Operational</span>
+        </div>
+        <div class="sys-chip">
+          <span class="sys-label">Ledger Mesh</span>
+          <span class="sys-val"><span class="dot"></span> Encrypted</span>
+        </div>
+        <div class="sys-chip">
+          <span class="sys-label">Order Engine</span>
+          <span class="sys-val"><span class="dot pulse"></span> 88% Ready</span>
+        </div>
+      </div>
+
+      <div class="laser-track" aria-hidden="true">
+        <div class="laser-bar"></div>
+      </div>
+
+      <div class="terminal-wrap">
+        <button class="terminal-toggle" id="term-toggle" type="button" aria-expanded="false" aria-controls="term-drawer">
+          <span>⚡ Live Deployment Stream</span>
+          <span class="arrow" aria-hidden="true">▾</span>
+        </button>
+        <div class="terminal-drawer" id="term-drawer" hidden>
+          <div class="terminal-head">
+            <span class="term-dot r"></span>
+            <span class="term-dot y"></span>
+            <span class="term-dot g"></span>
+            <span class="term-title">market-v2-deploy.log</span>
+          </div>
+          <div class="terminal-body" id="term-body">
+            <div class="term-line"><span class="ts">[21:02:14]</span> Initializing real-time order matching engine...</div>
+            <div class="term-line"><span class="ts">[21:02:15]</span> Verifying user portfolio balances and crypto vaults...</div>
+            <div class="term-line"><span class="ts">[21:02:17]</span> Compiling sub-millisecond price-feed pipeline...</div>
+            <div class="term-line"><span class="ts">[21:02:18]</span> Applying crimson aerodynamic trading interface...</div>
+            <div class="term-line live"><span class="ts">[LIVE]</span> Finalizing distributed market liquidity handshake<span class="term-cursor"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        {% if invite_url %}
+        <a class="btn-white" href="{{ invite_url }}">
+          Discord Commands Available →
+        </a>
+        {% endif %}
+
+        <div class="footer-hud">
+          <div class="eq-strip" aria-hidden="true">
+            <span class="eq-bar"></span>
+            <span class="eq-bar"></span>
+            <span class="eq-bar"></span>
+            <span class="eq-bar"></span>
+            <span class="eq-bar"></span>
+          </div>
+          <span class="meta-note">Click anywhere to pulse gravity wave</span>
+        </div>
+      </div>
+    </main>
+  </div>
 
   <script>
   (function() {
+    // 3D Parallax & Border Specular Light Tracking
+    var stage = document.getElementById('stage-card');
+    if (stage) {
+      window.addEventListener('pointermove', function(e) {
+        var rect = stage.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var y = e.clientY - rect.top;
+        stage.style.setProperty('--mouse-card-x', x + 'px');
+        stage.style.setProperty('--mouse-card-y', y + 'px');
+
+        var centerX = rect.left + rect.width / 2;
+        var centerY = rect.top + rect.height / 2;
+        var deltaX = (e.clientX - centerX) / (window.innerWidth / 2);
+        var deltaY = (e.clientY - centerY) / (window.innerHeight / 2);
+        var rotateX = -deltaY * 7;
+        var rotateY = deltaX * 7;
+        stage.style.transform = 'perspective(1000px) rotateX(' + rotateX.toFixed(2) + 'deg) rotateY(' + rotateY.toFixed(2) + 'deg)';
+      }, { passive: true });
+
+      window.addEventListener('mouseleave', function() {
+        stage.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
+      });
+    }
+
+    // Terminal Drawer Toggle
+    var toggleBtn = document.getElementById('term-toggle');
+    var drawer = document.getElementById('term-drawer');
+    if (toggleBtn && drawer) {
+      toggleBtn.addEventListener('click', function() {
+        var expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+        toggleBtn.setAttribute('aria-expanded', !expanded);
+        toggleBtn.classList.toggle('open', !expanded);
+        drawer.hidden = expanded;
+      });
+    }
+
+    // Ping Metric Ticker
+    var pingEl = document.getElementById('ping-val');
+    if (pingEl) {
+      setInterval(function() {
+        var val = Math.floor(11 + Math.random() * 6);
+        pingEl.textContent = val + 'ms';
+      }, 3500);
+    }
+
+    // Interactive Gravity Canvas with Constellation Webbing & Shockwaves
     var canvas = document.getElementById('dots-canvas');
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
@@ -490,7 +807,7 @@
 
       ctx.clearRect(0, 0, width, height);
 
-      // Cursor flashlight volumetric glow
+      // Volumetric Cursor Flashlight Glow
       if (mouse.active) {
         var grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 220);
         grad.addColorStop(0, 'rgba(255, 42, 68, 0.08)');
@@ -499,7 +816,7 @@
         ctx.fillRect(0, 0, width, height);
       }
 
-      // Shockwaves update & visual rings
+      // Shockwave Ripples
       for (var i = shockwaves.length - 1; i >= 0; i--) {
         var sw = shockwaves[i];
         sw.radius += 8;
@@ -521,13 +838,13 @@
       var cy = height / 2;
       var maxDist = Math.sqrt(cx * cx + cy * cy);
 
-      // Update and draw dots
+      // Update and Draw Particles
       for (var j = 0; j < dots.length; j++) {
         dots[j].update(time);
         dots[j].draw(ctx, cx, cy, maxDist);
       }
 
-      // Constellation webbing between disturbed neighbor dots
+      // Constellation Energy Webbing
       ctx.lineWidth = 0.75;
       for (var k = 0; k < dots.length; k++) {
         var d1 = dots[k];
