@@ -2912,6 +2912,12 @@ def _command_groups() -> list[dict]:
         for name, note in features.feature_entries(feature):
             rows.append({
                 "name": name,
+                # The sentence the command answers with, on the row that draws
+                # it: the systems page prints it beside the name, and leaving it
+                # only inside `search` — the lowercased blob the old filter
+                # matched against — would be a page that knows the explanation
+                # and refuses to show it.
+                "note": note,
                 "search": " ".join(
                     part for part in (name, note, feature.name, feature.category, feature.id)
                     if part
@@ -2921,6 +2927,9 @@ def _command_groups() -> list[dict]:
             "id": feature.id,
             "icon": feature.icon,
             "name": feature.name,
+            # The registry's own sentence about the system, so the page's short
+            # description is not a second author for one feature.
+            "desc": feature.description,
             # The two facts the page's *other* systems list used to carry, on the
             # row that now carries the name too. They are read from the registry
             # rather than written into the template for the reason every other
@@ -3145,6 +3154,20 @@ def _systems_page():
             {"id": p["id"], "label": p["label"], "selected": p["id"] == opened_id}
             for p in periods
         ],
+        # Every window, drawn server-side, because the card's switcher is a
+        # redraw rather than a request — four windows of two indexed reads is a
+        # minute's cache, and a tab that had to fetch would stall on a sleeping
+        # host. The first one marked selected is the one the page opens on, and
+        # the only one visible with no script.
+        activity_windows=[
+            {
+                "id": p["id"],
+                "label": p["label"],
+                "selected": p["id"] == opened_id,
+                "tiles": _activity_tiles(live_figures, p["id"]),
+            }
+            for p in periods
+        ],
         # Which window the activity tiles are drawn from, so the reader that
         # fills them in can name the same one: `activity:<period>:<key>`.
         activity_period_id=opened_id,
@@ -3163,11 +3186,23 @@ def _systems_page():
 
 
 def _start_page():
-    """How to add it, and how to get in afterwards."""
+    """How to add it, and how to get in afterwards.
+
+    The questions moved here from the front door, and they travel as the same
+    tuples :data:`LANDING_QUESTIONS` always held: several of them are claims
+    about *this deployment* — the retention window, whether Discord sign-in is
+    on — so they are authored in Python beside the code that answers them
+    rather than written into a template that would keep saying them after the
+    deployment changed.
+    """
     return render_template(
         "start.html",
         **_site_context(),
         current="start",
+        questions=[
+            {"question": question, "answer": answer}
+            for question, answer in LANDING_QUESTIONS
+        ],
         meta_description=(
             f"Add {_bot_display_name()} to a Discord server in three steps, and the "
             "ways to sign in to its dashboard."
@@ -3406,15 +3441,43 @@ def pricing_page():
         checkout_enterprise=checkout_enterprise,
         checkout_ready=bool(checkout_pro or checkout_enterprise),
         plans_enforced=plans.enforcement_enabled(),
+        # Every label, blurb and number the cards state, read from the same
+        # model the bot enforces — a price list that retyped "5 servers" is a
+        # price list that will one day sell five and enforce four. The names of
+        # the Pro-only systems come from the registry for the same reason: the
+        # card can only name systems that exist.
+        plans_free_label=plans.FREE.label,
+        plans_free_blurb=plans.FREE.blurb,
+        plans_pro_label=plans.PRO.label,
+        plans_pro_blurb=plans.PRO.blurb,
+        plans_enterprise_label=plans.ENTERPRISE.label,
+        plans_enterprise_blurb=plans.ENTERPRISE.blurb,
+        pro_systems=[
+            feature.name for feature in features.FEATURES
+            if feature.id in plans.PRO_MODULES
+        ],
+        free_servers=plans.FREE.servers or 0,
+        pro_servers=plans.PRO.servers or 0,
+        pro_scheduled=plans.PRO.scheduled_per_server or 0,
     )
 
 
 @app.route("/premium")
 def premium_page():
+    """The VIP edition, described from the list the Discord command prints.
+
+    ``PREMIUM_PERKS`` is imported lazily from the cog for the reason
+    :func:`_policy_page` reads its documents from ``cogs.legal``: the web
+    process must not need the gateway to answer a page, and the perk list has
+    exactly one author — the tuple ``/premium perks`` renders as a card.
+    """
+    from cogs import premium as premium_cog  # noqa: PLC0415 — the perk list's one author
+
     return render_template(
         "premium.html",
         **_site_context(),
         current="premium",
+        perks=[{"name": name, "desc": desc} for name, desc in premium_cog.PREMIUM_PERKS],
     )
 
 
