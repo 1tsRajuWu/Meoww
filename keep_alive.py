@@ -12406,7 +12406,7 @@ def _ping_cloud_target(url: str) -> None:
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "DaCat-KeepAlive/1.0 (+https://dacat.pages.dev)"},
+            headers={"User-Agent": "DaCat-KeepAlive/1.0 (+https://decat.pages.dev)"},
         )
         with urllib.request.urlopen(req, timeout=12.0) as resp:
             status = getattr(resp, "status", 200)

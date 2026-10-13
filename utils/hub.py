@@ -104,7 +104,7 @@ def marketing_url() -> str:
 
 
     return (config_audit.get("MEOW_MARKETING_URL") or site_guard.site_url()
-            or "https://dacat.pages.dev").rstrip("/")
+            or "https://decat.pages.dev").rstrip("/")
 
 
 def live_url() -> str:
