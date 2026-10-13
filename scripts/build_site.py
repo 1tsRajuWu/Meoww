@@ -757,6 +757,16 @@ def main() -> int:
         default=os.environ.get("CLOUDFLARE_PROXY", "").strip().lower() in ("1", "true", "yes"),
         help="keep dynamic URLs relative so Cloudflare Pages reverse-proxies them",
     )
+    parser.add_argument(
+        "--preview-site",
+        action="store_true",
+        help=(
+            "build the real marketing pages instead of the maintenance screen — "
+            "for a local review of a laptop's output only. Never pass this for a "
+            "deploy: a published build is meant to keep the BRB screen until "
+            "somebody takes it down on purpose."
+        ),
+    )
     args = parser.parse_args()
 
     # Must happen before ``keep_alive`` is imported: it reads the environment at
@@ -766,6 +776,14 @@ def main() -> int:
     # process behind a file, so "starting up" would be a promise that never
     # resolves.
     os.environ["MEOW_STATIC_SITE"] = "1"
+    if args.preview_site:
+        # The BRB hook steps aside for this process only (`keep_alive`,
+        # `_enforce_be_right_back`). The flag is not set by CI, `ship.py` or any
+        # host environment, which is exactly the property that keeps the
+        # published site on its maintenance screen while a laptop previews the
+        # new pages.
+        os.environ["MEOW_SITE_PREVIEW"] = "1"
+        print("NOTE: --preview-site — building the real pages, not the maintenance screen.")
 
     report = build(args.out, args.live_url, args.site_url, proxy_mode=args.proxy)
     for route, filename, size in report["pages"]:
