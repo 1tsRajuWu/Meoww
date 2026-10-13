@@ -242,7 +242,7 @@ async def global_module_check(interaction: discord.Interaction) -> bool:
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
                         f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
-                        f"An administrator can re-enable it instantly in the [Web Dashboard](https://dacat.pages.dev/dashboard).",
+                        f"An administrator can re-enable it instantly in the [Web Dashboard](https://decat.pages.dev/dashboard).",
                         ephemeral=True
                     )
                 return False
@@ -2064,7 +2064,22 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
             await operator_log.command_failed(bot, interaction, error)
         except Exception as exc:
             print(f"[LOG] could not write the failed-command entry: {exc}", flush=True)
-        message = "❌ An unexpected error occurred. Please try again."
+        if isinstance(error, app_commands.CommandNotFound):
+            # Discord delivered an interaction for a command this tree does not
+            # have — a stale registration: the picker still offers a command
+            # from before it moved identities (main vs VIP), before its cog
+            # was deployed, or before a republish finished. Nothing the member
+            # did is wrong, so "unexpected error" would be a lie; say what it
+            # is instead. The reporting above still fires, so the operator sees
+            # the "/unknown failed" card with the missing name and knows which
+            # command needs republishing.
+            message = (
+                "⚠️ That command isn't registered on this bot right now — it may "
+                "have just moved or the bot may be updating. Try again in a minute, "
+                "and if it keeps happening tell an administrator."
+            )
+        else:
+            message = "❌ An unexpected error occurred. Please try again."
         try:
             # A command that deferred and then failed never answered the user, so
             # their client sat on "thinking…" forever. Answer via the followup in

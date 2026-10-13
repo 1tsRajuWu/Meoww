@@ -50,7 +50,7 @@ def _off_sentence() -> str:
     label = feature.name if feature else MODULE.replace("_", " ").title()
     return (
         f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
-        "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard/systems)."
+        "An administrator can re-enable it in the [Web Dashboard](https://decat.pages.dev/dashboard/systems)."
     )
 
 

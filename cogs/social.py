@@ -392,7 +392,7 @@ async def _get_or_create_pair_role(guild: discord.Guild | None, mem_a, mem_b, *,
     name = base
     for attempt in range(1, 10):
         role = discord.utils.get(guild.roles, name=name)
-        if role is None:
+        if role is None or getattr(role, "deleted", False):
             break
         try:
             member_ids = {m.id for m in role.members}
@@ -494,9 +494,12 @@ async def _cleanup_pair_roles(guild: discord.Guild | None, id1: int, id2: int, *
         _resolve_member(guild, id1), _resolve_member(guild, id2)
     )
     members = {id1: mem_a, id2: mem_b}
+    valid_seps = {sep, " ~ ", " x ", " & ", " vs ", " ❤ ", " 🤝 ", " 👯 ", " 🩷 ", " 🩵 ", " 🧬 ", " ⚔️ ", " 💖 "}
     for role in list(getattr(guild, "roles", [])):
         try:
-            if sep not in role.name:
+            if getattr(role, "deleted", False):
+                continue
+            if not any(s in role.name for s in valid_seps):
                 continue
             if getattr(role, "colour", None) is not None and role.colour.value != colour:
                 # Only auto-delete roles we created (matching colour).
@@ -614,12 +617,7 @@ class MarriageView(discord.ui.View):
                 )
             await conn.commit()
 
-        role_note = await _add_couple_role(interaction.guild, self.proposer.id, self.target.id)
-        await _sad_news_watch(
-            interaction.guild, self.proposer.id, self.target.id,
-            couple_noun="married", partner_noun="spouse",
-        )
-
+        role_note = ""
         # Dating upgrade: marrying your bf/gf absorbs the dating bond and its
         # role, so the pair keeps exactly one bond and one role.
         if upgrading:
@@ -632,6 +630,13 @@ class MarriageView(discord.ui.View):
             )
             if upgrade_note:
                 role_note += f"\n*Dating bond upgraded to marriage!*{upgrade_note}"
+
+        couple_note = await _add_couple_role(interaction.guild, self.proposer.id, self.target.id)
+        role_note = couple_note + role_note
+        await _sad_news_watch(
+            interaction.guild, self.proposer.id, self.target.id,
+            couple_noun="married", partner_noun="spouse",
+        )
 
         embed = discord.Embed(
             title="💒 JUST MARRIED! 💍",
@@ -698,100 +703,112 @@ class MarriageView(discord.ui.View):
 # ``bonds`` table instead of the ``marriages`` one.
 BOND_KINDS: dict[str, dict] = {
     "dating": {
-        "emoji": "💘",
+        "emoji": "",
         "noun": "Dating",
         "verb": "dating",
         "colour": 0xFF6B81,
-        "sep": " ❤ ",
+        "sep": " x ",
         "gif": "handhold",
-        "propose_title": "💘 Dating Proposal",
-        "propose_text": "{p} asked {t} to be their boyfriend/girlfriend! Say yes and make it official! 💘",
-        "accept_title": "💘 OFFICIALLY DATING!",
-        "accept_text": "{t} said **YES** to {p}! The whole server ships it! 🚢💘",
+        "propose_title": "Dating Proposal",
+        "propose_text": "{p} asked {t} to be their boyfriend/girlfriend! Say yes and make it official!",
+        "accept_title": "OFFICIALLY DATING!",
+        "accept_text": "{t} said **YES** to {p}! The whole server ships it!",
     },
     "bestie": {
-        "emoji": "🧸",
+        "emoji": "",
         "noun": "Bestie",
         "verb": "best friends",
         "colour": 0xFDCB6E,
-        "sep": " 🤝 ",
+        "sep": " ~ ",
         "gif": "hug",
-        "propose_title": "🧸 Best-Friend Proposal",
-        "propose_text": "{p} wants {t} as their one-and-only best friend! Through thick and thin! 🧸",
-        "accept_title": "🧸 BEST FRIENDS FOREVER!",
-        "accept_text": "{t} accepted! {p} & {t} are officially besties! Friendship bracelets for everyone! 🌈",
-    },
-    "homegirl": {
-        "emoji": "👧",
-        "noun": "Home Girl",
-        "verb": "homegirls",
-        "colour": 0xFD79A8,
-        "sep": " 🩷 ",
-        "gif": "smile",
-        "propose_title": "👧 Home Girl Proposal",
-        "propose_text": "{p} wants {t} as their home girl! Ride or die, sugar and spice! 👧💖",
-        "accept_title": "👧 HOME GIRLS!",
-        "accept_text": "{t} accepted! {p} & {t} are officially home girls! Gossip sessions loading... ☕✨",
-    },
-    "homeboy": {
-        "emoji": "👦",
-        "noun": "Home Boy",
-        "verb": "homeboys",
-        "colour": 0x74B9FF,
-        "sep": " 🩵 ",
-        "gif": "wave",
-        "propose_title": "👦 Home Boy Proposal",
-        "propose_text": "{p} wants {t} as their home boy! Brothers from other mothers! 👦🤙",
-        "accept_title": "👦 HOME BOYS!",
-        "accept_text": "{t} accepted! {p} & {t} are officially home boys! Game nights loading... 🎮🔥",
+        "propose_title": "Best-Friend Proposal",
+        "propose_text": "{p} wants {t} as their one-and-only best friend! Through thick and thin!",
+        "accept_title": "BEST FRIENDS FOREVER!",
+        "accept_text": "{t} accepted! {p} & {t} are officially besties!",
     },
     "twin": {
-        "emoji": "👯",
+        "emoji": "",
         "noun": "Twin",
         "verb": "twins",
         "colour": 0xA29BFE,
-        "sep": " 👯 ",
+        "sep": " ~ ",
         "gif": "hug",
-        "propose_title": "👯 Twin Proposal",
-        "propose_text": "{p} claims {t} as their long-lost twin! Same wavelength, same chaos! 👯",
-        "accept_title": "👯 TWINS CONFIRMED!",
-        "accept_text": "{t} accepted! {p} & {t} are officially twins! Double trouble from now on! ✨",
+        "propose_title": "Twin Proposal",
+        "propose_text": "{p} claims {t} as their long-lost twin! Same wavelength, same chaos!",
+        "accept_title": "TWINS CONFIRMED!",
+        "accept_text": "{t} accepted! {p} & {t} are officially twins!",
+    },
+    "other": {
+        "emoji": "",
+        "noun": "Other",
+        "verb": "bonded",
+        "colour": 0x74B9FF,
+        "sep": " & ",
+        "gif": "hug",
+        "propose_title": "Bond Proposal",
+        "propose_text": "{p} wants to form a bond with {t}!",
+        "accept_title": "BOND CONFIRMED!",
+        "accept_text": "{t} accepted! {p} & {t} are now officially bonded!",
+    },
+    "homegirl": {
+        "emoji": "",
+        "noun": "Home Girl",
+        "verb": "homegirls",
+        "colour": 0xFD79A8,
+        "sep": " & ",
+        "gif": "smile",
+        "propose_title": "Home Girl Proposal",
+        "propose_text": "{p} wants {t} as their home girl!",
+        "accept_title": "HOME GIRLS!",
+        "accept_text": "{t} accepted! {p} & {t} are officially home girls!",
+    },
+    "homeboy": {
+        "emoji": "",
+        "noun": "Home Boy",
+        "verb": "homeboys",
+        "colour": 0x74B9FF,
+        "sep": " & ",
+        "gif": "wave",
+        "propose_title": "Home Boy Proposal",
+        "propose_text": "{p} wants {t} as their home boy!",
+        "accept_title": "HOME BOYS!",
+        "accept_text": "{t} accepted! {p} & {t} are officially home boys!",
     },
     "sibling": {
-        "emoji": "🧬",
+        "emoji": "",
         "noun": "Sibling",
         "verb": "siblings",
         "colour": 0x81ECEC,
-        "sep": " 🧬 ",
+        "sep": " & ",
         "gif": "hug",
-        "propose_title": "🧬 Sibling Proposal",
-        "propose_text": "{p} wants {t} as their sibling — family you actually get to choose! 🧬",
-        "accept_title": "🧬 OFFICIAL SIBLINGS!",
-        "accept_text": "{t} accepted! {p} & {t} are officially siblings! Sunday dinners forever! 🍽️",
+        "propose_title": "Sibling Proposal",
+        "propose_text": "{p} wants {t} as their sibling — family you actually get to choose!",
+        "accept_title": "OFFICIAL SIBLINGS!",
+        "accept_text": "{t} accepted! {p} & {t} are officially siblings!",
     },
     "crush": {
-        "emoji": "💖",
+        "emoji": "",
         "noun": "Crush",
         "verb": "crushing",
         "colour": 0xFD79A8,
-        "sep": " 💖 ",
+        "sep": " & ",
         "gif": "blush",
-        "propose_title": "💖 Crush Confession",
-        "propose_text": "{p} just confessed their crush on {t}! The butterflies are real! 🦋",
-        "accept_title": "💖 CRUSH CONFIRMED!",
-        "accept_text": "{t} admitted they feel it too! {p} & {t} are officially crushing! 😳💖",
+        "propose_title": "Crush Confession",
+        "propose_text": "{p} just confessed their crush on {t}!",
+        "accept_title": "CRUSH CONFIRMED!",
+        "accept_text": "{t} admitted they feel it too! {p} & {t} are officially crushing!",
     },
     "rival": {
-        "emoji": "⚔️",
+        "emoji": "",
         "noun": "Rival",
         "verb": "rivals",
         "colour": 0xE17055,
-        "sep": " ⚔️ ",
+        "sep": " vs ",
         "gif": "stare",
-        "propose_title": "⚔️ Rival Challenge",
-        "propose_text": "{p} challenged {t} to be their rival! May the best one win! ⚔️",
-        "accept_title": "⚔️ RIVALRY ACCEPTED!",
-        "accept_text": "{t} accepted the challenge! {p} vs {t} — this means war (the friendly kind)! 🔥",
+        "propose_title": "Rival Challenge",
+        "propose_text": "{p} challenged {t} to be their rival! May the best one win!",
+        "accept_title": "RIVALRY ACCEPTED!",
+        "accept_text": "{t} accepted the challenge! {p} vs {t} — friendly rivalry declared!",
     },
 }
 
@@ -987,10 +1004,9 @@ class BondView(discord.ui.View):
         self.kind = kind
         self.responded = False
         self.message: discord.Message | None = None
-        emoji = BOND_KINDS[kind]["emoji"]
         for item in self.children:
             if isinstance(item, discord.ui.Button) and item.style == discord.ButtonStyle.success:
-                item.label = f"{emoji} Accept"
+                item.label = "Accept"
 
     @property
     def spec(self) -> dict:
@@ -1004,7 +1020,7 @@ class BondView(discord.ui.View):
             item.disabled = True
         spec = self.spec
         expired = discord.Embed(
-            title=f"{spec['emoji']} {spec['noun']} Proposal — Expired",
+            title=f"{spec['noun']} Proposal — Expired",
             description=(
                 f"{self.proposer.mention} proposed {spec['verb']} with {self.target.mention}, "
                 "but they didn't respond in time.\n*Run `/bond propose` again to retry.*"
@@ -1059,7 +1075,7 @@ class BondView(discord.ui.View):
             title=spec["accept_title"],
             description=(
                 spec["accept_text"].format(p=self.proposer.mention, t=self.target.mention)
-                + f"\n\n📅 **Since:** `{now}`{role_note}"
+                + f"\n\n**Since:** `{now}`{role_note}"
             ),
             color=spec["colour"],
             timestamp=discord.utils.utcnow()
@@ -1072,13 +1088,13 @@ class BondView(discord.ui.View):
         self.stop()
         try:
             await interaction.followup.send(
-                f"🔔 {self.proposer.mention} — {self.target.mention} accepted the {spec['noun'].lower()} proposal!",
+                f"{self.proposer.mention} — {self.target.mention} accepted the {spec['noun'].lower()} proposal!",
                 allowed_mentions=pings(self.proposer),
             )
         except Exception:
             pass
 
-    @discord.ui.button(label="💔 Decline", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         spec = self.spec
         if interaction.user.id != self.target.id:
@@ -1090,8 +1106,8 @@ class BondView(discord.ui.View):
             item.disabled = True
 
         embed = discord.Embed(
-            title=f"💔 {spec['noun']} Proposal Rejected",
-            description=f"Oof... {self.target.mention} turned down {self.proposer.mention}. *F in the chat.* 🪦",
+            title=f"{spec['noun']} Proposal Rejected",
+            description=f"Oof... {self.target.mention} turned down {self.proposer.mention}. *F in the chat.*",
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
@@ -1099,7 +1115,7 @@ class BondView(discord.ui.View):
         self.stop()
         try:
             await interaction.followup.send(
-                f"🔔 {self.proposer.mention} — {self.target.mention} declined the {spec['noun'].lower()} proposal.",
+                f"{self.proposer.mention} — {self.target.mention} declined the {spec['noun'].lower()} proposal.",
                 allowed_mentions=pings(self.proposer),
             )
         except Exception:
@@ -1146,7 +1162,7 @@ class Social(commands.Cog):
                     if not self.bot.is_module_enabled(interaction.guild_id, mod):
                         await interaction.response.send_message(
                             f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
-                            "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
+                            "An administrator can re-enable it in the [Web Dashboard](https://decat.pages.dev/dashboard).",
                             ephemeral=True
                         )
                         return False
@@ -1155,7 +1171,7 @@ class Social(commands.Cog):
                     if not self.bot.is_module_enabled(interaction.guild_id, mod):
                         await interaction.response.send_message(
                             f"⚠️ The **{mod.title()}** system is currently **turned off** on this server.\n"
-                            "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
+                            "An administrator can re-enable it in the [Web Dashboard](https://decat.pages.dev/dashboard).",
                             ephemeral=True
                         )
                         return False
@@ -1163,7 +1179,7 @@ class Social(commands.Cog):
                 if not self.bot.is_module_enabled(interaction.guild_id, "social"):
                     await interaction.response.send_message(
                         "⚠️ The **Social Roleplay** system is currently **turned off** on this server.\n"
-                        "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
+                        "An administrator can re-enable it in the [Web Dashboard](https://decat.pages.dev/dashboard).",
                         ephemeral=True
                     )
                     return False
@@ -1629,21 +1645,22 @@ class Social(commands.Cog):
     # ---------------------------------------------------------
     bond = app_commands.Group(
         name="bond",
-        description="💞 Dating, besties, twins, siblings, crushes & rivals!",
+        description="Relationship bonds: dating, besties, twins & more.",
     )
 
-    @bond.command(name="propose", description="💘 Propose a relationship bond to another member!")
+    @bond.command(name="propose", description="Propose a relationship bond to another member.")
     @app_commands.checks.cooldown(1, BOND_PROPOSE_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(member="The lucky member", kind="What kind of bond")
     @app_commands.choices(kind=[
-        app_commands.Choice(name="💘 Dating (bf/gf)", value="dating"),
-        app_commands.Choice(name="🧸 Bestie", value="bestie"),
-        app_commands.Choice(name="👧 Home Girl (HG)", value="homegirl"),
-        app_commands.Choice(name="👦 Home Boy (HB)", value="homeboy"),
-        app_commands.Choice(name="👯 Twin", value="twin"),
-        app_commands.Choice(name="🧬 Sibling", value="sibling"),
-        app_commands.Choice(name="💖 Crush", value="crush"),
-        app_commands.Choice(name="⚔️ Rival", value="rival"),
+        app_commands.Choice(name="Dating (GF / BF)", value="dating"),
+        app_commands.Choice(name="Bestie", value="bestie"),
+        app_commands.Choice(name="Twins", value="twin"),
+        app_commands.Choice(name="Other", value="other"),
+        app_commands.Choice(name="Home Girl (HG)", value="homegirl"),
+        app_commands.Choice(name="Home Boy (HB)", value="homeboy"),
+        app_commands.Choice(name="Sibling", value="sibling"),
+        app_commands.Choice(name="Crush", value="crush"),
+        app_commands.Choice(name="Rival", value="rival"),
     ])
     async def bond_propose(self, interaction: discord.Interaction, member: discord.Member, kind: app_commands.Choice[str]):
         kind = kind.value
@@ -1722,7 +1739,7 @@ class Social(commands.Cog):
 
         embed = discord.Embed(
             title=spec["propose_title"],
-            description=f"{spec['emoji']} " + spec["propose_text"].format(p=interaction.user.mention, t=member.mention),
+            description=spec["propose_text"].format(p=interaction.user.mention, t=member.mention),
             color=spec["colour"],
             timestamp=discord.utils.utcnow()
         )
@@ -1804,18 +1821,19 @@ class Social(commands.Cog):
             ephemeral=True,
         )
 
-    @bond.command(name="break", description="💔 End one (or all) of your relationship bonds.")
+    @bond.command(name="break", description="End one (or all) of your relationship bonds.")
     @app_commands.checks.cooldown(1, BOND_BREAK_COOLDOWN_SECONDS, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(kind="Which bond to end — leave empty if you only have one")
     @app_commands.choices(kind=[
-        app_commands.Choice(name="💘 Dating (bf/gf)", value="dating"),
-        app_commands.Choice(name="🧸 Bestie", value="bestie"),
-        app_commands.Choice(name="👧 Home Girl (HG)", value="homegirl"),
-        app_commands.Choice(name="👦 Home Boy (HB)", value="homeboy"),
-        app_commands.Choice(name="👯 Twin", value="twin"),
-        app_commands.Choice(name="🧬 Sibling", value="sibling"),
-        app_commands.Choice(name="💖 Crush", value="crush"),
-        app_commands.Choice(name="⚔️ Rival", value="rival"),
+        app_commands.Choice(name="Dating (GF / BF)", value="dating"),
+        app_commands.Choice(name="Bestie", value="bestie"),
+        app_commands.Choice(name="Twins", value="twin"),
+        app_commands.Choice(name="Other", value="other"),
+        app_commands.Choice(name="Home Girl (HG)", value="homegirl"),
+        app_commands.Choice(name="Home Boy (HB)", value="homeboy"),
+        app_commands.Choice(name="Sibling", value="sibling"),
+        app_commands.Choice(name="Crush", value="crush"),
+        app_commands.Choice(name="Rival", value="rival"),
     ])
     async def break_bond(self, interaction: discord.Interaction, kind: app_commands.Choice[str] | None = None):
         await _ensure_bonds_table()
@@ -1858,14 +1876,14 @@ class Social(commands.Cog):
         )
         s_name = await display_name(interaction.guild, partner_id, client=interaction.client)
         embed = discord.Embed(
-            title=f"{spec['emoji']} {spec['noun']} Bond Ended",
-            description=f"💔 {interaction.user.mention} and {s_name} are no longer {spec['verb']}.\n*All good things come to an end...*{role_note}",
+            title=f"{spec['noun']} Bond Ended",
+            description=f"{interaction.user.mention} and {s_name} are no longer {spec['verb']}.\n*All good things come to an end...*{role_note}",
             color=0xED4245,
             timestamp=discord.utils.utcnow()
         )
         await send_card(interaction, embed=embed)
 
-    @bond.command(name="list", description="💞 Show someone's relationship bonds.")
+    @bond.command(name="list", description="Show someone's relationship bonds.")
     @app_commands.describe(member="Whose bonds to look up — defaults to you")
     async def bond_list(self, interaction: discord.Interaction, member: discord.Member | None = None):
         member = member or interaction.user
@@ -1878,8 +1896,8 @@ class Social(commands.Cog):
         if not rows:
             whose = "You have" if member.id == interaction.user.id else f"{member.display_name} has"
             return await send_card(interaction, embed=discord.Embed(
-                title="💞 Relationship Bonds",
-                description=f"{whose} no bonds yet! Run `/bond propose` to start one! 🥲",
+                title="Relationship Bonds",
+                description=f"{whose} no bonds yet! Run `/bond propose` to start one!",
                 color=0x95A5A6,
                 timestamp=discord.utils.utcnow()
             ))
@@ -1897,9 +1915,9 @@ class Social(commands.Cog):
                 ) as cur:
                     srow = await cur.fetchone()
             since = f" — since `{srow[0]}`" if srow and srow[0] else ""
-            lines.append(f"{spec['emoji']} **{spec['noun']}** — {pname}{since}")
+            lines.append(f"**{spec['noun']}** — {pname}{since}")
         await send_card(interaction, embed=discord.Embed(
-            title=f"💞 {member.display_name}'s Bonds",
+            title=f"{member.display_name}'s Bonds",
             description="\n".join(lines),
             color=0xEB459E,
             timestamp=discord.utils.utcnow()

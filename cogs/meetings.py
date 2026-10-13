@@ -41,7 +41,7 @@ from utils import meetings, style
 from utils.style import ACCENT, DANGER, SUCCESS, WARN, Panel, send_panel
 
 #: The gate message's destination, spelled the way every other cog spells it.
-DASHBOARD_URL = "https://dacatdashboard.pages.dev/dashboard"
+DASHBOARD_URL = "https://decat.pages.dev/dashboard"
 
 #: The three answers, in the order the card draws them — a decision's order
 #: (in, maybe, out) rather than an emoji's.

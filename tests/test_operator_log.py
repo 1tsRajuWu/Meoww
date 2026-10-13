@@ -1090,6 +1090,42 @@ class BotWiring(unittest.TestCase):
             )
         self.assertEqual(seen, [])
 
+    def test_a_stale_command_tells_the_member_it_is_not_registered(self):
+        """A CommandNotFound is a stale picker, not a broken command.
+
+        Discord delivered an interaction for a command this tree does not
+        have — seen live as ``/unknown failed`` with ``CommandNotFound:
+        Application command 'questions' not found`` when the running code had
+        no such cog. The member is told the command is not registered right
+        now rather than "unexpected error", while the failure is still logged
+        for the operator like any other.
+        """
+        interaction = mock.Mock()
+        interaction.user = _User(1, "RAJ")
+        interaction.guild = None
+        interaction.command = None
+        interaction.response.is_done.return_value = False
+        interaction.response.send_message = mock.AsyncMock()
+        error = app_commands.CommandNotFound("questions", [])
+        seen = []
+
+        async def spy(*_args):
+            seen.append(True)
+
+        async def nothing(*_args, **_kwargs):
+            return None
+
+        with mock.patch.object(operator_log, "command_failed", spy), \
+             mock.patch.object(bot_module, "_report_error", lambda *a, **k: None), \
+             mock.patch.object(bot_module, "_report_error_to_channel", nothing):
+            asyncio.run(bot_module.on_app_command_error(interaction, error))
+        self.assertEqual(seen, [True])
+        interaction.response.send_message.assert_called_once()
+        args, kwargs = interaction.response.send_message.call_args
+        self.assertIn("isn't registered", args[0])
+        self.assertNotIn("unexpected", args[0].lower())
+        self.assertTrue(kwargs.get("ephemeral", False))
+
     def test_the_boot_reports_a_second_copy_of_the_bot(self):
         """The database lease already knows; the boot has to say it out loud.
 

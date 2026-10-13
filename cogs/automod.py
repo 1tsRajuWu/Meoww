@@ -121,7 +121,7 @@ def _off_sentence() -> str:
     label = feature.name if feature else MODULE.replace("_", " ").title()
     return (
         f"⚠️ The **{label}** system is currently **turned off** on this server.\n"
-        "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard)."
+        "An administrator can re-enable it in the [Web Dashboard](https://decat.pages.dev/dashboard)."
     )
 
 
@@ -417,7 +417,7 @@ class AutoMod(commands.Cog):
             description=(
                 "Every automatic action here is written to the moderation log and "
                 f"tells the member about `/appeal`.\nThe switch itself is on the "
-                "[Web Dashboard](https://dacatdashboard.pages.dev/dashboard/systems)."
+                "[Web Dashboard](https://decat.pages.dev/dashboard/systems)."
             ),
             color=INFO,
         )

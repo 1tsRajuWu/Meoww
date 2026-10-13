@@ -429,7 +429,7 @@ class Music(commands.Cog):
             if not self.bot.is_module_enabled(interaction.guild_id, "music"):
                 await interaction.response.send_message(
                     "⚠️ The **Music & Spotify Jams** system is currently **turned off** on this server.\n"
-                    "An administrator can re-enable it in the [Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
+                    "An administrator can re-enable it in the [Web Dashboard](https://decat.pages.dev/dashboard).",
                     ephemeral=True,
                 )
                 return False

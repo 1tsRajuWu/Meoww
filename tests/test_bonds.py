@@ -238,7 +238,7 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         rows = {(r[0], r[1], r[2]) for r in _bond_rows()}
         self.assertIn((1, 2, "dating"), rows)
         self.assertIn((2, 1, "dating"), rows)
-        roles = [r for r in self.guild.roles if "❤" in r.name]
+        roles = [r for r in self.guild.roles if " x " in r.name]
         self.assertEqual(len(roles), 1)
         self.assertIn(roles[0], self.raj.roles)
         self.assertIn(roles[0], self.ice.roles)
@@ -260,7 +260,7 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def test_break_removes_rows_and_deletes_role(self):
         await self._propose(self.raj, self.ice, "bestie")
         await self._accept(self.raj, self.ice, "bestie")
-        role = next(r for r in self.guild.roles if "🤝" in r.name)
+        role = next(r for r in self.guild.roles if " ~ " in r.name)
         interaction = _FakeInteraction(self.raj, self.guild)
         with mock.patch.object(social_module, "send_card", new=_noop):
             await social_module.Social.break_bond.callback(self.cog, interaction, _choice("bestie"))
@@ -315,7 +315,7 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
     async def test_marrying_dating_partner_upgrades_the_bond(self):
         await self._propose(self.raj, self.ice, "dating")
         await self._accept(self.raj, self.ice, "dating")
-        dating_role = next(r for r in self.guild.roles if "❤" in r.name)
+        dating_role = next(r for r in self.guild.roles if " x " in r.name)
         view = social_module.MarriageView(self.raj, self.ice)
         interaction = _FakeInteraction(self.ice, self.guild)
         with mock.patch.object(social_module, "send_card", new=_noop):
@@ -563,8 +563,43 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertIn((1, "homegirl"), kinds)
         self.assertIn((1, "homeboy"), kinds)
         names = sorted(r.name for r in self.guild.roles)
-        self.assertTrue(any("🩷" in n for n in names))
-        self.assertTrue(any("🩵" in n for n in names))
+        self.assertIn("RAJ & ICE", names)
+        self.assertIn("RAJ & ZED", names)
+
+    async def test_bond_separators_twins_bestie_dating_and_other(self):
+        # Twins and Bestie use " ~ "
+        self.assertEqual(social_module.BOND_KINDS["twin"]["sep"], " ~ ")
+        self.assertEqual(social_module.BOND_KINDS["bestie"]["sep"], " ~ ")
+        # ONLY Dating (GF/BF) uses " x "
+        self.assertEqual(social_module.BOND_KINDS["dating"]["sep"], " x ")
+        for kind, spec in social_module.BOND_KINDS.items():
+            if kind != "dating":
+                self.assertNotEqual(spec["sep"], " x ", f"kind {kind} must not use ' x '")
+            # All bond kinds must have no emoji
+            self.assertEqual(spec["emoji"], "", f"kind {kind} must have empty emoji")
+        # Other exists and uses " & "
+        self.assertEqual(social_module.BOND_KINDS["other"]["sep"], " & ")
+        self.assertEqual(social_module.BOND_KINDS["other"]["noun"], "Other")
+
+    async def test_other_bond_lifecycle(self):
+        await self._propose(self.raj, self.ice, "other")
+        await self._accept(self.raj, self.ice, "other")
+        rows = {(r[0], r[1], r[2]) for r in _bond_rows()}
+        self.assertIn((1, 2, "other"), rows)
+        self.assertIn((2, 1, "other"), rows)
+        role = next(r for r in self.guild.roles if " & " in r.name)
+        self.assertEqual(role.name, "RAJ & ICE")
+        self.assertIn(role, self.raj.roles)
+        self.assertIn(role, self.ice.roles)
+
+        # Break other bond
+        interaction = _FakeInteraction(self.raj, self.guild)
+        with mock.patch.object(social_module, "send_card", new=_noop):
+            await social_module.Social.break_bond.callback(self.cog, interaction, _choice("other"))
+        self.assertEqual(_bond_rows(), [])
+        self.assertNotIn(role, self.raj.roles)
+        self.assertNotIn(role, self.ice.roles)
+        self.assertTrue(role.deleted)
 
     async def test_proposals_last_an_hour(self):
         self.assertEqual(social_module.BondView(self.raj, self.ice, "dating").timeout, 3600)

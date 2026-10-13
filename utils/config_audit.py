@@ -553,6 +553,15 @@ SETTINGS: tuple[Setting, ...] = (
         scope=BUILD,
     ),
     Setting(
+        "MEOW_SITE_PREVIEW", TUNING,
+        "that a local run should draw the marketing pages instead of the "
+        "maintenance screen",
+        "set only by scripts/preview_site.py, for a laptop. Unset is correct on "
+        "every deployment — the published site keeps its maintenance screen "
+        "until somebody deliberately takes it down.",
+        scope=BUILD,
+    ),
+    Setting(
         "HUB_URL", TUNING,
         "the hub's own canonical URL, for its sitemap and robots file",
         "the compiled default is used.",

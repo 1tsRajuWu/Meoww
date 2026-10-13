@@ -166,7 +166,7 @@ class Tracker(commands.Cog):
                 await interaction.response.send_message(
                     "⚠️ The **Activity Tracker** is currently **turned off** on "
                     "this server.\nAn administrator can re-enable it in the "
-                    "[Web Dashboard](https://dacatdashboard.pages.dev/dashboard).",
+                    "[Web Dashboard](https://decat.pages.dev/dashboard).",
                     ephemeral=True,
                 )
                 return False

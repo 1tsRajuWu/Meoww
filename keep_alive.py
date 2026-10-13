@@ -1635,6 +1635,15 @@ def _enforce_be_right_back():
     if "pytest" in sys.modules or getattr(app, "testing", False):
         return None
 
+    # The one way *out* of this screen, and not a switch a deployment can flip
+    # by accident: `MEOW_SITE_PREVIEW` is read from the environment, nothing in
+    # this tree sets it, and `scripts/preview_site.py` exports it for the laptop
+    # process it starts. So the marketing pages can be reviewed locally while
+    # every real host — and every ordinary build — keeps this screen. The
+    # setting's own entry lives in `utils.config_audit` beside `MEOW_STATIC_SITE`.
+    if config_audit.flag("MEOW_SITE_PREVIEW"):
+        return None
+
     path = request.path
 
     # Static assets needed by the BRB page (favicon, logo, css, etc.)
