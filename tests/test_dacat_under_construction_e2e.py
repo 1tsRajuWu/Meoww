@@ -964,24 +964,25 @@ class TestHeadlineBlockBuildUp(unittest.TestCase):
         self.assertIn(">Building The Website.<", self.rendered)
 
     def test_letter_cells_and_ground_rise(self):
-        """Builder wraps glyphs in clipped cells rising out of the baseline."""
-        self.assertIn("title-letter", self.raw)
-        self.assertIn("translateY(120%)", self.raw)
-        self.assertIn("overflow: hidden", self.raw)
+        """Pixel canvas renders block glyphs with a coral moving glow."""
+        self.assertIn("title-pixels", self.raw)
+        self.assertIn("PIXEL_FONT_5X7", self.raw)
+        self.assertIn("FF6B4A", self.raw)
 
     def test_builder_preserves_accessible_name(self):
-        """Split glyphs are aria-hidden behind an aria-label of the full line."""
+        """Canvas is aria-hidden behind an aria-label of the full line."""
         self.assertIn('setAttribute(\'aria-label\'', self.raw)
         self.assertIn('aria-hidden', self.raw)
 
     def test_builder_respects_reduced_motion(self):
-        """Reduced-motion readers skip the build and keep the static line."""
+        """Reduced-motion readers skip the canvas and keep the static line."""
         self.assertIn("prefers-reduced-motion", self.raw)
 
-    def test_build_replays_on_click_and_refocus(self):
-        """The build-up replays on pointerdown and tab refocus."""
-        self.assertIn("buildTitle", self.raw)
-        self.assertIn("visibilitychange", self.raw)
+    def test_loop_uses_delta_time_and_dpr(self):
+        """Frame loop is delta-timed and the canvas scales by devicePixelRatio."""
+        self.assertIn("requestAnimationFrame", self.raw)
+        self.assertIn("devicePixelRatio", self.raw)
+        self.assertIn("HOLD_S = 2.5", self.raw)
 
 
 if __name__ == "__main__":

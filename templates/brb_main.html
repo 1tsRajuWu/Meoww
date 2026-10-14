@@ -236,13 +236,11 @@
     0%, 100% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
   }
-  /* Letter-by-letter build-up: each glyph is wrapped in its own clipped cell
-     by the builder script, so it rises out of the baseline like a block being
-     set down. No-JS readers still get the full line as plain text. */
-  .title-letter {
-    display: inline-block;
-    overflow: hidden;
-    vertical-align: baseline;
+  /* Pixel headline canvas: the script swaps the line for a block-built
+     rendering on a canvas that auto-fits this box. No-JS keeps the text. */
+  #title-pixels {
+    display: block;
+    margin: 0 auto;
   }
   .subtitle {
     font-size: 15px;
@@ -654,50 +652,227 @@
   <script>
   (function() {
     // -------------------------------------------------------------
-    // R0: HEADLINE BLOCK BUILD-UP (one letter at a time, from the ground)
+    // R0: PIXEL HEADLINE — "Building The Website." built block by block
     // -------------------------------------------------------------
-    // Driven by the Web Animations API rather than CSS keyframes so the
-    // per-letter stagger (milliseconds) never trips the >=1s CSS animation
-    // floor, and so prefers-reduced-motion can skip it outright while the
-    // plain-text headline stays put for readers without script. Builds on
-    // load, and rebuilds on click or tab refocus so the motion is replayable.
+    // A 5x7 bitmap font rendered as square LED blocks on a canvas that
+    // auto-fits this box at any devicePixelRatio. Choreography is a state
+    // machine — BUILD (letters left to right, blocks falling from above on
+    // an elastic ease, glowing coral until they lock white), HOLD 2.5s with
+    // a breathing glow, DISSOLVE 0.8s in a left-to-right wave, WAIT 0.5s —
+    // driven by requestAnimationFrame with delta time so 60Hz and 144Hz
+    // panels run the same show. Zero dependencies. The h1 keeps its plain
+    // text for readers without script, and reduced-motion readers keep it.
     try {
       var titleEl = document.querySelector('.stage .title');
       var titleReduceMotion = false;
       try {
         titleReduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       } catch (e) {}
-      var titleFullText = titleEl ? titleEl.textContent : '';
-      function buildTitle() {
-        if (!titleEl || titleReduceMotion || typeof titleEl.animate !== 'function') return;
-        titleEl.setAttribute('aria-label', titleFullText);
-        titleEl.textContent = '';
-        var stepDelay = 0;
-        Array.prototype.forEach.call(titleFullText, function(ch) {
-          if (ch === ' ') {
-            titleEl.appendChild(document.createTextNode(' '));
-            return;
+      var titleText = 'Building The Website.';
+      var PIXEL_FONT_5X7 = {
+        'B': ['11110','10001','10001','11110','10001','10001','11110'],
+        'u': ['00000','00000','10001','10001','10001','10001','01110'],
+        'i': ['00100','00000','01100','00100','00100','00100','01110'],
+        'l': ['01100','00100','00100','00100','00100','00100','01110'],
+        'd': ['00001','00001','00111','00101','00101','00101','00111'],
+        'n': ['00000','00000','11110','10001','10001','10001','10001'],
+        'g': ['00000','00000','01110','10001','10001','01111','10000'],
+        'T': ['11111','00100','00100','00100','00100','00100','00100'],
+        'h': ['10000','10000','10110','11001','10001','10001','10001'],
+        'e': ['00000','00000','01110','10001','11111','10000','01110'],
+        'W': ['10001','10001','10001','10001','10101','11011','10001'],
+        'b': ['10000','10000','10110','11001','10001','10001','10001'],
+        's': ['00000','00000','01111','10000','01110','00001','11110'],
+        't': ['00100','00100','11110','00100','00100','00100','01100'],
+        '.': ['00000','00000','00000','00000','00000','01100','01100'],
+        ' ': ['00000','00000','00000','00000','00000','00000','00000']
+      };
+      var MOVE_GLOW = '#FF6B4A';
+      var LOCKED = '#FFFFFF';
+      var BLOCK_STAGGER = 0.018;
+      var BLOCK_DUR = 0.45;
+      var LETTER_GAP = 0.06;
+      var HOLD_S = 2.5;
+      var DISSOLVE_S = 0.8;
+      var WAIT_S = 0.5;
+      function cubicBezierSolver(x1, y1, x2, y2) {
+        function sample(t) {
+          var u = 1 - t;
+          return 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t;
+        }
+        function sampleY(t) {
+          var u = 1 - t;
+          return 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t;
+        }
+        return function(x) {
+          var t = x;
+          for (var i = 0; i < 5; i++) {
+            var err = sample(t) - x;
+            if (Math.abs(err) < 0.0001) break;
+            var d = 3 * (1 - t) * (1 - t) * x1 + 6 * (1 - t) * t * (x2 - x1) + 3 * t * t * (1 - x2);
+            if (Math.abs(d) < 0.0001) break;
+            t -= err / d;
           }
-          var cell = document.createElement('span');
-          cell.className = 'title-letter';
-          cell.setAttribute('aria-hidden', 'true');
-          cell.textContent = ch;
-          titleEl.appendChild(cell);
-          cell.animate(
-            [
-              { transform: 'translateY(120%)', opacity: '0' },
-              { transform: 'translateY(0)', opacity: '1' }
-            ],
-            { duration: 520, delay: 350 + stepDelay, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'backwards' }
-          );
-          stepDelay += 55;
-        });
+          var lo = 0, hi = 1;
+          t = Math.max(0, Math.min(1, t));
+          for (var j = 0; j < 12; j++) {
+            var v = sample(t);
+            if (Math.abs(v - x) < 0.0001) break;
+            if (v < x) lo = t; else hi = t;
+            t = (lo + hi) / 2;
+          }
+          return sampleY(t);
+        };
       }
-      buildTitle();
-      window.addEventListener('pointerdown', buildTitle, { passive: true });
-      document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) buildTitle();
-      });
+      var easeBlock = cubicBezierSolver(0.22, 1, 0.36, 1);
+      var titleCanvas = null, titleCtx = null, titleBlocks = [];
+      var titlePitch = 4, titleW = 0, titleH = 0;
+      var titlePhase = 'build', titlePhaseT = 0, titleBuildEnd = 1;
+      function layoutTitlePixels() {
+        if (!titleEl || !titleCtx) return;
+        var availW = titleEl.clientWidth || 320;
+        var dpr = Math.min(2.5, window.devicePixelRatio || 1);
+        var totalCells = 0;
+        for (var ci = 0; ci < titleText.length; ci++) {
+          totalCells += (titleText.charAt(ci) === ' ') ? 3 : 6;
+        }
+        totalCells -= 1;
+        var p = Math.min(5, availW / totalCells);
+        p = Math.max(1.4, p);
+        titlePitch = p;
+        titleW = Math.round(totalCells * p);
+        titleH = Math.round(8 * p);
+        titleCanvas.width = Math.round(titleW * dpr);
+        titleCanvas.height = Math.round(titleH * dpr);
+        titleCanvas.style.width = titleW + 'px';
+        titleCanvas.style.height = titleH + 'px';
+        titleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        var cursorX = 0;
+        titleBlocks = [];
+        var t = 0.25;
+        for (var li = 0; li < titleText.length; li++) {
+          var ch = titleText.charAt(li);
+          var glyph = PIXEL_FONT_5X7[ch] || PIXEL_FONT_5X7[' '];
+          if (ch !== ' ') {
+            for (var gy = 0; gy < 7; gy++) {
+              for (var gx = 0; gx < 5; gx++) {
+                if (glyph[gy].charAt(gx) === '1') {
+                  var tx = cursorX + gx * p + p * 0.1;
+                  var ty = gy * p + p * 0.1;
+                  titleBlocks.push({
+                    tx: tx, ty: ty,
+                    sx: tx + (Math.random() - 0.5) * 2 * p,
+                    sy: ty - (30 + Math.random() * 70),
+                    t0: t, dur: BLOCK_DUR, size: p * 0.8
+                  });
+                  t += BLOCK_STAGGER;
+                }
+              }
+            }
+            t += LETTER_GAP;
+            cursorX += 6 * p;
+          } else {
+            cursorX += 3 * p;
+          }
+        }
+        titleBuildEnd = t;
+        var ox = (titleW - (cursorX - p)) / 2;
+        for (var bi = 0; bi < titleBlocks.length; bi++) {
+          titleBlocks[bi].tx += ox;
+          titleBlocks[bi].sx += ox;
+        }
+      }
+      function drawTitlePixels() {
+        if (!titleCtx) return;
+        titleCtx.clearRect(0, 0, titleW, titleH);
+        titleCtx.shadowBlur = 0;
+        if (titlePhase === 'wait') return;
+        if (titlePhase === 'hold') {
+          var breathe = 6 + 4 * Math.sin((titlePhaseT / HOLD_S) * Math.PI * 2);
+          titleCtx.fillStyle = LOCKED;
+          titleCtx.shadowColor = 'rgba(255,255,255,0.9)';
+          titleCtx.shadowBlur = breathe;
+          for (var i = 0; i < titleBlocks.length; i++) {
+            titleCtx.fillRect(titleBlocks[i].tx, titleBlocks[i].ty, titleBlocks[i].size, titleBlocks[i].size);
+          }
+          titleCtx.shadowBlur = 0;
+          return;
+        }
+        if (titlePhase === 'dissolve') {
+          for (var d = 0; d < titleBlocks.length; d++) {
+            var b = titleBlocks[d];
+            var wave = (b.tx / titleW) * 0.5;
+            var dp = (titlePhaseT - wave) / 0.3;
+            if (dp <= 0) {
+              titleCtx.fillStyle = LOCKED;
+              titleCtx.fillRect(b.tx, b.ty, b.size, b.size);
+            } else if (dp < 1) {
+              titleCtx.globalAlpha = 1 - dp;
+              titleCtx.fillStyle = LOCKED;
+              titleCtx.fillRect(b.tx, b.ty - dp * 3 * titlePitch, b.size, b.size);
+              titleCtx.globalAlpha = 1;
+            }
+          }
+          return;
+        }
+        for (var k = 0; k < titleBlocks.length; k++) {
+          var blk = titleBlocks[k];
+          var bt = (titlePhaseT - blk.t0) / blk.dur;
+          if (bt <= 0) continue;
+          if (bt >= 1) {
+            titleCtx.fillStyle = LOCKED;
+            titleCtx.shadowBlur = 0;
+            titleCtx.fillRect(blk.tx, blk.ty, blk.size, blk.size);
+          } else {
+            var e = easeBlock(bt);
+            var px = blk.sx + (blk.tx - blk.sx) * e;
+            var py = blk.sy + (blk.ty - blk.sy) * e;
+            titleCtx.fillStyle = MOVE_GLOW;
+            titleCtx.shadowColor = MOVE_GLOW;
+            titleCtx.shadowBlur = 12;
+            titleCtx.fillRect(px, py, blk.size, blk.size);
+            titleCtx.shadowBlur = 0;
+          }
+        }
+      }
+      var titleLast = 0;
+      function titleFrame(now) {
+        var dt = (now - titleLast) / 1000;
+        titleLast = now;
+        if (dt < 0) dt = 0;
+        if (dt > 0.05) dt = 0.05;
+        titlePhaseT += dt;
+        if (titlePhase === 'build' && titlePhaseT >= titleBuildEnd) {
+          titlePhase = 'hold'; titlePhaseT = 0;
+        } else if (titlePhase === 'hold' && titlePhaseT >= HOLD_S) {
+          titlePhase = 'dissolve'; titlePhaseT = 0;
+        } else if (titlePhase === 'dissolve' && titlePhaseT >= DISSOLVE_S) {
+          titlePhase = 'wait'; titlePhaseT = 0;
+        } else if (titlePhase === 'wait' && titlePhaseT >= WAIT_S) {
+          titlePhase = 'build'; titlePhaseT = 0;
+        }
+        drawTitlePixels();
+        requestAnimationFrame(titleFrame);
+      }
+      if (titleEl && !titleReduceMotion && titleEl.getContext) {
+        var probe = document.createElement('canvas');
+        if (probe.getContext && probe.getContext('2d')) {
+          titleEl.setAttribute('aria-label', titleText);
+          titleEl.textContent = '';
+          titleCanvas = document.createElement('canvas');
+          titleCanvas.id = 'title-pixels';
+          titleCanvas.setAttribute('aria-hidden', 'true');
+          titleEl.appendChild(titleCanvas);
+          titleCtx = titleCanvas.getContext('2d');
+          layoutTitlePixels();
+          titleLast = performance.now();
+          requestAnimationFrame(titleFrame);
+          window.addEventListener('resize', function() {
+            layoutTitlePixels();
+            titlePhase = 'build'; titlePhaseT = 0;
+          });
+        }
+      }
     } catch (err) {}
 
     // -------------------------------------------------------------
