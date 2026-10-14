@@ -1222,6 +1222,14 @@ def _read_slot() -> Reading:
             flush=True,
         )
         return Reading(Reading.FREE, owner, ts)
+    if _previous_container_of_this_service(owner) and age > COPY_WATCH_SECONDS:
+        print(
+            f"[CLOUD SYNC] Taking over the sync lease from '{owner}' — this "
+            f"deployment's previous container, which has not renewed it for "
+            f"{age / 60:.1f} min.",
+            flush=True,
+        )
+        return Reading(Reading.FREE, owner, ts)
     return Reading(Reading.LIVE, owner, ts)
 
 
@@ -1283,9 +1291,24 @@ def _previous_container_of_this_service(owner: str) -> bool:
     deployment's previous pod. Reporting that as two copies of the bot is a card
     telling the operator to stop the copy they just deployed: a false alarm on
     the one warning that has to be believed, which is how a real duplicate gets
-    ignored by the person who most needs to act on it. The lease's own rule is
-    untouched (the new container still waits for the old writer to go), because
-    that wait is what stops two writers touching one backup.
+    ignored by the person who most needs to act on it.
+
+    It is also the difference between *a writer* and *a dead writer's receipt*,
+    which is the question the lease itself asks in :func:`_read_slot`. A claim
+    from this deployment's own previous container is waited out for
+    :data:`COPY_WATCH_SECONDS` — one backup tick plus margin, the same window the
+    boot watches for movement — and handed over after that. A **live** copy
+    renews its claim on every tick (inside ``backup_to_cloud_sync``, changed or
+    not), so silence for longer than a tick is not a slow deploy: it is a
+    container that is gone, and making the host that replaced it wait the whole
+    fifteen-minute :data:`LEASE_TTL` meant a rebuilt host saved nothing for a
+    quarter of an hour. Measured, on the main Space's own rebuild on 2026-10-14:
+    ``backup: blocked``, *"'r-1tsrajowo-meow-…' owns the bucket (14.7 min ago) —
+    running two instances of the bot against one backup is how progress gets
+    reverted"*, while the database it was refusing to save sat there being written
+    to. Any **other** deployment still waits the full TTL: two applications
+    sharing one file is the loss this lease exists to prevent, and one of them
+    being quiet for a tick is not evidence that it is gone.
     """
     return _service_of(owner) is not None and _service_of(owner) == _service_of(_INSTANCE_ID)
 

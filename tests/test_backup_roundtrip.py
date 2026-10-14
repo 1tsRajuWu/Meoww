@@ -769,6 +769,62 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self._backup_into(fake))
         self.assertNotIn("bot.db", fake.files)
 
+    def test_a_replaced_container_hands_its_lease_over_after_a_tick(self):
+        """The quarter of an hour a rebuilt host spent saving nothing.
+
+        Measured on the main Space's own rebuild on 2026-10-14, from that host's
+        ``/health``: ``backup: blocked``, *"'r-1tsrajowo-meow-…' owns the bucket
+        (14.7 min ago) — running two instances of the bot against one backup is
+        how progress gets reverted"*, while the database it was refusing to save
+        was being written to the whole time. The claim named the container that
+        rebuild had already replaced, and the wait was the whole of
+        :data:`cs.LEASE_TTL`, because the slot could only ever say *somebody's
+        claim, and not old enough yet*. A live copy renews its claim on every
+        backup tick, so a claim from this deployment's own previous container that
+        has not moved for a tick is a slot nobody is holding.
+        """
+        _make_db(cs.db_path())
+        cs._remote_checked = True
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {"economy": 1, "user_levels": 1}
+        self.addCleanup(setattr, cs, "_INSTANCE_ID", cs._INSTANCE_ID)
+        cs._INSTANCE_ID = HF_NEW_POD
+        fake = _FakeSupabase()
+        # A tick and a margin, not a quarter of an hour: one backup cycle of
+        # silence is all the evidence the slot needs that the writer has stopped.
+        fake.files[cs.LEASE_FILE] = cs._json.dumps(
+            {"owner": HF_OLD_POD, "ts": cs.time.time() - cs.COPY_WATCH_SECONDS - 30}
+        ).encode()
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            self.assertTrue(self._backup_into(fake), "the rebuilt host may save again")
+        self.assertIn("bot.db", fake.files)
+        self.assertIn("previous container", said.getvalue())
+
+    def test_another_deployments_idle_claim_still_blocks_the_upload(self):
+        """The case the lease is for: two *applications*, one file.
+
+        Nothing about the handover above may reach a host that is not this
+        deployment's own previous container. The premium Space and the main Space
+        are two Discord applications in one bucket, and one of them going quiet
+        for a tick is not evidence that it is gone — which is why the full
+        :data:`cs.LEASE_TTL` still applies to every slug but this one.
+        """
+        _make_db(cs.db_path())
+        cs._remote_checked = True
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {"economy": 1, "user_levels": 1}
+        self.addCleanup(setattr, cs, "_INSTANCE_ID", cs._INSTANCE_ID)
+        cs._INSTANCE_ID = HF_PREMIUM_POD
+        fake = _FakeSupabase()
+        fake.files[cs.LEASE_FILE] = cs._json.dumps(
+            {"owner": HF_OLD_POD, "ts": cs.time.time() - cs.COPY_WATCH_SECONDS - 30}
+        ).encode()
+        self.assertFalse(self._backup_into(fake))
+        self.assertNotIn("bot.db", fake.files)
+
     def test_a_stale_lease_can_be_taken_over(self):
         _make_db(cs.db_path())
         cs._remote_checked = True   # the state a running instance is in
@@ -919,9 +975,12 @@ class WhoElseIsRunning(unittest.TestCase):
 
     The cases are a table (:meth:`_cases`), because each one is the same question
     asked of different bytes and the answers are three: somebody else is live,
-    nobody is, or there is nothing to read. Two laws stand beside it — the watch
-    outlasts the tick that renews a claim, and the backup still waits for a
-    rolling deploy's previous container.
+    nobody is, or there is nothing to read. Three laws stand beside it — the watch
+    outlasts the tick that renews a claim (which is also the window a replaced
+    container's claim is waited out before the host that replaced it takes the
+    slot back), the backup still waits for a rolling deploy's previous container
+    **while that container is still renewing**, and a different deployment's claim
+    is waited out for the full TTL whatever its age.
     """
 
     #: The phrase that makes each line the answer it is: the three a boot can
@@ -1109,8 +1168,12 @@ class WhoElseIsRunning(unittest.TestCase):
 
     def test_the_backup_still_waits_for_the_previous_container(self):
         """The sibling rule is about the gateway only: two writers on one bucket
-        is the loss the lease exists to prevent, and the wait costs a deploy
-        nothing."""
+        is the loss the lease exists to prevent, so a previous container that is
+        **still renewing** keeps the slot. What changed is that the wait is now
+        bounded by the watch window instead of the whole TTL — a claim that stops
+        moving is a writer that stopped, and making the replacement wait fifteen
+        minutes for it cost the main Space a quarter of an hour of backups on
+        2026-10-14."""
         cs._INSTANCE_ID = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
         cs._cloud_has_data = True
         sibling = self._lease("srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4")
