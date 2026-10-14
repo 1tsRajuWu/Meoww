@@ -16,6 +16,7 @@ Run with:
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import unittest
@@ -997,6 +998,90 @@ class TestHeadlineBlockBuildUp(unittest.TestCase):
         self.assertIn("requestAnimationFrame", self.raw)
         self.assertIn("devicePixelRatio", self.raw)
         self.assertIn("HOLD_S = 2.5", self.raw)
+
+    def test_mount_guard_probes_canvas_not_heading(self):
+        """The canvas capability probe must not gate on the h1 (it has no getContext)."""
+        self.assertNotIn("titleEl.getContext", self.raw)
+
+    def test_pixel_headline_runs_headless(self):
+        """The R0 block mounts its canvas and locks blocks white under a stub DOM.
+
+        Runs the real template script in node (skipped where node is absent,
+        like the owner-worker test) with a virtual rAF clock — the mount-guard
+        bug passed every string assertion and only a runtime run catches it.
+        """
+        import shutil
+        import subprocess
+        import tempfile
+
+        if shutil.which("node") is None:
+            self.skipTest("node is not installed")
+        raw = read_template()
+        match = re.search(r"(    // R0: PIXEL HEADLINE.*?)(    // R1: 3D CARD)", raw, re.DOTALL)
+        self.assertIsNotNone(match, "R0 pixel-headline block must exist")
+        harness = """
+'use strict';
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+const calls = { white: 0, glow: 0 };
+function makeCtx() {
+  return {
+    fillStyle: '', shadowColor: '', shadowBlur: 0, globalAlpha: 1,
+    setTransform() {}, clearRect() {},
+    fillRect() {
+      if (this.fillStyle === '#FFFFFF') calls.white++;
+      if (this.fillStyle === '#FF6B4A') calls.glow++;
+    },
+  };
+}
+const children = [];
+const titleEl = {
+  textContent: 'Building The Website.', clientWidth: 480, attrs: {},
+  setAttribute(k, v) { this.attrs[k] = v; },
+  appendChild(c) { children.push(c); return c; },
+};
+function makeCanvas() {
+  return { id: '', style: {}, width: 0, height: 0,
+    setAttribute() {}, getContext() { return makeCtx(); } };
+}
+const document = {
+  querySelector(sel) { return sel === '.stage .title' ? titleEl : null; },
+  createElement() { return makeCanvas(); },
+};
+const window = {
+  devicePixelRatio: 2, matchMedia() { return { matches: false }; },
+  addEventListener() {},
+};
+let rafQueue = [];
+function requestAnimationFrame(cb) { rafQueue.push(cb); return rafQueue.length; }
+let clock = 1000;
+const performance = { now: () => clock };
+eval(src);
+for (let f = 0; f < 1500; f++) {
+  const q = rafQueue; rafQueue = [];
+  clock += 16.7;
+  q.forEach((cb) => cb(clock));
+}
+const assert = require('assert');
+assert(children.length === 1 && children[0].id === 'title-pixels');
+assert(titleEl.attrs['aria-label'] === 'Building The Website.');
+assert(calls.glow > 50, 'blocks never fell glowing: ' + calls.glow);
+assert(calls.white > 200, 'blocks never locked white: ' + calls.white);
+console.log('R0-RUNTIME-OK');
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            block_path = os.path.join(tmp, "r0block.js")
+            harness_path = os.path.join(tmp, "r0runtime.js")
+            with open(block_path, "w", encoding="utf-8") as fh:
+                fh.write(match.group(1))
+            with open(harness_path, "w", encoding="utf-8") as fh:
+                fh.write(harness)
+            proc = subprocess.run(
+                ["node", harness_path, block_path],
+                capture_output=True, text=True, timeout=60,
+            )
+        self.assertEqual(proc.returncode, 0, f"R0 runtime failed:\n{proc.stderr}")
+        self.assertIn("R0-RUNTIME-OK", proc.stdout)
 
 
 if __name__ == "__main__":

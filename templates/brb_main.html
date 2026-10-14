@@ -853,7 +853,7 @@
         drawTitlePixels();
         requestAnimationFrame(titleFrame);
       }
-      if (titleEl && !titleReduceMotion && titleEl.getContext) {
+      if (titleEl && !titleReduceMotion) {
         var probe = document.createElement('canvas');
         if (probe.getContext && probe.getContext('2d')) {
           titleEl.setAttribute('aria-label', titleText);
