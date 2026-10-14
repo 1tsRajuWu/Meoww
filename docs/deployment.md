@@ -441,8 +441,21 @@ the new dashboard host.
   Portal page needs Message Content enabled is the VIP one, and
   `ENABLE_MESSAGE_CONTENT_INTENT=1` belongs in that Space's own variables (the
   Settings tab) as well as in `render.yaml`. With the variable set and the intent
-  un-granted, or the other way round, nothing crashes: the boot names the intent
-  it dropped and the cat simply never answers. Nothing about the rest of the toy
+  un-granted, or the other way round, nothing crashes: the boot names the intents
+  it granted (`[INTENTS] ✅ Discord granted, and this boot requests: …`) and the
+  one it dropped, and the cat simply never answers.
+
+  **Both applications already hold the grant, so the variable is the only thing
+  missing.** `/applications/@me` answers with flags `11,051,008` for `Meoww` and
+  `2,662,400` for `Meoww Premium`; both decode to
+  `GATEWAY_MESSAGE_CONTENT_LIMITED` (`1<<19`) — with `GATEWAY_PRESENCE_LIMITED`
+  and `GATEWAY_GUILD_MEMBERS_LIMITED` beside it, which is what an app under a
+  hundred servers gets. Read those two numbers rather than trusting a portal
+  screenshot when the cat stays quiet: the boot prints what Discord granted, and
+  a grant that arrives as a refusal is a mistake in *this* code, not in the
+  portal. That is exactly what `(16, 17)` was — bit 16 is
+  `VERIFICATION_PENDING_GUILD_LIMIT` and bit 17 is `EMBEDDED` — and it cost the
+  chat half every time it was switched on. Nothing about the rest of the toy
   — `/cat`, the panel, the arcade, the cat's own cards — depends on it.
 - **The brain is optional and the cat works without it.** `CAT_AI_KEY` (with
   `CAT_AI_URL` and `CAT_AI_MODEL`, any OpenAI-compatible endpoint) buys the

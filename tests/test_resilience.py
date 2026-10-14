@@ -134,19 +134,43 @@ class IntentsDiscordHasNotGranted(unittest.TestCase):
 
     def test_the_limited_grants_are_recognised(self):
         """An unverified app gets the *_LIMITED bit, which is every small app."""
-        self.assertEqual(self._flags((1 << 15) | (1 << 17)), (True, True, False))
+        self.assertEqual(self._flags((1 << 15) | (1 << 19)), (True, True, False))
         self.assertEqual(self._flags((1 << 15)), (True, False, False))
-        self.assertEqual(self._flags((1 << 17)), (False, True, False))
+        self.assertEqual(self._flags((1 << 19)), (False, True, False))
         self.assertEqual(self._flags((1 << 13)), (False, False, True))
 
     def test_the_full_grants_are_recognised_too(self):
-        self.assertEqual(self._flags((1 << 14) | (1 << 16)), (True, True, False))
+        self.assertEqual(self._flags((1 << 14) | (1 << 18)), (True, True, False))
         self.assertEqual(self._flags((1 << 12)), (False, False, True))
+
+    def test_the_flag_values_the_two_live_applications_report(self):
+        """The measured grants, not hand-built ones.
+
+        ``Meoww`` answers with 11,051,008 and ``Meoww Premium`` with 2,662,400,
+        and each decodes to the three ``_LIMITED`` bits — so Message Content is
+        granted to both. A checker reading bits 16 and 17 calls that same answer
+        *not granted* and drops an intent Discord had already allowed, which is
+        what kept the Dev Cat's chat half from ever coming up.
+        """
+        self.assertEqual(self._flags(11_051_008), (True, True, True))
+        self.assertEqual(self._flags(2_662_400), (True, True, True))
 
     def test_unrelated_flags_are_not_mistaken_for_intents(self):
         """The commands badge sits at bit 23 and must mean nothing here."""
         self.assertEqual(self._flags(1 << 23), (False, False, False))
         self.assertEqual(self._flags(0), (False, False, False))
+
+    def test_the_flags_that_are_not_intents(self):
+        """Bits 16 and 17 are set on real applications and mean neither grant.
+
+        ``VERIFICATION_PENDING_GUILD_LIMIT`` and ``EMBEDDED``. Reading either as
+        Message Content is the defect the case above measures, so this holds the
+        correction from the other side: the pair that used to be consulted must
+        grant nothing.
+        """
+        self.assertEqual(self._flags((1 << 16) | (1 << 17)), (False, False, False))
+        self.assertEqual(self._flags((1 << 16)), (False, False, False))
+        self.assertEqual(self._flags((1 << 17)), (False, False, False))
 
     def test_an_unreachable_discord_says_so_instead_of_guessing(self):
         with mock.patch("urllib.request.urlopen", side_effect=OSError("no route")):

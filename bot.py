@@ -79,7 +79,18 @@ if _env_flag("ENABLE_PRESENCE_INTENT"):
 # numbers, not shifted values — shifting them twice matches nothing, which would
 # read as "Discord granted nothing" and silently drop even the members intent.
 _MEMBER_INTENT_BITS = (14, 15)
-_MESSAGE_CONTENT_BITS = (16, 17)
+#: ``GATEWAY_MESSAGE_CONTENT`` and its ``_LIMITED`` twin. These were ``(16, 17)``,
+#: which is not message content at all: bit 16 is
+#: ``VERIFICATION_PENDING_GUILD_LIMIT`` and bit 17 is ``EMBEDDED``. A grant thus
+#: read as a refusal, and the boot dropped Message Content on an application that
+#: already had it — the Dev Cat's chat half could never come up, and the log said
+#: Discord had not granted something it had.
+#:
+#: Measured rather than argued: both live applications answer
+#: ``/applications/@me`` with bit 19 set (``Meoww`` 11,051,008 and
+#: ``Meoww Premium`` 2,662,400 both decode to ``1<<13|1<<15|1<<19``), which is the
+#: ``_LIMITED`` grant an unverified app gets.
+_MESSAGE_CONTENT_BITS = (18, 19)
 # GATEWAY_PRESENCE and its "limited" twin, which is the one an unverified app
 # gets — every app under 100 servers.
 _PRESENCE_INTENT_BITS = (12, 13)
@@ -2243,6 +2254,26 @@ async def main():
                 + " — starting without it rather than refusing to connect. Enable it in "
                 "the Developer Portal (your app -> Bot -> Privileged Gateway Intents) "
                 "and restart to get that feature back.",
+                flush=True,
+            )
+
+        # And the same fact named the other way round. A grant used to be visible
+        # only as the *absence* of the warnings below, which is the one kind of
+        # evidence a host log cannot give: an intent that is off and one that was
+        # never granted look exactly alike.
+        kept = [
+            label
+            for label, on in (
+                ("Server Members", bot.intents.members),
+                ("Message Content", bot.intents.message_content),
+                ("Presence", bot.intents.presences),
+            )
+            if on
+        ]
+        if kept:
+            print(
+                "[INTENTS] ✅ Discord granted, and this boot requests: "
+                + ", ".join(kept),
                 flush=True,
             )
 
