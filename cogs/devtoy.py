@@ -868,61 +868,173 @@ class DevToy(commands.Cog):
         )
 
     # -- the cat's answers ---------------------------------------------------- #
+    async def chat_gate(self, guild_id: int) -> str | None:
+        """Why the cat will not read this server, or ``None`` when it will.
+
+        The chat half's four refusals as four sentences, in one place, because the
+        listener and the operator's rehearsal both ask this and a second copy of
+        them would be a second answer. The order is the listener's: the intent is
+        whether Discord sends any text *at all*, the module is the switch a server
+        can flip, and the guild gate is the one nobody can.
+        """
+        if not getattr(self.bot.intents, "message_content", False):
+            # Discord sends no text at all without the privileged intent, so there
+            # is nothing to read and no reason to guess.
+            return (
+                "the Message Content intent is off, so Discord sends no text at "
+                "all (set ENABLE_MESSAGE_CONTENT_INTENT=1 on this host)"
+            )
+        if not devtoy.in_dev_server(guild_id):
+            return "the cat lives in one server only, and this is not it"
+        if not self.bot.is_module_enabled(guild_id, MODULE):
+            return "the Dev Cat system is switched off for this server"
+        if not await self.setting_bool(guild_id, "reactions", default=True):
+            return '"Answers in chat" is switched off for this server'
+        return None
+
+    async def chat_decision_for(
+        self,
+        guild_id: int,
+        user_id: int,
+        content: str,
+        *,
+        mentioned: bool = False,
+        now: float | None = None,
+    ) -> tuple[devtoy.ChatDecision, devtoy.Cat | None]:
+        """What the cat would do with one message, moving neither clock.
+
+        Read-only on purpose. ``devtoy.chat_decision`` is a pure function of the
+        text and the two clocks, and this is its one caller in a process that has
+        both — so what a rehearsal reports is what a member gets, and a rehearsal
+        cannot spend the member's allowance. The clock is moved by the caller that
+        sends, which is also the only place that knows whether anything was sent.
+        """
+        moment = time.time() if now is None else now
+        cat = await self._load(guild_id, user_id)
+        decision = devtoy.chat_decision(
+            content,
+            mentioned=mentioned,
+            cat_name=cat.name if cat else "",
+            now=moment,
+            last_react=self._last_react.get(user_id, 0.0),
+            last_reply=self._last_reply.get(user_id, 0.0),
+            rng=self.rng,
+        )
+        return decision, cat
+
+    async def phrase_reply(
+        self,
+        guild_id: int,
+        written: str,
+        content: str,
+        cat: devtoy.Cat | None,
+        *,
+        now: float | None = None,
+    ) -> tuple[str, str]:
+        """The sentence the cat would say, and which half of it wrote that.
+
+        The model's when it answers, the line written for it otherwise — two halves
+        that already existed, kept here so that a card, a rehearsal and the
+        listener cannot disagree about which one spoke. A host with no key is a
+        host whose sentences come from ``written``, which is not the same thing as
+        a host where the cat is silent, and the second value is what says so.
+        """
+        moment = time.time() if now is None else now
+        thought = await self.think(
+            guild_id, devtoy.reply_messages(content, cat, moment)
+        )
+        if thought:
+            return thought, "model"
+        return written, "written"
+
+    async def rehearse(
+        self,
+        guild_id: int,
+        user_id: int,
+        content: str,
+        *,
+        mentioned: bool = False,
+    ) -> dict:
+        """What the cat would say to one message, as a report, having said nothing.
+
+        Built for the operator's own door (``/api/devcat-simulate``) because the
+        chat half's last hop cannot be asked in any other way: the listener ignores
+        bots and webhooks by design, so exercising it needs a person at a keyboard
+        — which left *"is the cat answering in there"* with no answer a terminal
+        could get, on the machine that had just been deployed. Nothing is sent and
+        no clock moves; every field is a fact about the decision rather than an
+        opinion about it — the gate that refused, the rule that matched, the
+        sentence, and which half produced it.
+        """
+        report: dict = {
+            "gate": None,
+            "matched": "",
+            "reply": None,
+            "react": None,
+            "source": None,
+            "cat": None,
+            "would": "nothing",
+        }
+        gate = await self.chat_gate(guild_id)
+        if gate is not None:
+            report["gate"] = gate
+            return report
+        decision, cat = await self.chat_decision_for(
+            guild_id, user_id, content, mentioned=mentioned
+        )
+        report["matched"] = decision.matched
+        report["cat"] = cat.name if cat else None
+        if decision.reply:
+            said, source = await self.phrase_reply(
+                guild_id, decision.reply, content, cat
+            )
+            report.update(reply=said, source=source, would="reply")
+            return report
+        if decision.react:
+            report.update(react=decision.react, would="react")
+        return report
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """React to, or answer, one message in the developer's server.
 
         Every refusal is checked *before* anything is sent, and the whole thing is
         wrapped: this runs on every message the bot can see, and a listener that
-        raises is a listener Discord removes.
+        raises is a listener Discord removes. The refusals are ``chat_gate``'s and
+        the decision is ``chat_decision_for``'s, so the operator's rehearsal runs
+        exactly this path — the sender is the only part that differs.
         """
         try:
-            if not getattr(self.bot.intents, "message_content", False):
-                # Discord sends no text at all without the privileged intent, so
-                # there is nothing to read and no reason to guess.
-                return
             author = getattr(message, "author", None)
             if author is None or getattr(author, "bot", False):
                 return
             if getattr(message, "webhook_id", None):
                 return
             guild = getattr(message, "guild", None)
-            if guild is None or not devtoy.in_dev_server(guild.id):
-                return
-            if not self.bot.is_module_enabled(guild.id, MODULE):
-                return
-            if not await self.setting_bool(guild.id, "reactions", default=True):
+            if guild is None:
                 return
             content = getattr(message, "content", "") or ""
             if not content.strip():
                 return
+            if await self.chat_gate(guild.id) is not None:
+                return
             now = time.time()
-            cat = await self._load(guild.id, author.id)
             me = getattr(self.bot, "user", None)
             mentioned = bool(me) and any(
                 getattr(user, "id", None) == getattr(me, "id", None)
                 for user in (getattr(message, "mentions", None) or [])
             )
-            decision = devtoy.chat_decision(
-                content,
-                mentioned=mentioned,
-                cat_name=cat.name if cat else "",
-                now=now,
-                last_react=self._last_react.get(author.id, 0.0),
-                last_reply=self._last_reply.get(author.id, 0.0),
-                rng=self.rng,
+            decision, cat = await self.chat_decision_for(
+                guild.id, author.id, content, mentioned=mentioned, now=now
             )
             if decision.reply:
                 # The clock moves *before* the model is asked, not after: a
                 # generation takes seconds, and a member who typed twice while it
                 # was running must not get two answers for one allowance.
                 self._last_reply[author.id] = now
-                said = decision.reply
-                thought = await self.think(
-                    guild.id, devtoy.reply_messages(content, cat, now)
+                said, _source = await self.phrase_reply(
+                    guild.id, decision.reply, content, cat, now=now
                 )
-                if thought:
-                    said = thought
                 await message.reply(
                     said, mention_author=False, allowed_mentions=NO_PINGS
                 )

@@ -37,7 +37,7 @@ from unittest import mock
 import discord
 from discord.ext import commands
 
-from cogs.devtoy import BoredHubView, CatActionsView, CatSettingsView, DevToy, cat_from_row
+from cogs.devtoy import MODULE, BoredHubView, CatActionsView, CatSettingsView, DevToy, cat_from_row
 from tests.support import TempDatabaseMixin
 from utils import bot_channels, catfeed, db, devtoy, features, permissions
 
@@ -1003,6 +1003,85 @@ class TheListenerListensToAlmostNothing(CogCase):
         message.reply = mock.AsyncMock()
         await self.cog.on_message(message)  # must not raise
         message.reply.assert_not_awaited()
+
+
+class TheOperatorCanRehearseTheChatHalf(CogCase):
+    """What the cat would say, asked without anybody typing it.
+
+    The chat half's last hop was unanswerable from a terminal: the listener ignores
+    bots and webhooks by design, so a message has to come from a person, and *"is
+    the cat talking in there"* therefore had no answer on the machine that had just
+    been deployed. ``rehearse`` drives the same decision directly, which is worth
+    something only if it is **the same** decision — so the laws here are that it
+    names the gate that refused, that it says which half wrote the sentence, and
+    that it moves no clock while it does it.
+    """
+
+    async def test_a_mention_in_this_server_is_one_it_would_answer(self):
+        report = await self.cog.rehearse(DEV_GUILD, 5, "hello there", mentioned=True)
+        self.assertIsNone(report["gate"])
+        self.assertEqual(report["would"], "reply")
+        self.assertEqual(report["matched"], "mention")
+        self.assertTrue(report["reply"])
+        self.assertIsNone(report["react"])
+
+    async def test_the_written_line_is_what_a_host_without_a_key_gets(self):
+        """The harness's brain returns nothing, which is also a host with no key."""
+        report = await self.cog.rehearse(DEV_GUILD, 5, "hello", mentioned=True)
+        self.assertEqual(report["source"], "written")
+        self.assertIn(report["reply"], devtoy.MENTION_LINES)
+
+    async def test_a_rehearsal_reports_the_model_when_there_is_one(self):
+        with mock.patch.object(catfeed, "say", mock.AsyncMock(return_value="mrrp.")):
+            report = await self.cog.rehearse(DEV_GUILD, 5, "hello", mentioned=True)
+        self.assertEqual(report["reply"], "mrrp.")
+        self.assertEqual(report["source"], "model")
+
+    async def test_a_bare_message_is_the_react_it_would_use(self):
+        report = await self.cog.rehearse(DEV_GUILD, 5, "the build finished at last")
+        self.assertEqual(report["would"], "react")
+        self.assertIn(report["react"], devtoy.REACTION_EMOJI)
+        self.assertIsNone(report["reply"])
+
+    async def test_another_server_is_refused_with_the_reason(self):
+        report = await self.cog.rehearse(OTHER_GUILD, 5, "hello", mentioned=True)
+        self.assertEqual(report["would"], "nothing")
+        self.assertIn("one server only", report["gate"])
+        self.assertIsNone(report["reply"])
+
+    async def test_every_gate_says_which_one_it_is(self):
+        """Four gates, four sentences: a silence with no reason was the old bug."""
+        off = DevToy(fake_bot(module_on=False))
+        self.addCleanup(off.cog_unload)
+        self.assertIn(
+            "switched off",
+            (await off.rehearse(DEV_GUILD, 5, "hello", mentioned=True))["gate"],
+        )
+
+        deaf = DevToy(fake_bot(message_content=False))
+        self.addCleanup(deaf.cog_unload)
+        self.assertIn(
+            "Message Content",
+            (await deaf.rehearse(DEV_GUILD, 5, "hello", mentioned=True))["gate"],
+        )
+
+        await db.set_setting(DEV_GUILD, features.setting_key(MODULE, "reactions"), False)
+        quiet = await self.cog.rehearse(DEV_GUILD, 5, "hello", mentioned=True)
+        self.assertIn("Answers in chat", quiet["gate"])
+
+    async def test_a_rehearsal_costs_the_member_nothing(self):
+        """No clock moves: asking what the cat would say must not spend the answer."""
+        for _ in range(3):
+            report = await self.cog.rehearse(DEV_GUILD, 5, "hello", mentioned=True)
+            self.assertEqual(report["would"], "reply")
+        self.assertEqual(self.cog._last_reply, {})
+        self.assertEqual(self.cog._last_react, {})
+        # And the real decision is still unspent, asked through the same call the
+        # listener makes.
+        decision, _cat = await self.cog.chat_decision_for(
+            DEV_GUILD, 5, "hello", mentioned=True
+        )
+        self.assertTrue(decision.reply)
 
 
 class TheAmbientLoopIsQuiet(CogCase):

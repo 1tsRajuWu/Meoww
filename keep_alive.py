@@ -51,7 +51,7 @@ from flask import (
     Response, abort, make_response,
 )
 from utils import (
-    ai_guard, alert_webhook, brand, broadcast, command_publish, command_scope,
+    ai_guard, alert_webhook, bot_channels, brand, broadcast, command_publish, command_scope,
     compression,
     config_audit, consent, db, digest, discord_auth, features, figures, guild_directory,
     # `health` is the name this module's own `/health` route already owns, so the
@@ -1498,6 +1498,11 @@ GATED_PREFIXES = (
     "/api/toggle",
     "/api/set-module",
     "/api/voice-debug",
+    # The Dev Cat's chat half, rehearsed rather than typed. Passkey-only, like the
+    # four above it, and declared here for the reason that list gives: the split
+    # decides whether the agreement stands in front of a path, and a route that is
+    # gated by accident is one nobody made a decision about.
+    "/api/devcat-simulate",
     "/api/mentionables",
     "/api/send-message",
     "/api/scheduled",
@@ -2382,6 +2387,75 @@ def api_set_module():
 
     _schedule_cloud_backup()
     return jsonify({"success": True, "guild_id": guild_id, "module": module_id, "enabled": enabled})
+
+
+@app.route("/api/devcat-simulate", methods=["GET", "POST"])
+def api_devcat_simulate():
+    """What the Dev Cat would say to one message, without anybody typing it.
+
+    Passkey-only, and it exists because the chat half's last hop cannot be asked
+    anything else: the listener ignores bots and webhooks by design, so the only
+    way to exercise it is for a person to type — which left *"is the cat answering
+    in there"* with no answer a terminal could get. The rehearsal runs the real
+    decision (``cogs.devtoy.DevToy.rehearse``, the call the listener itself makes),
+    sends nothing to Discord, and moves no clock — so it cannot cost the member the
+    answer it was rehearsing.
+
+    ``GET /api/devcat-simulate?text=hello%20cat&mentioned=1``, or the same as JSON.
+    A refusal names the gate that refused it; a reply names the rule that matched,
+    the sentence, and whether the model or the cat's written pool produced it — so
+    a host with no key is never mistaken for a host with no cat.
+    """
+    if not _passkey_ok():
+        return _passkey_denied()
+
+    data = _json_or_form() if request.method == "POST" else request.args
+    text = str(data.get("text") or data.get("content") or "").strip()
+    if not text:
+        return jsonify({
+            "success": False,
+            "error": 'Nothing to try. Send ?text=hello cat, or {"text": "hello cat"}.',
+        }), 400
+
+    guild_id = _int_or_none(data.get("guild_id")) or bot_channels.DEV_SERVER_GUILD_ID
+    user_id = _int_or_none(data.get("user_id")) or 0
+    given = data.get("mentioned")
+    me = getattr(BOT_INSTANCE, "user", None) if BOT_INSTANCE is not None else None
+    if given is None:
+        # Read out of the text the way a member writes it — Discord's own mention
+        # form, which is also what the listener counts — rather than guessed, and
+        # only when the caller does not say either way.
+        mentioned = bool(me) and any(
+            form in text for form in (f"<@{me.id}>", f"<@!{me.id}>")
+        )
+    else:
+        mentioned = str(given).strip().lower() not in ("", "0", "false", "no", "off")
+
+    async def work():
+        cog = BOT_INSTANCE.get_cog("DevToy") if BOT_INSTANCE is not None else None
+        if cog is None:
+            return {
+                "success": False,
+                "error": (
+                    "The Dev Cat cog is not loaded on this host — it loads in the VIP "
+                    "bot only, so ask the premium deployment."
+                ),
+            }, 409
+        report = await cog.rehearse(guild_id, user_id, text, mentioned=mentioned)
+        return {
+            "success": True,
+            # Text, like every other id this app hands the browser: a snowflake that
+            # crosses as a JSON number comes back as a different server.
+            "guild_id": _console_id(guild_id),
+            "user_id": _console_id(user_id),
+            "text": text,
+            "mentioned": mentioned,
+            **report,
+        }, 200
+
+    # A rehearsal asks the model whenever the brain is on, which is a network round
+    # trip and slower than anything else a dashboard route waits for.
+    return _on_bot_loop(work(), timeout=45.0)
 
 
 # ── Decat: the bridge to the operator's own machine ───────────────────────────
