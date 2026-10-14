@@ -613,15 +613,15 @@
 
   <script>
   (function() {
-    // -------------------------------------------------------------
-    // R0: PIXEL HEADLINE — two-line poster built block by block
+    // R0: PIXEL HEADLINE — a cat courier builds the two-line poster
     // -------------------------------------------------------------
     // A 5x7 bitmap font rendered as square LED blocks on a canvas that
     // auto-fits this box at any devicePixelRatio. Choreography is a state
-    // machine — BUILD (letters left to right, blocks dropping from above
-    // with gravity and one settle bounce, glowing coral until they lock
-    // white), HOLD 2.5s with a breathing glow, DISSOLVE 0.8s in a left-to-right wave, WAIT 0.5s —
-    // driven by requestAnimationFrame with delta time so 60Hz and 144Hz
+    // machine — BUILD (a pixel cat dashes block-by-block in letter order,
+    // carrying each glowing coral block overhead and tossing it into its
+    // cell), HOLD 2.5s with a breathing glow while the cat sits, DISSOLVE
+    // 0.8s in a left-to-right wave, WAIT 0.5s — all driven by
+    // requestAnimationFrame with delta time so 60Hz and 144Hz
     // panels run the same show. Zero dependencies. The h1 keeps its plain
     // text for readers without script, and reduced-motion readers keep it.
     try {
@@ -639,38 +639,30 @@
         'l': ['01100','00100','00100','00100','00100','00100','01110'],
         'd': ['00001','00001','00111','00101','00101','00101','00111'],
         'n': ['00000','00000','10110','11001','10001','10001','10001'],
-        'g': ['01110','10001','10001','00111','00001','10001','01110'],
+        'g': ['01110','10001','10001','01111','00010','00010','11100'],
         'T': ['11111','00100','00100','00100','00100','00100','00100'],
         'h': ['10000','10000','10110','11001','10001','10001','10001'],
         'e': ['00000','00000','01110','10001','11111','10000','01110'],
         'W': ['10001','10001','10001','10001','10101','11011','10001'],
         'b': ['10000','10000','10111','11001','10001','10001','10111'],
-        's': ['00000','00000','01111','10000','01110','00001','11110'],
+        's': ['01110','10001','10000','01110','00001','10001','01110'],
         't': ['00100','00100','11110','00100','00100','00100','01100'],
         '.': ['00000','00000','00000','00000','00000','01100','01100'],
         ' ': ['00000','00000','00000','00000','00000','00000','00000']
       };
       var MOVE_GLOW = '#FF6B4A';
       var LOCKED = '#FFFFFF';
-      var BLOCK_STAGGER = 0.03;
-      var BLOCK_DUR = 0.55;
-      var LETTER_GAP = 0.12;
+      var FUR = '#EDEDF4';
       var HOLD_S = 2.5;
       var DISSOLVE_S = 0.8;
       var WAIT_S = 0.5;
-      // Gravity drop with one settle bounce: blocks accelerate downward,
-      // dip a hair past their cell, then rest. Reads as falling, not floating.
-      function easeDrop(p) {
-        if (p < 0.75) {
-          var q = p / 0.75;
-          return 0.88 * q * q;
-        }
-        var r = (p - 0.75) / 0.25;
-        return 0.88 + 0.12 * (2 * r - r * r) + 0.08 * Math.sin(r * Math.PI) * (1 - r);
-      }
+      var CAT_SPEED = 420;
+      var TOSS_S = 0.2;
       var titleCanvas = null, titleCtx = null, titleBlocks = [];
-      var titlePitch = 4, titleW = 0, titleH = 0;
-      var titlePhase = 'build', titlePhaseT = 0, titleBuildEnd = 1;
+      var titlePitch = 4, titleW = 0, titleH = 0, titleGround = 0;
+      var titlePhase = 'build', titlePhaseT = 0;
+      var placeIdx = 0, tossT = -1, tossSX = 0, tossSY = 0;
+      var catX = 0, catDir = 1, catRun = 0, catBlinkT = 0, catNextBlink = 2.5;
       function lineCells(s) {
         var n = 0;
         for (var i = 0; i < s.length; i++) n += (s.charAt(i) === ' ') ? 3 : 6;
@@ -688,19 +680,19 @@
         p = Math.max(1.4, p);
         titlePitch = p;
         titleW = Math.round(maxCells * p);
-        titleH = Math.round((titleLines.length * 8 + (titleLines.length - 1) * 3) * p);
+        titleH = Math.round(24.5 * p);
+        titleGround = titleH - 0.8 * p;
         titleCanvas.width = Math.round(titleW * dpr);
         titleCanvas.height = Math.round(titleH * dpr);
         titleCanvas.style.width = titleW + 'px';
         titleCanvas.style.height = titleH + 'px';
         titleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         titleBlocks = [];
-        var t = 0.4;
         for (var row = 0; row < titleLines.length; row++) {
           var line = titleLines[row];
           var lineW = lineCells(line) * p;
           var ox = (titleW - lineW) / 2;
-          var oy = row * (8 * p + 3 * p);
+          var oy = 0.5 * p + row * (8 * p + 3 * p);
           var cursorX = 0;
           for (var ci = 0; ci < line.length; ci++) {
             var ch = line.charAt(ci);
@@ -709,32 +701,87 @@
               for (var gy = 0; gy < 7; gy++) {
                 for (var gx = 0; gx < 5; gx++) {
                   if (glyph[gy].charAt(gx) === '1') {
-                    var tx = ox + cursorX + gx * p + p * 0.1;
-                    var ty = oy + gy * p + p * 0.1;
                     titleBlocks.push({
-                      tx: tx, ty: ty,
-                      sx: tx + (Math.random() - 0.5) * 2 * p,
-                      sy: ty - (30 + Math.random() * 70),
-                      t0: t, dur: BLOCK_DUR, size: p * 0.8
+                      tx: ox + cursorX + gx * p + p * 0.1,
+                      ty: oy + gy * p + p * 0.1,
+                      size: p * 0.8,
+                      placed: false
                     });
-                    t += BLOCK_STAGGER;
                   }
                 }
               }
-              t += LETTER_GAP;
               cursorX += 6 * p;
             } else {
               cursorX += 3 * p;
             }
           }
         }
-        titleBuildEnd = t;
+        resetTitleBuild();
+      }
+      function resetTitleBuild() {
+        for (var i = 0; i < titleBlocks.length; i++) titleBlocks[i].placed = false;
+        placeIdx = 0;
+        tossT = -1;
+        catX = -2 * titlePitch;
+        catDir = 1;
+        titlePhase = 'build';
+        titlePhaseT = 0;
+      }
+      function drawCat(sitting) {
+        if (!titleCtx) return;
+        var p = titlePitch;
+        var g = titleGround;
+        var bob = sitting ? 0 : Math.abs(Math.sin(catRun)) * 0.12 * p;
+        titleCtx.save();
+        titleCtx.translate(catX, 0);
+        titleCtx.scale(catDir, 1);
+        titleCtx.fillStyle = FUR;
+        titleCtx.shadowBlur = 0;
+        if (sitting) {
+          titleCtx.fillRect(-1.15 * p, g - 1.2 * p, 2.3 * p, 1.2 * p);
+        } else {
+          var off = Math.sin(catRun) * 0.22 * p;
+          titleCtx.fillRect(-1.15 * p, g - 1.9 * p, 2.3 * p, 1.0 * p);
+          titleCtx.fillRect(-0.75 * p, g - 0.75 * p + off, 0.3 * p, 0.75 * p - off);
+          titleCtx.fillRect(0.45 * p, g - 0.75 * p - off, 0.3 * p, 0.75 * p + off);
+        }
+        var hy = sitting ? g - 2.0 * p : g - 2.9 * p + bob;
+        titleCtx.fillRect(0.35 * p, hy, 1.15 * p, 1.15 * p);
+        titleCtx.fillRect(0.4 * p, hy - 0.32 * p, 0.32 * p, 0.42 * p);
+        titleCtx.fillRect(1.13 * p, hy - 0.32 * p, 0.32 * p, 0.42 * p);
+        var sway = Math.sin(titlePhaseT * 6) * 0.18 * p;
+        titleCtx.fillRect(-1.45 * p + sway, g - 2.3 * p, 0.28 * p, 1.4 * p);
+        if (catBlinkT <= 0) {
+          titleCtx.fillStyle = '#FF2A44';
+          titleCtx.shadowColor = '#FF2A44';
+          titleCtx.shadowBlur = 6;
+          titleCtx.fillRect(0.72 * p, hy + 0.38 * p, 0.2 * p, 0.24 * p);
+          titleCtx.fillRect(1.08 * p, hy + 0.38 * p, 0.2 * p, 0.24 * p);
+          titleCtx.shadowBlur = 0;
+        }
+        titleCtx.restore();
+      }
+      function drawCarried() {
+        if (!titleCtx || placeIdx >= titleBlocks.length) return;
+        var p = titlePitch;
+        var bob = Math.abs(Math.sin(catRun)) * 0.1 * p;
+        var hx = catX + catDir * 0.9 * p;
+        var hy = titleGround - 3.4 * p + bob;
+        titleCtx.fillStyle = MOVE_GLOW;
+        titleCtx.shadowColor = MOVE_GLOW;
+        titleCtx.shadowBlur = 12;
+        titleCtx.fillRect(hx - 0.4 * p, hy - 0.4 * p, 0.8 * p, 0.8 * p);
+        titleCtx.shadowBlur = 0;
       }
       function drawTitlePixels() {
         if (!titleCtx) return;
         titleCtx.clearRect(0, 0, titleW, titleH);
         titleCtx.shadowBlur = 0;
-        if (titlePhase === 'wait') return;
+        titleCtx.globalAlpha = 1;
+        if (titlePhase === 'wait') {
+          drawCat(true);
+          return;
+        }
         if (titlePhase === 'hold') {
           var breathe = 6 + 4 * Math.sin((titlePhaseT / HOLD_S) * Math.PI * 2);
           titleCtx.fillStyle = LOCKED;
@@ -744,6 +791,7 @@
             titleCtx.fillRect(titleBlocks[i].tx, titleBlocks[i].ty, titleBlocks[i].size, titleBlocks[i].size);
           }
           titleCtx.shadowBlur = 0;
+          drawCat(true);
           return;
         }
         if (titlePhase === 'dissolve') {
@@ -761,27 +809,29 @@
               titleCtx.globalAlpha = 1;
             }
           }
+          drawCat(true);
           return;
         }
         for (var k = 0; k < titleBlocks.length; k++) {
-          var blk = titleBlocks[k];
-          var bt = (titlePhaseT - blk.t0) / blk.dur;
-          if (bt <= 0) continue;
-          if (bt >= 1) {
-            titleCtx.fillStyle = LOCKED;
-            titleCtx.shadowBlur = 0;
-            titleCtx.fillRect(blk.tx, blk.ty, blk.size, blk.size);
-          } else {
-            var e = easeDrop(bt);
-            var px = blk.sx + (blk.tx - blk.sx) * e;
-            var py = blk.sy + (blk.ty - blk.sy) * e;
-            titleCtx.fillStyle = MOVE_GLOW;
-            titleCtx.shadowColor = MOVE_GLOW;
-            titleCtx.shadowBlur = 12;
-            titleCtx.fillRect(px, py, blk.size, blk.size);
-            titleCtx.shadowBlur = 0;
-          }
+          if (!titleBlocks[k].placed) continue;
+          titleCtx.fillStyle = LOCKED;
+          titleCtx.fillRect(titleBlocks[k].tx, titleBlocks[k].ty, titleBlocks[k].size, titleBlocks[k].size);
         }
+        if (tossT >= 0 && placeIdx < titleBlocks.length) {
+          var tb = titleBlocks[placeIdx];
+          var tp = Math.min(1, tossT / TOSS_S);
+          var arc = Math.sin(tp * Math.PI) * 1.4 * titlePitch;
+          var tossX = tossSX + (tb.tx + tb.size / 2 - tossSX) * tp;
+          var tossY = tossSY + (tb.ty + tb.size / 2 - tossSY) * tp - arc;
+          titleCtx.fillStyle = MOVE_GLOW;
+          titleCtx.shadowColor = MOVE_GLOW;
+          titleCtx.shadowBlur = 12;
+          titleCtx.fillRect(tossX - tb.size / 2, tossY - tb.size / 2, tb.size, tb.size);
+          titleCtx.shadowBlur = 0;
+        } else {
+          drawCarried();
+        }
+        drawCat(false);
       }
       var titleLast = 0;
       function titleFrame(now) {
@@ -790,14 +840,48 @@
         if (dt < 0) dt = 0;
         if (dt > 0.05) dt = 0.05;
         titlePhaseT += dt;
-        if (titlePhase === 'build' && titlePhaseT >= titleBuildEnd) {
-          titlePhase = 'hold'; titlePhaseT = 0;
+        catNextBlink -= dt;
+        if (catNextBlink <= 0) {
+          catBlinkT = 0.12;
+          catNextBlink = 2 + Math.random() * 2.5;
+        }
+        if (catBlinkT > 0) catBlinkT -= dt;
+        if (titlePhase === 'build') {
+          if (placeIdx >= titleBlocks.length) {
+            titlePhase = 'hold'; titlePhaseT = 0;
+          } else if (tossT >= 0) {
+            tossT += dt;
+            if (tossT >= TOSS_S && placeIdx < titleBlocks.length) {
+              titleBlocks[placeIdx].placed = true;
+              tossT = -1;
+              placeIdx++;
+            }
+          } else {
+            var tgt = titleBlocks[placeIdx].tx + titleBlocks[placeIdx].size / 2;
+            var lo = 1.4 * titlePitch, hi = titleW - 1.4 * titlePitch;
+            if (lo > hi) { lo = hi = titleW / 2; }
+            tgt = Math.max(lo, Math.min(hi, tgt));
+            var cdx = tgt - catX;
+            if (Math.abs(cdx) < 3) {
+              var cp = titlePitch;
+              tossSX = catX + catDir * 0.9 * cp;
+              tossSY = titleGround - 3.4 * cp;
+              tossT = 0;
+            } else {
+              catDir = cdx > 0 ? 1 : -1;
+              catX += catDir * CAT_SPEED * dt;
+              catRun += dt * 14;
+            }
+          }
         } else if (titlePhase === 'hold' && titlePhaseT >= HOLD_S) {
           titlePhase = 'dissolve'; titlePhaseT = 0;
         } else if (titlePhase === 'dissolve' && titlePhaseT >= DISSOLVE_S) {
+          for (var c = 0; c < titleBlocks.length; c++) titleBlocks[c].placed = false;
+          placeIdx = 0;
+          tossT = -1;
           titlePhase = 'wait'; titlePhaseT = 0;
         } else if (titlePhase === 'wait' && titlePhaseT >= WAIT_S) {
-          titlePhase = 'build'; titlePhaseT = 0;
+          resetTitleBuild();
         }
         drawTitlePixels();
         requestAnimationFrame(titleFrame);

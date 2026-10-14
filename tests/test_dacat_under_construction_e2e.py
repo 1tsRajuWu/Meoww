@@ -984,6 +984,7 @@ class TestHeadlineBlockBuildUp(unittest.TestCase):
         self.assertIn("PIXEL_FONT_5X7", self.raw)
         self.assertIn("FF6B4A", self.raw)
         self.assertIn("titleLines", self.raw)
+        self.assertIn("drawCat", self.raw)
 
     def test_builder_preserves_accessible_name(self):
         """Canvas is aria-hidden behind an aria-label of the full line."""
@@ -1029,6 +1030,7 @@ function makeCtx() {
   return {
     fillStyle: '', shadowColor: '', shadowBlur: 0, globalAlpha: 1,
     setTransform() {}, clearRect() {},
+    save() {}, restore() {}, translate() {}, scale() {},
     fillRect() {
       if (this.fillStyle === '#FFFFFF') calls.white++;
       if (this.fillStyle === '#FF6B4A') calls.glow++;
