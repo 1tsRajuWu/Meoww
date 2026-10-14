@@ -1933,7 +1933,11 @@ def _error_embed(
     """
     from keep_alive import _SECRETISH as _scrub_secrets  # deferred: keep_alive is fully loaded by call time
 
-    body = [f"**{type(error).__name__}**: {_scrub_secrets.sub(r'\1=[redacted]', str(error))[:600]}", ""]
+    # Scrubbed before interpolating: the replacement holds a backslash, which
+    # must not sit inside an f-string expression (SyntaxError below 3.12 —
+    # and this fleet runs 3.10/3.11).
+    scrubbed = _scrub_secrets.sub(r"\1=[redacted]", str(error))[:600]
+    body = [f"**{type(error).__name__}**: {scrubbed}", ""]
     if refused:
         body.append(f"**Discord refused:** {refused}")
         body.append("")
@@ -2043,8 +2047,9 @@ def _report_error(error: BaseException, interaction: discord.Interaction | None 
             where = f"/{command} by {interaction.user} in {guild}"
         refused = operator_log.discord_field_errors(error)
         from keep_alive import _SECRETISH as _scrub_secrets  # deferred: same reason as above
+        scrubbed = _scrub_secrets.sub(r"\1=[redacted]", str(error))[:1500]
         payload = _json.dumps({
-            "content": f"⚠️ **{type(error).__name__}** — {where}\n```{_scrub_secrets.sub(r'\1=[redacted]', str(error))[:1500]}```"
+            "content": f"⚠️ **{type(error).__name__}** — {where}\n```{scrubbed}```"
             + (f"\nDiscord refused: {refused}" if refused else "")
         }).encode("utf-8")
 
