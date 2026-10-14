@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Building The Website — {{ bot_name or 'DeCat' }}</title>
-<meta name="description" content="One bot that runs the server. We're rebuilding DeCat from the ground up: 15 systems, 97 slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.">
+<meta name="description" content="One bot that runs the server. We're rebuilding DeCat from the ground up: {{ system_count }} systems, {{ command_count }} slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.">
 <meta name="theme-color" content="#0a0a0d">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow, noai, noimageai">
@@ -571,25 +571,25 @@
       <h1 class="title">Building The Website.</h1>
 
       <p class="subtitle">
-        One bot that runs the server — {{ bot_name or 'DeCat' }}, 15 systems and 97 commands, live market and telemetry.
+        One bot that runs the server — {{ bot_name or 'DeCat' }}, {{ system_count }} systems and {{ command_count }} commands, live market and telemetry.
       </p>
 
       <div class="system-matrix">
         <div class="sys-chip">
           <span class="sys-label">Core Engine</span>
-          <span class="sys-val"><span class="dot mint-dot"></span> Operational</span>
+          <span class="sys-val"><span class="dot mint-dot"></span> {{ brb_gateway or 'Starting' }}</span>
         </div>
         <div class="sys-chip">
           <span class="sys-label">Neural Shards</span>
-          <span class="sys-val"><span class="dot mint-dot"></span> 4/4 Synced</span>
+          <span class="sys-val"><span class="dot mint-dot"></span> {{ brb_shards or 'Syncing' }}</span>
         </div>
         <div class="sys-chip">
           <span class="sys-label">Edge Sync</span>
-          <span class="sys-val"><span class="dot mint-dot"></span> Active</span>
+          <span class="sys-val"><span class="dot mint-dot"></span> {% if brb_ws_ms is defined and brb_ws_ms %}{{ brb_ws_ms }}ms heartbeat{% else %}Live{% endif %}</span>
         </div>
         <div class="sys-chip">
-          <span class="sys-label">Memory Buffer</span>
-          <span class="sys-val"><span class="dot mint-dot"></span> 99.9% Nominal</span>
+          <span class="sys-label">Servers</span>
+          <span class="sys-val"><span class="dot mint-dot"></span> {% if brb_guilds is defined and brb_guilds is not none %}{{ brb_guilds }} connected{% else %}—{% endif %}</span>
         </div>
       </div>
 
@@ -610,11 +610,10 @@
             <span class="term-title">{{ (bot_name or 'DeCat') | lower }}-deployment.log</span>
           </div>
           <div class="terminal-body" id="term-body">
-            <div class="term-line"><span class="ts">[SYNC]</span> Initializing {{ bot_name or 'DeCat' }} distributed state engine...</div>
-            <div class="term-line"><span class="ts">[SYNC]</span> Loading 15 system cogs & verifying 97 commands...</div>
-            <div class="term-line"><span class="ts">[SYNC]</span> Connecting shard cluster (4/4 shards online)...</div>
-            <div class="term-line"><span class="ts">[SYNC]</span> Synchronizing multi-region edge caches...</div>
-            <div class="term-line live"><span class="ts">[LIVE]</span> Finalizing global multi-region edge synchronization<span class="term-cursor"></span></div>
+            <div class="term-line"><span class="ts">[{{ brb_clock }}]</span> Registry: {{ system_count }} systems • {{ command_count }} commands loaded</div>
+            <div class="term-line"><span class="ts">[{{ brb_clock }}]</span> Gateway {{ brb_gateway | lower }}{% if brb_ws_ms is defined and brb_ws_ms %} • {{ brb_ws_ms }}ms heartbeat{% endif %}{% if brb_guilds is defined and brb_guilds is not none %} • {{ brb_guilds }} servers{% endif %}</div>
+            <div class="term-line"><span class="ts">[{{ brb_clock }}]</span> {% if brb_sha is defined and brb_sha %}Build {{ brb_sha }} • {% endif %}served from {{ request.host }}</div>
+            <div class="term-line live"><span class="ts">[LIVE]</span> Streaming live edge readings<span class="term-cursor"></span></div>
           </div>
         </div>
       </div>
@@ -771,21 +770,10 @@
       });
     }
 
-    // 4. Simulated Real-Time Streaming Build Steps
-    var buildSteps = [
-      "Initializing {{ bot_name or 'DeCat' }} distributed state engine...",
-      "Verifying 15 bot systems and 97 slash commands...",
-      "Connecting shard cluster (4/4 shards online)...",
-      "Mounting 365-day rolling activity matrix & Supabase snapshot...",
-      "Synchronizing multi-region edge caches [IAD, FRA, BOM, SYD]...",
-      "Re-indexing 72 live market quotes & {{ bot_name or 'DeCat' }} Bank treasury...",
-      "Armed AutoMod barrier & permission audits...",
-      "Compiling glassmorphic HUD V2 & spacetime gravity grid...",
-      "Calibrating Web Audio resonance analyser & acoustic shockwave pool...",
-      "Applying {{ bot_name or 'DeCat' }} aerodynamic tokens...",
-      "Verifying TLS 1.3 handshake certificates...",
-      "Synchronizing edge deployment across global POP clusters..."
-    ];
+    // 4. Live readings, streamed: server-verified milestones first, then the
+    // measured edge round-trip on every tick. Nothing here is invented — the
+    // milestones were rendered with this page, the rtt is sampled live.
+    var buildSteps = ({{ brb_steps | tojson }}) || [];
     var currentStepIdx = 0;
     function streamNextStep() {
       if (!termBody) return;
@@ -797,7 +785,12 @@
       }
       var now = new Date();
       var timeStr = now.toTimeString().split(' ')[0];
-      var stepText = buildSteps[currentStepIdx % buildSteps.length];
+      var stepText;
+      if (currentStepIdx < buildSteps.length) {
+        stepText = buildSteps[currentStepIdx];
+      } else {
+        stepText = 'edge rtt ' + Math.max(1, Math.round(pingSmooth)) + 'ms • live';
+      }
       currentStepIdx++;
 
       var line = document.createElement('div');

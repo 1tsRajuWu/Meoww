@@ -45,6 +45,7 @@ def render_page(
             "brb_main.html",
             bot_name=bot_name,
             invite_url=invite_url,
+            **keep_alive._brb_live_context(),
         )
 
 
@@ -268,7 +269,7 @@ class TestR3EdgeTelemetryAndDeploymentTerminal(unittest.TestCase):
         self.assertIn("Core Engine", self.rendered)
         self.assertIn("Neural Shards", self.rendered)
         self.assertIn("Edge Sync", self.rendered)
-        self.assertIn("Memory Buffer", self.rendered)
+        self.assertIn("Servers", self.rendered)
 
     def test_terminal_drawer_structure_and_aria_attributes(self):
         """Verifies terminal toggle button and collapsible drawer with ARIA attributes."""

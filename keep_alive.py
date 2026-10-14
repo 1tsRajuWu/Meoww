@@ -1625,6 +1625,99 @@ def _refuse_ai_crawlers():
     return None
 
 
+_BRB_BUILD_SHA: str | None | bool = False
+
+
+def _brb_build_sha() -> str | None:
+    """Short commit this process was built from, or ``None`` when unknown.
+
+    Resolved once and cached: a page render is not the place to spawn a
+    process on every request, and a host without a checkout (a container
+    image rather than a clone) simply has no answer — which the template
+    treats as "omit the build line", never as invented text.
+    """
+    global _BRB_BUILD_SHA
+    if _BRB_BUILD_SHA is not False:
+        return _BRB_BUILD_SHA
+    _BRB_BUILD_SHA = None
+    try:
+        import subprocess  # noqa: PLC0415 — one guarded call, cached, never on import
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        sha = (out.stdout or "").strip()
+        if sha and all(c in "0123456789abcdef" for c in sha):
+            _BRB_BUILD_SHA = sha
+    except Exception:
+        _BRB_BUILD_SHA = None
+    return _BRB_BUILD_SHA
+
+
+def _brb_live_context() -> dict:
+    """True readings for the Be-Right-Back stage card, computed per request.
+
+    Every value is either measured here (registry counts, gateway state and
+    heartbeat, guild census, build identity, render clock) or ``None`` — and
+    the template omits what is ``None`` rather than printing a placeholder.
+    Nothing here is a hard-coded claim about the deployment.
+    """
+    bot = BOT_INSTANCE
+    ready = bool(bot is not None and getattr(bot, "_has_started", False))
+    ws_ms = _bot_ping_ms()
+    guilds: int | None = None
+    if bot is not None:
+        try:
+            guilds = len(list(getattr(bot, "guilds", None) or []))
+        except Exception:
+            guilds = None
+    if ready:
+        try:
+            total = int(getattr(bot, "shard_count", None) or 1)
+        except (TypeError, ValueError):
+            total = 1
+        shards = f"{total}/{total} Synced"
+        gateway = "Operational"
+    else:
+        shards = "Syncing"
+        gateway = "Starting"
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S")
+    except Exception:
+        now = ""
+    steps: list[str] = []
+    try:
+        systems = int(features.system_count())
+        commands = int(features.entry_count())
+    except Exception:
+        systems = commands = None
+    if systems is not None and commands is not None:
+        steps.append(f"Registry: {systems} systems • {commands} commands loaded")
+    if ready:
+        tail = f"Gateway {gateway.lower()}"
+        if ws_ms is not None:
+            tail += f" • {ws_ms}ms heartbeat"
+        if guilds is not None:
+            tail += f" • {guilds} server{'s' if guilds != 1 else ''} connected"
+        steps.append(tail)
+    else:
+        steps.append("Gateway connecting — live readings attach on ready")
+    sha = _brb_build_sha()
+    if sha:
+        steps.append(f"Build {sha} • main")
+    return {
+        "system_count": systems,
+        "command_count": commands,
+        "brb_gateway": gateway,
+        "brb_shards": shards,
+        "brb_ws_ms": ws_ms,
+        "brb_guilds": guilds,
+        "brb_steps": steps,
+        "brb_clock": now,
+        "brb_sha": sha,
+    }
+
+
 @app.before_request
 def _enforce_be_right_back():
     """Put 'Be Right Back' on Main Website and Market Website — make sure no way around it.
@@ -1716,7 +1809,12 @@ def _enforce_be_right_back():
         bot_name = _bot_display_name()
         invite = discord_auth.invite_url() if discord_auth.client_id() else ""
         return Response(
-            render_template("brb_main.html", bot_name=bot_name, invite_url=invite),
+            render_template(
+                "brb_main.html",
+                bot_name=bot_name,
+                invite_url=invite,
+                **_brb_live_context(),
+            ),
             status=200,
             mimetype="text/html; charset=utf-8",
         )
@@ -12697,7 +12795,6 @@ def _announced_state() -> dict:
     count kept in this loop, because the writer is on the other side of a
     handshake and this side must not be able to claim a note landed that did not.
     """
-    from utils import version
 
     try:
         conn = db.connect()
