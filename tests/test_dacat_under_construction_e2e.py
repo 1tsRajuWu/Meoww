@@ -981,10 +981,12 @@ class TestHeadlineBlockBuildUp(unittest.TestCase):
     def test_letter_cells_and_ground_rise(self):
         """Pixel canvas renders block glyphs with a coral moving glow."""
         self.assertIn("title-pixels", self.raw)
-        self.assertIn("PIXEL_FONT_5X7", self.raw)
+        self.assertIn("PIXEL_FONT_MC", self.raw)
+        self.assertNotIn("PIXEL_FONT_5X7", self.raw)
         self.assertIn("FF6B4A", self.raw)
         self.assertIn("titleLines", self.raw)
         self.assertIn("drawCat", self.raw)
+        self.assertIn("CAT_COUNT = 1", self.raw)
 
     def test_builder_preserves_accessible_name(self):
         """Canvas is aria-hidden behind an aria-label of the full line."""

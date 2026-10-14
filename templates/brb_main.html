@@ -615,8 +615,9 @@
   (function() {
     // R0: PIXEL HEADLINE — a cat courier builds the two-line poster
     // -------------------------------------------------------------
-    // A 5x7 bitmap font rendered as square LED blocks on a canvas that
-    // auto-fits this box at any devicePixelRatio. Choreography is a state
+    // Minecraft-style bitmap letterforms (variable widths, cap rows 0-5,
+    // x-height rows 2-5, descenders to row 7) rendered as square LED blocks
+    // on a canvas that auto-fits this box at any devicePixelRatio. Choreography is a state
     // machine — BUILD (a pixel cat dashes block-by-block in letter order,
     // carrying each glowing coral block overhead and tossing it into its
     // cell), HOLD 2.5s with a breathing glow while the cat sits, DISSOLVE
@@ -632,24 +633,29 @@
       } catch (e) {}
       var titleText = 'Building The Website.';
       var titleLines = ['Building', 'The Website.'];
-      var PIXEL_FONT_5X7 = {
-        'B': ['11110','10101','10101','11110','10101','10101','11110'],
-        'u': ['00000','00000','10101','10101','10101','10101','01110'],
-        'i': ['01100','00000','01100','00100','00100','00100','01110'],
-        'l': ['01100','00100','00100','00100','00100','00100','01110'],
-        'd': ['00010','00010','01110','01010','01010','01010','01110'],
-        'n': ['00000','00000','01110','01010','01010','01010','01010'],
-        'g': ['01110','10001','10001','01111','00010','00010','11100'],
-        'T': ['11111','00100','00100','00100','00100','00100','00100'],
-        'h': ['10000','10000','10110','11001','10001','10001','10001'],
-        'e': ['00000','00000','01110','10001','11111','10000','01110'],
-        'W': ['10001','10001','10001','10001','10101','11011','10001'],
-        'b': ['10000','10000','10111','11001','10001','10001','10111'],
-        's': ['01110','10001','10000','01110','00001','10001','01110'],
-        't': ['00100','00100','11110','00100','00100','00100','01100'],
-        '.': ['00000','00000','00000','00000','00000','01100','01100'],
-        ' ': ['00000','00000','00000','00000','00000','00000','00000']
+      // Minecraft-style bitmap letterforms (traced pixel-by-pixel from the
+      // Craftron Gaming reference at its native grid): variable widths and
+      // heights, cap top row 0, x-height rows 2-5, descenders to row 7.
+      // w = ink width, dy = top offset from cap top, adv = advance incl gap.
+      var PIXEL_FONT_MC = {
+        'B': { w: 5, dy: 0, adv: 6, rows: ['11110','10001','10001','11110','10001','11110'] },
+        'u': { w: 4, dy: 2, adv: 5, rows: ['1001','1001','1001','0111'] },
+        'i': { w: 1, dy: 0, adv: 2, rows: ['1','0','1','1','1','1'] },
+        'l': { w: 1, dy: 0, adv: 2, rows: ['1','1','1','1','1','1'] },
+        'd': { w: 4, dy: 0, adv: 5, rows: ['0001','0001','0111','1001','1001','1111'] },
+        'n': { w: 5, dy: 2, adv: 6, rows: ['11110','10001','10001','10001'] },
+        'g': { w: 4, dy: 2, adv: 5, rows: ['0111','1001','0111','0001','1001','0110'] },
+        'T': { w: 5, dy: 0, adv: 6, rows: ['11111','00100','00100','00100','00100','00100'] },
+        'h': { w: 4, dy: 0, adv: 5, rows: ['1000','1000','1010','1101','1001','1001'] },
+        'e': { w: 4, dy: 2, adv: 5, rows: ['0111','1111','1000','0111'] },
+        'W': { w: 5, dy: 0, adv: 6, rows: ['10001','10001','10001','10101','11011','10001'] },
+        'b': { w: 5, dy: 0, adv: 6, rows: ['10000','10000','10111','11001','10001','11110'] },
+        's': { w: 4, dy: 1, adv: 5, rows: ['0111','1000','0110','0001','1110'] },
+        't': { w: 3, dy: 1, adv: 4, rows: ['010','110','010','010','001'] },
+        '.': { w: 1, dy: 5, adv: 2, rows: ['1'] },
+        ' ': { w: 0, dy: 0, adv: 3, rows: [] }
       };
+      function glyphOf(ch) { return PIXEL_FONT_MC[ch] || PIXEL_FONT_MC[' ']; }
       var MOVE_GLOW = '#FF6B4A';
       var LOCKED = '#FFFFFF';
       var HOLD_S = 2.5;
@@ -657,7 +663,7 @@
       var WAIT_S = 0.5;
       var CAT_SPEED = 420;
       var TOSS_S = 0.2;
-      var CAT_COUNT = 3;
+      var CAT_COUNT = 1;
       var CAT_FURS = ['#EDEDF4', '#D9D9EA', '#F2E9E4'];
       var titleCanvas = null, titleCtx = null, titleBlocks = [];
       var titlePitch = 4, titleW = 0, titleH = 0, titleGround = 0;
@@ -682,7 +688,7 @@
       }
       function lineCells(s) {
         var n = 0;
-        for (var i = 0; i < s.length; i++) n += (s.charAt(i) === ' ') ? 3 : 6;
+        for (var i = 0; i < s.length; i++) n += glyphOf(s.charAt(i)).adv;
         return n - 1;
       }
       function layoutTitlePixels() {
@@ -713,24 +719,20 @@
           var cursorX = 0;
           for (var ci = 0; ci < line.length; ci++) {
             var ch = line.charAt(ci);
-            var glyph = PIXEL_FONT_5X7[ch] || PIXEL_FONT_5X7[' '];
-            if (ch !== ' ') {
-              for (var gy = 0; gy < 7; gy++) {
-                for (var gx = 0; gx < 5; gx++) {
-                  if (glyph[gy].charAt(gx) === '1') {
-                    titleBlocks.push({
-                      tx: ox + cursorX + gx * p + p * 0.1,
-                      ty: oy + gy * p + p * 0.1,
-                      size: p * 0.8,
-                      placed: false
-                    });
-                  }
+            var glyph = glyphOf(ch);
+            for (var gy = 0; gy < glyph.rows.length; gy++) {
+              for (var gx = 0; gx < glyph.w; gx++) {
+                if (glyph.rows[gy].charAt(gx) === '1') {
+                  titleBlocks.push({
+                    tx: ox + cursorX + gx * p + p * 0.1,
+                    ty: oy + (glyph.dy + gy) * p + p * 0.1,
+                    size: p * 0.8,
+                    placed: false
+                  });
                 }
               }
-              cursorX += 6 * p;
-            } else {
-              cursorX += 3 * p;
             }
+            cursorX += glyph.adv * p;
           }
         }
         resetTitleBuild();
