@@ -87,6 +87,14 @@ class BootPublisherFilter(unittest.TestCase):
         self.assertIn("bond", names)
         self.assertIn("music", names)
 
+    def test_questions_are_vip_only(self):
+        self.assertIn("questions", permissions.VIP_ONLY_COMMANDS)
+        self.assertIn("question", permissions.VIP_ONLY_COMMANDS)
+        main_names = command_scope.for_identity({"questions", "question", "help"}, is_vip=False)
+        self.assertEqual(main_names, {"help"})
+        vip_names = command_scope.for_identity({"questions", "question", "help"}, is_vip=True)
+        self.assertEqual(vip_names, {"questions", "question"})
+
 
 if __name__ == "__main__":
     unittest.main()
