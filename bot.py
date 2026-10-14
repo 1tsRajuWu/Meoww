@@ -2029,7 +2029,13 @@ def _report_error(error: BaseException, interaction: discord.Interaction | None 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
         if not interaction.response.is_done():
-            await interaction.response.send_message("❌ You don't have permission to do that.", ephemeral=True)
+            msg = "❌ You don't have permission to do that."
+            embed = discord.Embed(
+                title="❌ Permission Denied",
+                description=msg,
+                color=0xED4245,
+            )
+            await interaction.response.send_message(msg, embed=embed, ephemeral=True)
     elif isinstance(error, app_commands.CommandOnCooldown):
         if not interaction.response.is_done():
             secs = int(error.retry_after)
@@ -2039,10 +2045,22 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
                 wait = f"{secs // 60}m {secs % 60}s"
             else:
                 wait = f"{secs}s"
-            await interaction.response.send_message(f"⏰ Slow down! You can use this again in **{wait}**.", ephemeral=True)
+            msg = f"⏰ Slow down! You can use this again in **{wait}**."
+            embed = discord.Embed(
+                title="⏰ Cooldown",
+                description=msg,
+                color=0xF59E0B,
+            )
+            await interaction.response.send_message(msg, embed=embed, ephemeral=True)
     elif isinstance(error, app_commands.CheckFailure):
         if not interaction.response.is_done():
-            await interaction.response.send_message("❌ Permission denied. You cannot execute this command.", ephemeral=True)
+            msg = "❌ Permission denied. You cannot execute this command."
+            embed = discord.Embed(
+                title="❌ Permission Denied",
+                description=msg,
+                color=0xED4245,
+            )
+            await interaction.response.send_message(msg, embed=embed, ephemeral=True)
     else:
         # Don't leak stack traces to users, log it instead. Discord's answer to
         # *which field* it refused goes on the same line: a rejected payload's

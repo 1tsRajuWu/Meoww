@@ -38,7 +38,7 @@ import discord
 #: pickers and hands the ceiling slots back.
 VIP_BOT_ID = 1558691012975534222
 #: Root commands reserved to the VIP instance (see above).
-VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music", "game", "questions"})
+VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music", "game"})
 
 
 def is_vip_app_id(app_id) -> bool:
@@ -342,7 +342,8 @@ COMMAND_ACCESS: dict[str, str] = {
     "meeting list": EVERYONE,
     "meeting view": EVERYONE,
     # -- Role Questions ---------------------------------------------------- #
-    "questions": GUILD,
+    "questions": EVERYONE,
+    "question": EVERYONE,
     # -- Bot itself -------------------------------------------------------- #
     "help": EVERYONE,
     # The directory is everybody's, and it is the one command whose *content* is

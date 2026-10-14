@@ -19,12 +19,112 @@ from utils.gifs import NOTO_GIFS
 from utils.style import (
     Panel,
     ACCENT,
-    edit_to_panel,
+    NO_PINGS,
+    VIP_CROWN_GIF,
+    VIP_GEM_GIF,
+    edit_card,
     is_vip_context,
-    send_panel,
 )
+from utils.style import edit_to_panel as _style_edit_to_panel
+from utils.style import send_panel as _style_send_panel
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_button_view(panel: Panel) -> discord.ui.View | None:
+    """Extract interactive action row buttons from panel into a standard discord.ui.View."""
+    view = getattr(panel, "button_view", None)
+    if view is not None:
+        return view
+    container = getattr(panel, "container", None)
+    if not container:
+        return None
+    children = getattr(container, "children", []) or getattr(container, "_children", [])
+    buttons = []
+    for child in children:
+        if isinstance(child, discord.ui.ActionRow):
+            for item in getattr(child, "children", []):
+                buttons.append(item)
+    if not buttons:
+        return None
+    new_view = discord.ui.View(timeout=None)
+    for btn in buttons:
+        new_view.add_item(btn)
+    return new_view
+
+
+async def send_panel(target, panel: Panel, *, ephemeral: bool = False, allowed_mentions=None):
+    """Send question card as a rich Discord Embed Card with interactive buttons."""
+    embed = getattr(panel, "embed", None)
+    kwargs = {
+        "view": panel,
+        "allowed_mentions": allowed_mentions or NO_PINGS,
+    }
+    if embed is not None:
+        kwargs["embed"] = embed
+    if ephemeral:
+        kwargs["ephemeral"] = True
+
+    try:
+        if isinstance(target, discord.Interaction):
+            if target.response.is_done():
+                return await target.followup.send(**kwargs)
+            return await target.response.send_message(**kwargs)
+        return await target.send(**kwargs)
+    except Exception as e:
+        logger.debug(f"Direct send with embed and panel failed ({e}), trying button view or fallback")
+        button_view = getattr(panel, "button_view", None) or _extract_button_view(panel)
+        if embed is not None and button_view is not None:
+            try:
+                btn_kwargs = {
+                    "embed": embed,
+                    "view": button_view,
+                    "allowed_mentions": allowed_mentions or NO_PINGS,
+                }
+                if ephemeral:
+                    btn_kwargs["ephemeral"] = True
+                if isinstance(target, discord.Interaction):
+                    if target.response.is_done():
+                        return await target.followup.send(**btn_kwargs)
+                    return await target.response.send_message(**btn_kwargs)
+                return await target.send(**btn_kwargs)
+            except Exception:
+                pass
+        return await _style_send_panel(target, panel, ephemeral=ephemeral, allowed_mentions=allowed_mentions)
+
+
+async def edit_to_panel(message: discord.Message, panel: Panel, *, allowed_mentions=None):
+    """Edit existing question message to update the Discord Embed Card and action rows."""
+    embed = getattr(panel, "embed", None)
+    kwargs = {
+        "content": None,
+        "view": panel,
+        "allowed_mentions": allowed_mentions or NO_PINGS,
+    }
+    if embed is not None:
+        kwargs["embed"] = embed
+        kwargs["embeds"] = [embed]
+
+    try:
+        return await edit_card(message, **kwargs)
+    except Exception as e:
+        logger.debug(f"Direct edit with embed and panel failed ({e}), trying button view or fallback")
+        button_view = getattr(panel, "button_view", None) or _extract_button_view(panel)
+        if embed is not None and button_view is not None:
+            try:
+                return await edit_card(
+                    message,
+                    content=None,
+                    embed=embed,
+                    embeds=[embed],
+                    view=button_view,
+                    allowed_mentions=allowed_mentions or NO_PINGS,
+                )
+            except Exception:
+                pass
+        return await _style_edit_to_panel(message, panel, allowed_mentions=allowed_mentions)
+
+
 
 # Animated GIF assets for rich VIP visual presentation
 ANIMATED_ARROW_GIF = NOTO_GIFS.get(
@@ -289,29 +389,44 @@ class QuestionAnswerModal(discord.ui.Modal):
         member = resolve_interaction_member(interaction)
         if not member_has_role(member, self.session.role):
             msg = f"❌ Only members with the {self.session.role.mention} role can submit an answer to this question."
+            embed = discord.Embed(
+                title="❌ Role Required",
+                description=msg,
+                color=0xED4245,
+            )
             if not interaction.response.is_done():
-                await interaction.response.send_message(msg, ephemeral=True)
+                await interaction.response.send_message(msg, embed=embed, ephemeral=True)
             else:
-                await interaction.followup.send(msg, ephemeral=True)
+                await interaction.followup.send(msg, embed=embed, ephemeral=True)
             return
 
         answer_text = (self.answer_input.value or "").strip()
         if not answer_text:
             msg = "❌ Answer cannot be blank."
+            embed = discord.Embed(
+                title="❌ Blank Answer",
+                description=msg,
+                color=0xED4245,
+            )
             if not interaction.response.is_done():
-                await interaction.response.send_message(msg, ephemeral=True)
+                await interaction.response.send_message(msg, embed=embed, ephemeral=True)
             else:
-                await interaction.followup.send(msg, ephemeral=True)
+                await interaction.followup.send(msg, embed=embed, ephemeral=True)
             return
 
         should_resolve_early = False
         async with self.session.resolution_lock:
             if self.session.resolved:
                 msg = "⚠️ Time expired or question closed while you were submitting."
+                embed = discord.Embed(
+                    title="⚠️ Question Closed",
+                    description=msg,
+                    color=0xF59E0B,
+                )
                 if not interaction.response.is_done():
-                    await interaction.response.send_message(msg, ephemeral=True)
+                    await interaction.response.send_message(msg, embed=embed, ephemeral=True)
                 else:
-                    await interaction.followup.send(msg, ephemeral=True)
+                    await interaction.followup.send(msg, embed=embed, ephemeral=True)
                 return
 
             is_update = self.session.record_answer(member, answer_text)
@@ -323,10 +438,15 @@ class QuestionAnswerModal(discord.ui.Modal):
             if is_update
             else "✅ Your response has been recorded!"
         )
+        embed = discord.Embed(
+            title="✅ Answer Updated" if is_update else "✅ Answer Recorded",
+            description=msg,
+            color=0x23A55A,
+        )
         if not interaction.response.is_done():
-            await interaction.response.send_message(msg, ephemeral=True)
+            await interaction.response.send_message(msg, embed=embed, ephemeral=True)
         else:
-            await interaction.followup.send(msg, ephemeral=True)
+            await interaction.followup.send(msg, embed=embed, ephemeral=True)
 
         # Early completion check: if all role members answered, resolve immediately
         if should_resolve_early and self.session.cog:
@@ -363,6 +483,48 @@ class Questions(commands.Cog):
                 )
                 return False
         return True
+
+    def build_question_embed(self, session: QuestionSession) -> discord.Embed:
+        """Render active or closed question as a Discord Embed Card."""
+        time_ts = int(session.expires_at)
+        dur_label = format_duration(session.duration_seconds)
+        role_name = getattr(session.role, "name", "Role")[:100]
+
+        if session.resolved:
+            sub_count_text = f"`{len(session.answers)}` recorded (Closed)"
+            status_text = "🔒 **Submissions are closed.**"
+            footer_text = f"DaCat Questions • ID: {session.session_id} • Concluded"
+            color = 0x747F8D
+        else:
+            sub_count_text = f"`{len(session.answers)}` recorded"
+            status_text = "👇 **Role members: click below to submit or update your answer!**"
+            footer_text = f"DaCat Questions • ID: {session.session_id} • Closes {dur_label}"
+            color = ACCENT
+
+        q_lines = session.question_text.splitlines()
+        q_display = "\n> ".join(q_lines) if q_lines else session.question_text
+
+        desc = (
+            f"> **\"{q_display}\"**\n\n"
+            f"🎯 **Target Role:** {session.role.mention}\n"
+            f"⏳ **Expires:** <t:{time_ts}:R> (<t:{time_ts}:F>)\n"
+            f"⏱️ **Duration:** `{dur_label}`\n\n"
+            f"{status_text}"
+        )
+
+        embed = discord.Embed(
+            title=f"❓ Question for @{role_name}",
+            description=desc,
+            color=color,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_author(name="DaCat Questions • Interactive Role Prompt", icon_url=VIP_GEM_GIF)
+        embed.set_thumbnail(url=ANIMATED_ARROW_GIF)
+        embed.add_field(name="🎯 Target Role", value=session.role.mention, inline=True)
+        embed.add_field(name="⏳ Closes", value=f"<t:{time_ts}:R>", inline=True)
+        embed.add_field(name="📝 Submissions", value=sub_count_text, inline=True)
+        embed.set_footer(text=footer_text, icon_url=VIP_CROWN_GIF)
+        return embed
 
     def build_question_card(self, session: QuestionSession) -> Panel:
         """Render active question message with VIP styling, animated GIFs and countdown."""
@@ -407,8 +569,16 @@ class Questions(commands.Cog):
             timeout=None,
         )
 
+        button_view = discord.ui.View(timeout=None)
         if session.resolved:
-            panel.add_row(
+            btn = discord.ui.Button(
+                label=button_label,
+                style=discord.ButtonStyle.secondary,
+                emoji=button_emoji,
+                disabled=True,
+            )
+            panel.add_row(btn)
+            button_view.add_item(
                 discord.ui.Button(
                     label=button_label,
                     style=discord.ButtonStyle.secondary,
@@ -419,7 +589,96 @@ class Questions(commands.Cog):
         else:
             submit_btn = QuestionSubmitButton(session)
             panel.add_row(submit_btn)
+            button_view.add_item(QuestionSubmitButton(session))
+
+        panel.button_view = button_view
+        panel.embed = self.build_question_embed(session)
         return panel
+
+    def build_resolution_embed(
+        self,
+        session: QuestionSession,
+        respondents: list[dict],
+        non_respondents: list[discord.Member],
+        reason: str = "expired",
+    ) -> discord.Embed:
+        """Render resolution summary as a Discord Embed Card."""
+        total_count = len(respondents) + len(non_respondents)
+        percent = int((len(respondents) / total_count * 100)) if total_count > 0 else 0
+        if total_count == 0:
+            status_line = "⌛ **Time expired — no role members found.**"
+            color = ACCENT
+        elif reason == "all_answered" or (total_count > 0 and len(non_respondents) == 0):
+            status_line = "🎉 **All role members responded before time expired!**"
+            color = 0x23A55A  # SUCCESS green
+        else:
+            status_line = "⌛ **Time expired — question concluded.**"
+            color = ACCENT
+
+        q_lines = session.question_text.splitlines()
+        q_display = "\n> ".join(q_lines) if q_lines else session.question_text
+
+        desc = (
+            f"> **\"{q_display}\"**\n\n"
+            f"🎯 **Target Role:** {session.role.mention}\n"
+            f"{status_line}\n"
+            f"📊 **Participation:** `{len(respondents)} / {total_count}` ({percent}% answered)"
+        )
+
+        if respondents:
+            resp_lines = []
+            truncated_count = 0
+            current_len = 0
+            for i, item in enumerate(respondents):
+                m = item["member"]
+                ans = " ".join(item["answer"].split())
+                display = ans[:150] + ("..." if len(ans) > 150 else "")
+                line = f"• {m.mention} (`{getattr(m, 'name', 'unknown')}`):\n  ↳ *\"{display}\"*"
+                if current_len + len(line) + 50 > 850:
+                    truncated_count = len(respondents) - i
+                    break
+                resp_lines.append(line)
+                current_len += len(line) + 1
+            if truncated_count > 0:
+                resp_lines.append(f"*... and {truncated_count} more response(s)*")
+            resp_text = "\n".join(resp_lines)
+        else:
+            resp_text = "*No answers were submitted.*"
+
+        if non_respondents:
+            nr_lines = []
+            truncated_nr = 0
+            current_len = 0
+            for i, m in enumerate(non_respondents):
+                line = f"• {m.mention} (`{getattr(m, 'name', 'unknown')}`)"
+                if current_len + len(line) + 50 > 850:
+                    truncated_nr = len(non_respondents) - i
+                    break
+                nr_lines.append(line)
+                current_len += len(line) + 1
+            if truncated_nr > 0:
+                nr_lines.append(f"*... and {truncated_nr} more non-respondent(s)*")
+            nr_text = "\n".join(nr_lines)
+        elif not respondents and total_count == 0:
+            nr_text = "*No members currently hold this role.*"
+        else:
+            nr_text = "🎉 *All role members submitted an answer!*"
+
+        role_name = getattr(session.role, "name", "Role")[:100]
+        embed = discord.Embed(
+            title=f"📊 Question Results • @{role_name}",
+            description=desc,
+            color=color,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_author(name="DaCat Questions • Concluded", icon_url=VIP_GEM_GIF)
+        embed.add_field(name=f"📝 Submitted Answers ({len(respondents)})", value=resp_text, inline=False)
+        embed.add_field(name=f"⏳ Non-Respondents ({len(non_respondents)})", value=nr_text, inline=False)
+        embed.set_footer(
+            text=f"DaCat Questions • ID: {session.session_id} • Total Role Members: {total_count}",
+            icon_url=VIP_CROWN_GIF,
+        )
+        return embed
 
     def build_resolution_panel(
         self,
@@ -500,6 +759,10 @@ class Questions(commands.Cog):
             footer=f"DaCat • Question ID: {session.session_id} • Total Role Members: {total_count}",
             timeout=None,
         )
+        panel.button_view = None
+        panel.embed = self.build_resolution_embed(
+            session, respondents, non_respondents, reason=reason
+        )
         return panel
 
     def _prune_sessions(self):
@@ -523,8 +786,15 @@ class Questions(commands.Cog):
 
         if session.resolved:
             try:
+                msg = "⚠️ This question is closed. Submissions are no longer accepted."
+                embed = discord.Embed(
+                    title="⚠️ Question Closed",
+                    description=msg,
+                    color=0xF59E0B,
+                )
                 await interaction.response.send_message(
-                    "⚠️ This question is closed. Submissions are no longer accepted.",
+                    msg,
+                    embed=embed,
                     ephemeral=True,
                 )
             except (discord.InteractionResponded, discord.HTTPException):
@@ -534,8 +804,15 @@ class Questions(commands.Cog):
         member = resolve_interaction_member(interaction)
         if not member_has_role(member, session.role):
             try:
+                msg = f"❌ Only members with the {session.role.mention} role can submit an answer to this question."
+                embed = discord.Embed(
+                    title="❌ Role Required",
+                    description=msg,
+                    color=0xED4245,
+                )
                 await interaction.response.send_message(
-                    f"❌ Only members with the {session.role.mention} role can submit an answer to this question.",
+                    msg,
+                    embed=embed,
                     ephemeral=True,
                 )
             except (discord.InteractionResponded, discord.HTTPException):
@@ -649,47 +926,65 @@ class Questions(commands.Cog):
         except (discord.InteractionResponded, discord.HTTPException):
             pass
 
-    @app_commands.command(
-        name="questions",
-        description="Ask an interactive question targeted at a specific role with automated summary.",
-    )
-    @app_commands.describe(
-        question="The question to ask role members",
-        role="The target role whose members should submit answers",
-        duration="Expiration duration (e.g. 10m, 1h, 24h)",
-    )
-    @app_commands.check(check_questions_access)
-    async def questions(
+    async def _handle_question_command(
         self,
         interaction: discord.Interaction,
         question: str,
         role: discord.Role,
         duration: str = "1h",
     ):
-        """Slash command /questions."""
+        """Execute the question command logic and send interactive card."""
         if not getattr(interaction, "guild", None):
+            msg = "❌ The `/questions` command can only be used in a server."
+            embed = discord.Embed(
+                title="❌ Server Only",
+                description="The `/question` command can only be used inside a server.",
+                color=0xED4245,
+            )
             return await interaction.response.send_message(
-                "❌ The `/questions` command can only be used in a server.",
+                msg,
+                embed=embed,
                 ephemeral=True,
             )
 
         question_text = (question or "").strip()
         if not question_text:
+            msg = "❌ Question text cannot be empty."
+            embed = discord.Embed(
+                title="❌ Invalid Question",
+                description="Question text cannot be empty.",
+                color=0xED4245,
+            )
             return await interaction.response.send_message(
-                "❌ Question text cannot be empty.",
+                msg,
+                embed=embed,
                 ephemeral=True,
             )
         if len(question_text) > 500:
+            msg = "❌ Question text must be under 500 characters."
+            embed = discord.Embed(
+                title="❌ Question Too Long",
+                description="Question text must be under 500 characters.",
+                color=0xED4245,
+            )
             return await interaction.response.send_message(
-                "❌ Question text must be under 500 characters.",
+                msg,
+                embed=embed,
                 ephemeral=True,
             )
 
         try:
             duration_seconds = parse_duration(duration)
         except ValueError as exc:
+            msg = f"❌ {exc}"
+            embed = discord.Embed(
+                title="❌ Invalid Duration",
+                description=str(exc),
+                color=0xED4245,
+            )
             return await interaction.response.send_message(
-                f"❌ {exc}",
+                msg,
+                embed=embed,
                 ephemeral=True,
             )
 
@@ -728,6 +1023,44 @@ class Questions(commands.Cog):
             pass
 
         session.task = asyncio.create_task(self._session_timer(session))
+
+    @app_commands.command(
+        name="questions",
+        description="Ask an interactive question targeted at a specific role with automated summary.",
+    )
+    @app_commands.describe(
+        question="The question to ask role members",
+        role="The target role whose members should submit answers",
+        duration="Expiration duration (e.g. 10m, 1h, 24h)",
+    )
+    async def questions(
+        self,
+        interaction: discord.Interaction,
+        question: str,
+        role: discord.Role,
+        duration: str = "1h",
+    ):
+        """Slash command /questions."""
+        await self._handle_question_command(interaction, question, role, duration)
+
+    @app_commands.command(
+        name="question",
+        description="Ask an interactive question targeted at a specific role with automated summary.",
+    )
+    @app_commands.describe(
+        question="The question to ask role members",
+        role="The target role whose members should submit answers",
+        duration="Expiration duration (e.g. 10m, 1h, 24h)",
+    )
+    async def question(
+        self,
+        interaction: discord.Interaction,
+        question: str,
+        role: discord.Role,
+        duration: str = "1h",
+    ):
+        """Slash command /question (alias to /questions)."""
+        await self._handle_question_command(interaction, question, role, duration)
 
 
 async def setup(bot: commands.Bot):

@@ -554,9 +554,9 @@ FEATURES: tuple[Feature, ...] = (
             "Interactive role-targeted questions with animated VIP cards, "
             "modal text responses, and automated respondent summaries."
         ),
-        gate_commands=("questions",),
+        gate_commands=("questions", "question"),
         commands=(
-            "/questions",
+            "/question", "/questions",
         ),
         cog="cogs.questions",
         help_key="questions",
