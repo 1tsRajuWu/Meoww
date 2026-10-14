@@ -1520,6 +1520,90 @@ class ASecondApplicationInTheSameBucket(TempDatabaseMixin, unittest.IsolatedAsyn
         self.assertIsNotNone(row, "the shared database was not adopted")
         self.assertEqual(row[0], SEED_WALLET)
 
+    def test_a_fresh_database_is_not_mistaken_for_state_of_its_own(self):
+        """``db.setup()``'s own migration rows must not read as somebody's state.
+
+        A container that has just been created holds tables and this project's own
+        ``guild_id = 0`` markers. If those counted, the first namespaced boot would
+        keep its empty database and take every level and coin in the bucket with
+        it — the opposite failure to the one the rule is for.
+        """
+        self.assertFalse(
+            cs._holds_own_state(), "a fresh database with migration markers is empty"
+        )
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO guild_settings VALUES (0, 'a_migration_marker', '1')"
+        )
+        conn.commit()
+        conn.close()
+        self.assertFalse(cs._holds_own_state(), "guild_id 0 is this project, not a server")
+
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO guild_settings VALUES (?, 'devcat_nudges', '1')", (GUILD,)
+        )
+        conn.commit()
+        conn.close()
+        self.assertTrue(cs._holds_own_state(), "a server's own switch is state")
+
+    def test_a_cat_alone_is_state_this_application_will_not_give_up(self):
+        """The hole in the first version of that rule, driven through the door.
+
+        This is the host the namespace was written for: the VIP Space runs six
+        commands and the cat, so a container whose only state is a pet holds **no**
+        row in any progress table. A rule that asked only ``_total_rows() > 0``
+        read that as empty and installed the shared database over the only copy of
+        the cat — the loss the namespace exists to prevent, arriving through the
+        door built to stop it.
+        """
+        now = time.time()
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO devcat_pets VALUES "
+            "(?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, '', 0, 0)",
+            (GUILD, MEMBER, "Biscuit", now - 60, now),
+        )
+        conn.commit()
+        conn.close()
+        with open(cs.db_path(), "rb") as fh:
+            data = fh.read()
+
+        # The shared copy: this database with the cat taken out and a member
+        # progress stamp put in, which is the trade a mark comparison would win.
+        fd, shared = tempfile.mkstemp(prefix="meow-shared-", suffix=".db")
+        os.close(fd)
+        with open(shared, "wb") as fh:
+            fh.write(data)
+        conn = sqlite3.connect(shared)
+        conn.execute("DELETE FROM devcat_pets")
+        conn.execute(
+            "INSERT OR REPLACE INTO economy VALUES (?, ?, 1, 1, NULL, NULL, ?)",
+            (
+                MEMBER,
+                GUILD,
+                datetime.datetime.fromtimestamp(
+                    time.time() + 1000, tz=datetime.timezone.utc
+                ).isoformat(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        fake = _FakeSupabase()
+        with open(shared, "rb") as fh:
+            fake.files[cs.SHARED_FILE] = fh.read()
+        os.remove(shared)
+
+        with self.namespaced():
+            self.assertTrue(self._restore_with(fake))
+            self.assertEqual(cs._restored_from, "local")
+        conn = sqlite3.connect(cs.db_path())
+        kept = conn.execute(
+            "SELECT name FROM devcat_pets WHERE user_id = ?", (MEMBER,)
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(kept, "the only copy of the cat was replaced by the shared one")
+
     def test_it_keeps_its_own_database_instead_of_the_shared_one(self):
         """The adoption may never be the install that loses the cat.
 

@@ -546,6 +546,71 @@ def _progress_mark(path: str | None = None) -> float:
     return best
 
 
+#: The rows that mean *somebody used this database*, asked of the local file before
+#: a namespaced application adopts the shared copy.
+#:
+#: Deliberately not "any row in any table": :func:`utils.db.setup` writes its own
+#: migration markers into ``guild_settings`` under ``guild_id = 0`` on a container
+#: that has just been created, so counting *every* row would read a fresh database
+#: as one worth keeping and the first namespaced boot would start from nothing.
+#: The per-guild rows are the other half — a server's switches are somebody's
+#: decision, this project's own ``guild_id = 0`` markers are not.
+_OWN_STATE_QUERIES: tuple[str, ...] = (
+    "SELECT COUNT(*) FROM devcat_pets",
+    "SELECT COUNT(*) FROM devcat_records",
+    "SELECT COUNT(*) FROM devcat_ambient",
+    "SELECT COUNT(*) FROM guild_settings WHERE guild_id > 0",
+    "SELECT COUNT(*) FROM guild_modules WHERE guild_id > 0",
+)
+
+
+def _holds_own_state(path: str | None = None) -> bool:
+    """Whether a database holds anything a member or an administrator put there.
+
+    The adoption decision turns on this, in both directions: an application with
+    state of its own must never have the other one's copy installed over it, and
+    one with none must take that copy rather than start empty.
+
+    **Why this is not ``_total_rows() > 0``.** Member progress is only part of the
+    answer, and the host this exists for is the one where it is the *smallest*
+    part: the VIP Space runs six commands and the Dev Cat, so a container whose
+    only state is a cat has no row in ``economy``, ``user_levels``, ``mod_cases``,
+    ``warnings`` or the activity tables at all. The first version of this rule
+    asked exactly that question, and would therefore have read a surviving
+    database holding the only copy of the cat as empty and installed the shared
+    one over it — the loss the namespace exists to prevent, arriving through the
+    door built to stop it. The toy's three tables and the per-guild setting rows
+    are asked directly, and the mark is asked as well because it reads timestamps
+    rather than rows.
+    """
+    target = path or db_path()
+    try:
+        if _total_rows(_row_counts(target)) > 0 or _progress_mark(target) > 0:
+            return True
+    except Exception:
+        return False
+    try:
+        conn = sqlite3.connect(target, timeout=5.0)
+    except Exception:
+        return False
+    try:
+        for query in _OWN_STATE_QUERIES:
+            try:
+                row = conn.execute(query).fetchone()
+            except sqlite3.Error:
+                continue
+            if row and row[0]:
+                return True
+    except Exception:
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return False
+
+
 def _keep_newer_local(name: str) -> str:
     """Keep the live database: the cloud candidate is older on every axis.
 
@@ -691,11 +756,12 @@ def _restore_once() -> str:
     if NAMESPACE and not candidates:
         shared = [SHARED_FILE] if any(o.get("name") == SHARED_FILE for o in objects) else []
         shared.extend(_snapshot_names(objects, SHARED_SNAPSHOT_PREFIX))
-        if shared and _total_rows() > 0:
-            # The local file already holds real progress. Installing the other
-            # application's copy over it is the loss this namespace exists to
-            # end — what this host holds is what that copy has never held — so
-            # what it has is adopted as its own, and saved on the next tick.
+        if shared and _holds_own_state():
+            # The local file already holds state of its own — a cat, a switch, a
+            # level. Installing the other application's copy over it is the loss
+            # this namespace exists to end (what this host holds is what that copy
+            # has never held), so what it has is adopted as its own and saved on
+            # the next tick.
             return _adopt_local()
         candidates = shared
         adopted = bool(shared)
