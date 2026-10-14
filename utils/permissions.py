@@ -421,6 +421,14 @@ COMMAND_ACCESS: dict[str, str] = {
     "cat play": EVERYONE,
     "cat rename": EVERYONE,
     "cat top": EVERYONE,
+    # The three that fetch something from outside: a real cat, a real fact, and
+    # the cat's own answer to a question. Everyone, because a picture of a cat is
+    # not a moderation act — and the one that costs a network call (``ask``) is
+    # bounded by the brain's own per-guild switch and the day's allowance rather
+    # than by a permission bit.
+    "cat photo": EVERYONE,
+    "cat fact": EVERYONE,
+    "cat ask": EVERYONE,
     "cat panel": ADMIN,
     "cat settings": ADMIN,
     # The arcade is one person's records and nobody else's business, but it is

@@ -14,6 +14,11 @@ works:
   and the message nobody may be pinged by.
 * **The arcade.** Records only improve (the direction is per game), a scramble never
   hands back the answer, and the duel's verdicts are the real ones.
+* **The outside world.** Three commands and two listeners now fetch something — a
+  cat, a fact, a sentence — and the interesting half of each is what happens when
+  nothing comes back: every one of them has a written answer, and a server with
+  the brain switched off makes no request at all. The providers are stubbed here;
+  ``tests/test_catfeed.py`` owns their shapes.
 
 The last classes hold the two facts that keep this out of the wrong places: the cog
 is never loaded by the main bot (a registry flag, read by the loader), and the
@@ -34,7 +39,7 @@ from discord.ext import commands
 
 from cogs.devtoy import BoredHubView, CatActionsView, CatSettingsView, DevToy, cat_from_row
 from tests.support import TempDatabaseMixin
-from utils import bot_channels, db, devtoy, features, permissions
+from utils import bot_channels, catfeed, db, devtoy, features, permissions
 
 ROOT = Path(__file__).resolve().parent.parent
 DEV_GUILD = bot_channels.DEV_SERVER_GUILD_ID
@@ -80,6 +85,7 @@ def fake_interaction(guild_id: int = DEV_GUILD, user_id: int = 5, *, guild=None)
     interaction.channel = SimpleNamespace(id=4242, mention="#dev", send=mock.AsyncMock())
     interaction.response = mock.MagicMock()
     interaction.response.is_done = mock.MagicMock(return_value=False)
+    interaction.response.defer = mock.AsyncMock()
     interaction.response.send_message = mock.AsyncMock()
     interaction.response.edit_message = mock.AsyncMock()
     interaction.response.send_modal = mock.AsyncMock()
@@ -97,6 +103,54 @@ def refusal_text(interaction) -> str:
     return " ".join(str(call.args[0]) for call in calls if call.args)
 
 
+def sent_card(interaction) -> dict:
+    """The last card a fake interaction was sent, from either door.
+
+    ``response`` and ``followup`` are both read because which one a card leaves by
+    is the *command's* decision: a card sent before any await goes out as the
+    response, and one sent after a ``defer()`` goes out as a followup.
+    """
+    for source in (interaction.followup.send, interaction.response.send_message):
+        if source.await_args_list:
+            return dict(source.await_args_list[-1].kwargs)
+    return {}
+
+
+def card_text(payload: dict) -> str:
+    """Every word and every picture in a card, wherever the layout put it.
+
+    ``send_card`` upgrades an embed to a Components V2 panel when the installed
+    library has one (it does), so a test reading ``kwargs["embed"]`` would find
+    nothing on this version and everything on an older one. Walking the tree is
+    the only reading that holds on both.
+    """
+    seen: list[str] = []
+
+    def walk(node) -> None:
+        content = getattr(node, "content", None)
+        if isinstance(content, str):
+            seen.append(content)
+        for item in getattr(node, "items", None) or ():
+            url = getattr(getattr(item, "media", None), "url", None)
+            if url:
+                seen.append(str(url))
+        for child in getattr(node, "children", None) or ():
+            walk(child)
+
+    view = (payload or {}).get("view")
+    if view is not None:
+        walk(view)
+    embed = (payload or {}).get("embed")
+    if embed is not None:
+        seen.append(str(embed.title or ""))
+        seen.append(str(embed.description or ""))
+        if getattr(embed, "image", None) and embed.image.url:
+            seen.append(str(embed.image.url))
+        if getattr(embed, "footer", None) and embed.footer.text:
+            seen.append(str(embed.footer.text))
+    return "\n".join(seen)
+
+
 class CogCase(unittest.IsolatedAsyncioTestCase, TempDatabaseMixin):
     """A real cog over a throwaway database."""
 
@@ -105,6 +159,13 @@ class CogCase(unittest.IsolatedAsyncioTestCase, TempDatabaseMixin):
         await db.setup()
         self.bot = fake_bot()
         self.cog = DevToy(self.bot)
+        # No test in this suite may reach the network, and the brain is a network
+        # call by design. It is stubbed to "nothing came back" — which is also the
+        # state a host with no key and no outbound route is in — and the tests
+        # that care what the cat thought patch it for themselves.
+        self.brain = mock.patch.object(catfeed, "say", mock.AsyncMock(return_value=None))
+        self.brain.start()
+        self.addCleanup(self.brain.stop)
 
     async def asyncTearDown(self):
         self.cog.cog_unload()
@@ -709,6 +770,111 @@ class TheArcadeThroughTheCog(CogCase):
         self.assertEqual(len(ids), len(set(ids)), "two buttons sharing an id is a broken panel")
 
 
+class TheCatFetchesFromOutside(CogCase):
+    """``/cat photo``, ``/cat fact`` and ``/cat ask``, with the providers stubbed.
+
+    Stubbed rather than called, because this suite runs on every push and a suite
+    that fails when somebody else's free service is asleep is a suite people learn
+    to skip. What is under test is the half this repository owns: that an answer
+    is used, that no answer ends in an empty card, and that a question typed by a
+    member cannot smuggle a ping or a link into the cat's mouth.
+    """
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        await self.cog._save(DEV_GUILD, 5, devtoy.adopt(NOW, "Biscuit"))
+
+    async def test_a_photo_carries_the_picture_and_a_line_about_it(self):
+        with mock.patch.object(
+            catfeed, "photo", mock.AsyncMock(return_value="https://cdn.example/cat.jpg")
+        ):
+            interaction = fake_interaction(user_id=5)
+            await DevToy.cat_photo.callback(self.cog, interaction)
+        # Deferred first: a picture service takes seconds and Discord gives a
+        # command three, so the alternative is "the application did not respond".
+        interaction.response.defer.assert_awaited()
+        text = card_text(sent_card(interaction))
+        self.assertIn("https://cdn.example/cat.jpg", text)
+        captions = {line.format(name="Biscuit") for line in devtoy.PHOTO_CAPTIONS}
+        self.assertTrue(captions & set(text.splitlines()), text)
+
+    async def test_no_picture_is_a_card_that_says_so(self):
+        with mock.patch.object(catfeed, "photo", mock.AsyncMock(return_value=None)):
+            interaction = fake_interaction(user_id=5)
+            await DevToy.cat_photo.callback(self.cog, interaction)
+        payload = sent_card(interaction)
+        text = card_text(payload)
+        self.assertIn("No cat answered", text)
+        self.assertNotIn("http", text)
+        self.assertTrue(payload.get("ephemeral"))
+
+    async def test_a_fact_card_names_where_it_came_from(self):
+        with mock.patch.object(
+            catfeed, "fact", mock.AsyncMock(return_value="Cats purr at 25 to 150 Hz.")
+        ):
+            interaction = fake_interaction(user_id=5)
+            await DevToy.cat_fact.callback(self.cog, interaction)
+        payload = sent_card(interaction)
+        self.assertIn("Cats purr at 25 to 150 Hz.", card_text(payload))
+        self.assertIn("catfact.ninja", card_text(payload))
+        self.assertTrue(payload.get("ephemeral"))
+
+    async def test_with_every_fact_api_down_it_says_one_of_its_own_and_admits_it(self):
+        with mock.patch.object(catfeed, "fact", mock.AsyncMock(return_value=None)):
+            interaction = fake_interaction(user_id=5)
+            await DevToy.cat_fact.callback(self.cog, interaction)
+        text = card_text(sent_card(interaction))
+        self.assertIn("the cat's own notes", text)
+        self.assertTrue(any(fact in text for fact in devtoy.FACTS), text)
+
+    async def test_ask_reports_the_answer_a_model_gave(self):
+        with mock.patch.object(
+            catfeed, "say", mock.AsyncMock(return_value="Tuna, obviously.")
+        ):
+            interaction = fake_interaction(user_id=5)
+            await DevToy.cat_ask.callback(self.cog, interaction, "do you like tuna?")
+        text = card_text(sent_card(interaction))
+        self.assertIn("Tuna, obviously.", text)
+        self.assertIn("do you like tuna?", text)
+
+    async def test_ask_with_nothing_answering_is_the_cat_declining(self):
+        interaction = fake_interaction(user_id=5)  # the harness stubs the brain to None
+        await DevToy.cat_ask.callback(self.cog, interaction, "what is the meaning of life?")
+        text = card_text(sent_card(interaction))
+        self.assertIn("declines", text)
+        self.assertTrue(any(line in text for line in devtoy.ASK_FALLBACKS), text)
+
+    async def test_a_question_cannot_smuggle_a_mention_or_a_link_into_the_card(self):
+        interaction = fake_interaction(user_id=5)
+        await DevToy.cat_ask.callback(
+            self.cog,
+            interaction,
+            f"<@{permissions.VIP_BOT_ID}> @everyone look at https://evil.example/x",
+        )
+        text = card_text(sent_card(interaction))
+        self.assertNotIn("@everyone", text)
+        self.assertNotIn("<@", text)
+        self.assertNotIn("evil.example", text)
+
+    async def test_the_brain_off_makes_no_request_at_all(self):
+        await db.set_setting(DEV_GUILD, features.setting_key("devcat", "brain"), False)
+        spy = mock.AsyncMock(return_value="never used")
+        with mock.patch.object(catfeed, "say", spy):
+            interaction = fake_interaction(user_id=5)
+            await DevToy.cat_ask.callback(self.cog, interaction, "hello?")
+        spy.assert_not_awaited()
+        text = card_text(sent_card(interaction))
+        self.assertTrue(any(line in text for line in devtoy.ASK_FALLBACKS), text)
+
+    async def test_the_settings_card_says_which_brain_is_answering(self):
+        body = (await self.cog.settings_embed(DEV_GUILD)).description
+        self.assertIn("Brain", body)
+        self.assertIn("public keyless model", body)
+        with mock.patch.dict(os.environ, {"CAT_AI_KEY": "a-key"}):
+            body = (await self.cog.settings_embed(DEV_GUILD)).description
+        self.assertIn("this deployment's own key", body)
+
+
 class TheListenerListensToAlmostNothing(CogCase):
     def message(self, *, guild_id=DEV_GUILD, content="the build went green", author_bot=False,
                 webhook=False, mentions=()):
@@ -786,6 +952,42 @@ class TheListenerListensToAlmostNothing(CogCase):
         message.add_reaction.assert_not_awaited()
         self.assertEqual(message.reply.await_args.kwargs.get("mention_author"), False)
 
+    async def test_the_answer_uses_the_model_when_one_answers(self):
+        with mock.patch.object(
+            catfeed, "say", mock.AsyncMock(return_value="go and be bored elsewhere. 🐾")
+        ):
+            message = self.message(content="i am so bored")
+            await self.cog.on_message(message)
+        message.reply.assert_awaited()
+        self.assertIn("go and be bored elsewhere.", message.reply.await_args.args[0])
+
+    async def test_the_written_line_is_what_it_says_when_nothing_answers(self):
+        message = self.message(content="i am so bored")  # the harness stubs the brain
+        await self.cog.on_message(message)
+        message.reply.assert_awaited()
+        written = next(
+            lines for needles, lines in devtoy.KEYWORD_REPLIES if "bored" in needles
+        )
+        self.assertIn(message.reply.await_args.args[0], written)
+
+    async def test_a_slow_thought_cannot_move_the_reply_clock(self):
+        """The allowance is spent *before* the model is asked, not after.
+
+        A generation takes seconds, and a member who types twice while it runs must
+        not get two answers out of one allowance — which is what happens if the
+        clock is written once the sentence comes back.
+        """
+        seen: dict[str, float | None] = {}
+
+        async def slow(messages, **_kwargs):
+            seen["clock"] = self.cog._last_reply.get(5)
+            return None
+
+        with mock.patch.object(catfeed, "say", slow):
+            message = self.message(content="i am so bored")
+            await self.cog.on_message(message)
+        self.assertIsNotNone(seen.get("clock"), "the clock has to move before the call")
+
     async def test_a_mention_of_the_bot_gets_a_sentence(self):
         self.cog.bot.user = SimpleNamespace(id=permissions.VIP_BOT_ID)
         message = self.message(content="<@1558691012975534222> hello", mentions=[
@@ -828,6 +1030,26 @@ class TheAmbientLoopIsQuiet(CogCase):
         state = await db.devcat_ambient(DEV_GUILD)
         self.assertEqual(state["nudge_count"], 1)
         self.assertGreater(state["last_nudge"], 0)
+
+    async def test_the_cat_s_own_card_opens_with_what_it_thought_of(self):
+        channel = SimpleNamespace(
+            id=bot_channels.DEV_CHAT_CHANNEL_ID, mention="#cat", send=mock.AsyncMock()
+        )
+        guild = fake_guild(DEV_GUILD, channels=[channel])
+        self.cog.bot.get_guild = lambda _id: guild
+        await self.cog._save(DEV_GUILD, 5, devtoy.adopt(time.time(), "Biscuit"))
+        with mock.patch.object(
+            catfeed, "say", mock.AsyncMock(return_value="the chair is still cold.")
+        ):
+            await self.cog._ambient_once()
+        channel.send.assert_awaited()
+        text = card_text(dict(channel.send.await_args.kwargs))
+        self.assertIn("the chair is still cold.", text)
+        # The written openers are still what the card falls back to, so one of
+        # them must not be in a card the model opened.
+        self.assertFalse(
+            any(opener in text for pool in devtoy.AMBIENT_OPENERS.values() for opener in pool)
+        )
 
     async def test_the_gap_stops_the_second_card(self):
         channel = SimpleNamespace(id=bot_channels.DEV_CHAT_CHANNEL_ID, mention="#cat", send=mock.AsyncMock())
@@ -928,17 +1150,27 @@ class TheCogIsTheVipBotOnly(unittest.TestCase):
 
         for path in (
             "cat adopt", "cat status", "cat feed", "cat pet", "cat play", "cat rename",
-            "cat top", "cat bored", "cat panel", "cat settings",
+            "cat top", "cat photo", "cat fact", "cat ask", "cat bored", "cat panel",
+            "cat settings",
         ):
             self.assertIn(path, perms.COMMAND_ACCESS)
         self.assertEqual(perms.COMMAND_ACCESS["cat settings"], perms.ADMIN)
         self.assertEqual(perms.COMMAND_ACCESS["cat panel"], perms.ADMIN)
         self.assertEqual(perms.COMMAND_ACCESS["cat bored"], perms.EVERYONE)
+        # The three that fetch are everyone's: a picture of a cat is not a
+        # moderation act, and the one that costs a network call is bounded by the
+        # server's own brain switch rather than by a permission bit.
+        for path in ("cat photo", "cat fact", "cat ask"):
+            self.assertEqual(perms.COMMAND_ACCESS[path], perms.EVERYONE)
 
     def test_the_settings_it_declares_have_one_home_each(self):
         keys = [features.setting_key("devcat", spec.id) for spec in features.settings_for("devcat")]
         self.assertEqual(
-            keys, ["devcat_nudges", "devcat_reactions", "devcat_ping", "devcat_home_channel"]
+            keys,
+            [
+                "devcat_nudges", "devcat_reactions", "devcat_ping", "devcat_brain",
+                "devcat_home_channel",
+            ],
         )
         self.assertEqual(len(keys), len(set(keys)))
 

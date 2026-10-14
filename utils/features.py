@@ -639,7 +639,8 @@ FEATURES: tuple[Feature, ...] = (
         gate_commands=("cat",),
         commands=(
             "/cat adopt", "/cat status", "/cat feed", "/cat pet", "/cat play",
-            "/cat rename", "/cat top", "/cat bored", "/cat panel", "/cat settings",
+            "/cat rename", "/cat top", "/cat photo", "/cat fact", "/cat ask",
+            "/cat bored", "/cat panel", "/cat settings",
         ),
         cog="cogs.devtoy",
         vip_only=True,
@@ -682,6 +683,20 @@ FEATURES: tuple[Feature, ...] = (
                 ),
                 kind="bool",
                 default=False,
+            ),
+            Setting(
+                id="brain",
+                label="Let the cat think for itself",
+                help=(
+                    "Off, the cat only ever says the lines written for it. On, it "
+                    "may ask a language model what to say — /cat ask, and the "
+                    "sentences it writes for its own cards. Either way the written "
+                    "lines are the fallback, so the cat never goes mute: with no "
+                    "API key set it uses a keyless public model, and if that is "
+                    "unreachable it says something it already knew."
+                ),
+                kind="bool",
+                default=True,
             ),
             Setting(
                 id="home_channel",

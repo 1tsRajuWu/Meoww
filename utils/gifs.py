@@ -115,6 +115,15 @@ ROUTES: dict[str, tuple[tuple[str, str], ...]] = {
 PET_SOURCES: dict[str, tuple[dict, ...]] = {
     "cat": (
         {"url": "https://cataas.com/cat/gif", "direct": True},
+        # A second family of cats, and a different *kind* of cat: ``cataas``
+        # serves photographs people uploaded, while this is the Cat API's own
+        # library. It answers without a key (checked live 2026-10-14) and is
+        # listed second only because the first entry is the animated one the
+        # soundboard's cat card was missing.
+        {
+            "url": "https://api.thecatapi.com/v1/images/search",
+            "pick": lambda payload: (payload[0] or {}).get("url") if isinstance(payload, list) and payload else None,
+        },
         {"url": "https://cataas.com/cat", "direct": True},
     ),
     "dog": (

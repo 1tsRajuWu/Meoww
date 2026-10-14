@@ -647,6 +647,31 @@ SETTINGS: tuple[Setting, ...] = (
     # addresses are watched — which is the same thing the public status page it
     # powers already says. Absent is a supported state rather than a fault: the
     # dashboard's Status panel says which variable to set and the bot carries on.
+    # The Dev Cat's brain. The *key* is optional on purpose: with it unset the cat
+    # is answered by a public keyless model, so the toy works in a fresh checkout
+    # and gets better — faster, and not on somebody else's free tier — the moment
+    # a key is added. Its absence is therefore CAPABILITY rather than a fault: the
+    # cat still answers, and ``/cat settings`` names which of the two is talking.
+    Setting(
+        "CAT_AI_KEY", CAPABILITY,
+        "the API key for the Dev Cat's brain — the model behind ``/cat ask`` and "
+        "the cards the cat writes for itself",
+        "the cat falls back to a public keyless model, and to its own written "
+        "lines when that is unreachable. Nothing else in the bot changes.",
+        secret=True,
+    ),
+    Setting(
+        "CAT_AI_URL", TUNING,
+        "which endpoint the Dev Cat's brain calls, when a key is set",
+        "a default OpenAI-compatible endpoint is used. Any provider that speaks "
+        "that shape — Groq, OpenAI, Together, a local Ollama — works by setting "
+        "this alone.",
+    ),
+    Setting(
+        "CAT_AI_MODEL", TUNING,
+        "which model the Dev Cat's brain asks for",
+        "the default model of the default endpoint is used.",
+    ),
     Setting(
         "UPTIMEROBOT_API_KEY", TUNING,
         "the read-only UptimeRobot key whose monitors the dashboard's status panel shows",

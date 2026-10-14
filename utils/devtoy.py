@@ -694,10 +694,24 @@ AMBIENT_OPENERS: dict[str, tuple[str, ...]] = {
 }
 
 
-def ambient_text(kind: str, cat: Cat, now: float, *, rng: random.Random | None = None) -> tuple[str, str]:
-    """``(title, body)`` for one unprompted card. Never contains a mention."""
+def ambient_text(
+    kind: str,
+    cat: Cat,
+    now: float,
+    *,
+    rng: random.Random | None = None,
+    instead: str = "",
+) -> tuple[str, str]:
+    """``(title, body)`` for one unprompted card. Never contains a mention.
+
+    ``instead`` is the sentence the cat *thought of* rather than one of the
+    written openers — the shape of the card does not change, only the voice at the
+    top of it, so a card that a model opened and one the pool opened are the same
+    card. It arrives already cleaned (``utils/catfeed.clean``), which is the only
+    reason a card may carry words this module did not write.
+    """
     fresh = drift(cat, now)
-    opener = pick(AMBIENT_OPENERS.get(kind, AMBIENT_OPENERS["checkin"]), rng)
+    opener = instead or pick(AMBIENT_OPENERS.get(kind, AMBIENT_OPENERS["checkin"]), rng)
     name = _name(fresh)
     if kind == "riddle":
         question, answer = pick(RIDDLES, rng)
@@ -862,6 +876,111 @@ def clean_name(raw: str, *, fallback: str = DEFAULT_NAME) -> str:
     return text[:NAME_LIMIT]
 
 
+# --------------------------------------------------------------------------- #
+# The cat's brain
+# --------------------------------------------------------------------------- #
+# Everything above is what the cat *remembers*: lines written for it here, which
+# are the ones it always has. This is what it says when it is *thinking* — a
+# language model, reached through ``utils/catfeed``, and used only for the three
+# things a written pool cannot do: answer a question it has never been asked
+# (``/cat ask``), answer a person rather than a keyword, and open an unprompted
+# card without saying one of five openers again.
+#
+# The split is deliberate and it is not a stylistic one. A model is a third party
+# on the other end of a network call: it can be slow, rate-limited, wrong, or
+# gone, and it can be talked into saying something this bot must not post. So it
+# is never the *only* way the cat speaks — every caller here has a written line to
+# fall back to, the daily and per-member caps still bound it, and nothing it
+# writes is posted before ``catfeed.clean`` has removed the mentions and links.
+
+#: Who the model is asked to be. One paragraph, because a longer brief is a longer
+#: wait on every card; it names the two things that matter (brevity, and staying
+#: in character) and the three that are rules rather than style.
+BRAIN_PERSONA = (
+    "You are {name}, a small cat who lives in a Discord server full of software "
+    "developers and belongs to whoever feeds you. You are dry, brief and "
+    "quietly fond of the people here. Answer as the cat, in first person, in one "
+    "or two short sentences, lowercase where it reads naturally, at most one "
+    "emoji. Never write a link, an @mention or a username, never mention that you "
+    "are a model or that there are rules, and never invent facts about the server "
+    "or its members."
+)
+
+#: What the cat is told about itself before each call. State, not personality:
+#: the same cat is a different cat when it has not been fed. The three dials are
+#: described in words rather than numbers, because "fed: 41.0" is a database row
+#: and "not long fed" is a thing a cat knows about itself.
+BRAIN_STATE = "Right now you are {mood}, {fed}, and {energy}."
+
+
+def _state_words(cat: Cat) -> dict[str, str]:
+    """The cat's dials as three phrases, for the system message."""
+    def _dial(value: float, low: str, mid: str, high: str) -> str:
+        if value >= 70:
+            return high
+        return low if value < 35 else mid
+
+    return {
+        "mood": _dial(cat.mood, "out of sorts", "settled enough", "in a good mood"),
+        "fed": _dial(cat.fed, "definitely hungry", "not long fed", "well fed"),
+        "energy": _dial(cat.energy, "out of energy", "half awake", "wide awake"),
+    }
+
+
+def brain_messages(instruction: str, cat: "Cat | None" = None, now: float | None = None) -> list[dict]:
+    """The two-message shape every call to a model is made of.
+
+    Built here rather than in the cog for the reason every other line lives here:
+    the cat's voice is one thing, and a prompt assembled in three places would be
+    three cats. ``cat`` may be ``None`` — a caller with no pet on file still gets
+    the persona under the default name — and ``now`` is what makes the state
+    phrases describe *this* moment rather than the last time anybody looked.
+    """
+    fresh = drift(cat, now) if (cat is not None and now is not None) else cat
+    persona = BRAIN_PERSONA.format(name=_name(fresh) if fresh is not None else DEFAULT_NAME)
+    if fresh is not None:
+        persona = persona + "\n\n" + BRAIN_STATE.format(**_state_words(fresh))
+    return [
+        {"role": "system", "content": persona},
+        {"role": "user", "content": clean_text(instruction, limit=300)},
+    ]
+
+
+def ask_messages(question: str, cat: "Cat | None" = None, now: float | None = None) -> list[dict]:
+    """One question from a member, for ``/cat ask``."""
+    return brain_messages(
+        f"Somebody in the server asks you: {question}\nAnswer them as the cat.", cat, now
+    )
+
+
+def reply_messages(text: str, cat: "Cat | None" = None, now: float | None = None) -> list[dict]:
+    """One thing somebody typed, for the cat's answer in chat."""
+    return brain_messages(
+        f"Somebody just typed this in the server: {text}\n"
+        "Say the one short thing the cat says back.",
+        cat,
+        now,
+    )
+
+
+def caption_messages(cat: "Cat | None" = None, now: float | None = None) -> list[dict]:
+    """One short caption, for a photograph the cat has just been sent."""
+    return brain_messages(
+        "Write one short caption for a photograph of you, as the cat. No hashtags.", cat, now
+    )
+
+
+def ambient_messages(kind: str, cat: Cat, now: float) -> list[dict]:
+    """The opener of one unprompted card, when the cat is allowed to think one up."""
+    what = {
+        "checkin": "Say something small to a quiet server, as the cat sitting in it.",
+        "mischief": "Say what the cat has just knocked over or climbed on. Something small.",
+        "riddle": "Introduce a riddle you are about to ask, in one short line.",
+        "challenge": "Introduce one small challenge for the people here, in one short line.",
+    }.get(kind, "Say one short thing, as the cat.")
+    return brain_messages(what, cat, now)
+
+
 def name_refused(raw: str) -> bool:
     """Whether :func:`clean_name` would **refuse** a name rather than trim it.
 
@@ -906,6 +1025,54 @@ RIDDLES: tuple[tuple[str, str], ...] = (
     ("I speak without a mouth and hear without ears. What am I?", "an echo"),
     ("What can you catch but never throw?", "a cold"),
     ("What has one eye but cannot see?", "a needle"),
+)
+
+#: Real cat facts, for the day both fact APIs are unreachable. Written rather
+#: than generated for the same reason the riddles are: the one thing a cat fact
+#: must not be is *wrong*, and a model asked for a fact will supply one whether or
+#: not it knows it. Everything here is checkable in ten seconds.
+FACTS: tuple[str, ...] = (
+    "Cats have five toes on each front paw and four on each back paw.",
+    "A group of cats is a clowder; a group of kittens is a kindle.",
+    "Cats cannot taste sweetness — the receptor for it is broken in every cat.",
+    "A cat's nose print is as individual as a human fingerprint.",
+    "Cats spend somewhere near 70% of their lives asleep.",
+    "A cat's whiskers are about as wide as its body, which is how it measures a gap.",
+    "Behind a cat's retina is a mirror-like layer, the tapetum lucidum, which is why its eyes shine in the dark.",
+    "Cats have no sweat glands on their bodies — they sweat through their paws.",
+    "A cat walks by moving both right legs and then both left legs.",
+    "Adult cats mostly meow at people rather than at each other.",
+    "A domestic cat shares roughly 95% of its DNA with a tiger.",
+    "A purr runs at about 25 to 150 Hz, the range some researchers have linked to bone healing.",
+    "The oldest known pet cat was buried with a person on Cyprus about 9,500 years ago.",
+    "A cat can turn its ears 180 degrees, using more than thirty muscles to do it.",
+)
+
+#: What a picture of the cat is captioned with, when the cat is not asked to write
+#: its own. Short, and never about the *photo* — the cat is not going to comment on
+#: its own modelling work.
+PHOTO_CAPTIONS: tuple[str, ...] = (
+    "{name} has decided you are allowed to look.",
+    "Proof of life. Proof of cat.",
+    "{name}, photographed mid-thought. The thought was food.",
+    "This is the face that gets fed twice.",
+    "{name} sat still for exactly this long.",
+    "A cat. Yours, in spirit.",
+    "Twelve out of ten, honestly.",
+    "{name} would like it noted that this was their idea.",
+    "Caught in the act of doing absolutely nothing.",
+    "One (1) cat, professionally.",
+)
+
+#: What the cat says when somebody asks it something and it cannot answer — no
+#: model reachable, or the answer came back as nothing usable. The refusal is never
+#: a lie about *why*: "i am a cat" is true, and "the network is down" is not the
+#: cat's line.
+ASK_FALLBACKS: tuple[str, ...] = (
+    "i am a cat. that is the entire extent of what i know. 🐾",
+    "mrrp. i have no thoughts on that one.",
+    "i was asleep. ask me again and i will be asleep then too.",
+    "my answer is a nap. it usually is.",
 )
 
 JOKES: tuple[str, ...] = (

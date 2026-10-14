@@ -249,6 +249,22 @@ services:
       # same value in its own settings.
       - key: ENABLE_MESSAGE_CONTENT_INTENT
         value: "1"
+      # **The cat's brain, which is optional on purpose.** Unset, the Dev Cat is
+      # answered by a public keyless model and the toy is complete; set, it is
+      # answered by this deployment's own endpoint instead (the VIP Space is the
+      # host that runs the cog, so the value belongs in *its* settings too). A
+      # prompt rather than a value because it is a credential, and blank rather
+      # than invented because there is a working default behind it.
+      #
+      # `CAT_AI_URL` and `CAT_AI_MODEL` are deliberately **not** declared here.
+      # Their defaults live in one home — `utils/catfeed` — and a manifest that
+      # restated them would be a second home that drifts from the first; a host
+      # pointing the cat at a different endpoint sets all three itself (see
+      # `.env.example`). Declaring them as literals would also trip
+      # `tests/test_dashboard.py`'s committed-value law, which is right to treat
+      # any literal in this file as configuration somebody has to look at.
+      - key: CAT_AI_KEY
+        sync: false
       - key: OWNER_DISCORD_ELEVATION
         value: "1"
       - key: PLAN_CHECKOUT

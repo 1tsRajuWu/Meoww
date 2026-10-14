@@ -19,6 +19,13 @@ Four surfaces, one system:
   switch: without it Discord sends this process no message text at all, so the
   listener below finds nothing and everything else still works.
 
+Three of the surfaces fetch something from outside the bot — ``/cat photo`` asks a
+picture service, ``/cat fact`` asks a fact API, and ``/cat ask`` (with the cat's
+own cards and its answers in chat) asks a language model. All of that lives
+behind ``utils/catfeed``, which verifies or refuses, and none of it is required:
+the written lines in ``utils/devtoy`` are the fallback for every one of them, so
+the cat works with no network at all beyond Discord.
+
 Two gates, and they are different things. The registry ships this system **off**,
 because per-server registration is the only mechanism Discord offers for hiding a
 slash command in one server, so the toy appears nowhere until it is switched on
@@ -37,7 +44,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from utils import bot_channels, db, devtoy, features
+from utils import bot_channels, catfeed, db, devtoy, features
 from utils.permissions import deny_admin, has_admin
 from utils.style import NO_PINGS, VIP_GOLD, display_name, pings, send_card
 
@@ -137,6 +144,11 @@ class CatSettingsView(discord.ui.View):
                        custom_id=f"{BUTTON_PREFIX}set:ping")
     async def ping(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await self._toggle(interaction, "ping", "whether the cat may ping")
+
+    @discord.ui.button(label="Brain", emoji="🧠", style=discord.ButtonStyle.secondary,
+                       custom_id=f"{BUTTON_PREFIX}set:brain")
+    async def brain(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await self._toggle(interaction, "brain", "the cat thinking for itself")
 
     @discord.ui.button(label="Test nudge", emoji="🧪", style=discord.ButtonStyle.primary,
                        custom_id=f"{BUTTON_PREFIX}test")
@@ -481,6 +493,29 @@ class DevToy(commands.Cog):
             return default
         return await db.get_setting(guild_id, features.setting_key(MODULE, setting_id), default)
 
+    # -- the cat's brain ------------------------------------------------------ #
+    async def brain_on(self, guild_id: int) -> bool:
+        """Whether the cat may ask a model what to say, on this server."""
+        return await self.setting_bool(guild_id, "brain", default=True)
+
+    async def think(self, guild_id: int, messages: list[dict], *, temperature: float = 0.8) -> str | None:
+        """What the cat thought of, or ``None`` to use a line written for it.
+
+        The switch, the call and the failure are one decision rather than three
+        checkpoints at each call site: a server with the brain off makes **no**
+        outbound request at all, and a provider that is down, slow or talking
+        nonsense ends in ``None`` — which every caller can answer with the pool in
+        ``utils/devtoy``. Nothing here may raise: this sits in front of cards and
+        of a message listener.
+        """
+        if not await self.brain_on(guild_id):
+            return None
+        try:
+            return await catfeed.say(messages, temperature=temperature)
+        except Exception as exc:  # noqa: BLE001 — a model must never break a card
+            print(f"[DEVCAT] brain call failed: {exc!r}", flush=True)
+            return None
+
     async def setting_bool(self, guild_id: int, setting_id: str, default: bool = True) -> bool:
         spec = features.get_setting(MODULE, setting_id)
         fallback = default if spec is None else bool(spec.default)
@@ -766,7 +801,11 @@ class DevToy(commands.Cog):
         if cat is None:
             return False
         now = time.time()
-        title, body = devtoy.ambient_text(kind, cat, now, rng=self.rng)
+        # The cat is allowed to *think of* its own opener when the brain is on.
+        # The written one is what it says when that is off, unreachable, slow, or
+        # refused — so a card always goes out, and the card's shape never changes.
+        thought = await self.think(guild.id, devtoy.ambient_messages(kind, cat, now))
+        title, body = devtoy.ambient_text(kind, cat, now, rng=self.rng, instead=thought or "")
         ping = await self.setting_bool(guild.id, "ping", default=False)
         owner_id = int(row.get("user_id") or 0)
         allowed = None
@@ -874,9 +913,18 @@ class DevToy(commands.Cog):
                 rng=self.rng,
             )
             if decision.reply:
+                # The clock moves *before* the model is asked, not after: a
+                # generation takes seconds, and a member who typed twice while it
+                # was running must not get two answers for one allowance.
                 self._last_reply[author.id] = now
+                said = decision.reply
+                thought = await self.think(
+                    guild.id, devtoy.reply_messages(content, cat, now)
+                )
+                if thought:
+                    said = thought
                 await message.reply(
-                    decision.reply, mention_author=False, allowed_mentions=NO_PINGS
+                    said, mention_author=False, allowed_mentions=NO_PINGS
                 )
                 return
             if decision.react:
@@ -976,6 +1024,94 @@ class DevToy(commands.Cog):
             ephemeral=True,
         )
 
+    # -- what the cat fetches ------------------------------------------------ #
+    @cat.command(name="photo", description="A real cat photograph, fetched just now.")
+    async def cat_photo(self, interaction: discord.Interaction):
+        """One picture, posted where it was asked for rather than privately.
+
+        The only `/cat` command that answers in public, and deliberately: a
+        photograph is a thing to show people, and it is the one card here that
+        needs nobody to read a word of it.
+        """
+        if not await self.allow(interaction):
+            return
+        # Asked for *before* the fetch: a picture service can take several seconds
+        # and Discord gives a command three, so the alternative to this line is a
+        # card that arrives as "the application did not respond".
+        await interaction.response.defer()
+        url = await catfeed.photo()
+        if not url:
+            return await send_card(
+                interaction,
+                embed=self.embed(
+                    "📷 No cat answered",
+                    "Every picture service I asked is quiet, or answered with "
+                    "something that was not a picture. Nothing was drawn rather "
+                    "than a broken frame — try again in a minute.",
+                ),
+                ephemeral=True,
+            )
+        cat = await self._load(interaction.guild_id, interaction.user.id)
+        now = time.time()
+        said = await self.think(interaction.guild_id, devtoy.caption_messages(cat, now))
+        caption = said or devtoy.pick(devtoy.PHOTO_CAPTIONS, self.rng).format(
+            name=(cat.name if cat else devtoy.DEFAULT_NAME)
+        )
+        embed = self.embed("📷 A cat", caption, footer="🐈 fetched, not hardcoded")
+        embed.set_image(url=url)
+        await send_card(interaction, embed=embed)
+
+    @cat.command(name="fact", description="One real cat fact, looked up rather than remembered.")
+    async def cat_fact(self, interaction: discord.Interaction):
+        """A fact from a public API, and the card says which one it came from.
+
+        The footer is the honest half of this: a fetched fact and one of the
+        fortnight written into ``utils/devtoy`` are both true, and only one of
+        them was looked up, so the card does not let the reader guess which.
+        """
+        if not await self.allow(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        text = await catfeed.fact()
+        source = "catfact.ninja" if text else "the cat's own notes"
+        if not text:
+            text = devtoy.pick(devtoy.FACTS, self.rng)
+        await send_card(
+            interaction,
+            embed=self.embed("🐈 A cat fact", text, footer=f"🐈 {source}"),
+            ephemeral=True,
+        )
+
+    @cat.command(name="ask", description="Ask the cat something. It is a cat, so: good luck.")
+    @app_commands.describe(question="What to ask it.")
+    async def cat_ask(self, interaction: discord.Interaction, question: str):
+        """The one command whose whole answer is written by a model.
+
+        Slow on purpose and slow by nature — a generation is not a lookup — which
+        is why it defers first and is private: an answer that arrives in twelve
+        seconds is a fine card and a terrible public interruption.
+        """
+        if not await self.allow(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        cat = await self._load(interaction.guild_id, interaction.user.id)
+        now = time.time()
+        said = await self.think(interaction.guild_id, devtoy.ask_messages(question, cat, now))
+        if said:
+            title, footer = "🐈 The cat considers it", "🐈 the cat, thinking"
+        else:
+            said = devtoy.pick(devtoy.ASK_FALLBACKS, self.rng)
+            title, footer = "🐈 The cat declines", "🐈 the cat, not thinking about it"
+        # The question is quoted back, and it is somebody else's text going into a
+        # card: it passes through the same cleaner a model's answer does, so an
+        # ``@everyone`` typed into the question cannot be posted by the cat.
+        asked = catfeed.clean(question, limit=200) or "something i have already forgotten"
+        await send_card(
+            interaction,
+            embed=self.embed(title, f"> {asked}\n\n{said}", footer=footer),
+            ephemeral=True,
+        )
+
     @cat.command(name="panel", description="Post the cat panel here (buttons that keep working).")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(channel="Where to post it. Here by default.")
@@ -1013,6 +1149,7 @@ class DevToy(commands.Cog):
 
         nudges = await self.setting_bool(guild_id, "nudges", default=True)
         chat = await self.setting_bool(guild_id, "reactions", default=True)
+        brain = await self.brain_on(guild_id)
         ping = await self.setting_bool(guild_id, "ping", default=False)
         home = await self.setting(guild_id, "home_channel", "") or str(bot_channels.DEV_CHAT_CHANNEL_ID)
         row = await db.devcat_ambient(guild_id)
@@ -1022,10 +1159,20 @@ class DevToy(commands.Cog):
             nudge_count=int(row.get("nudge_count", 0)),
         )
         today = devtoy.nudges_today(state, time.time())
+        # Which of the two brains is answering is a fact about the *deployment*,
+        # and the operator is the only person who can change it — so the card says
+        # it rather than leaving "the cat is being clever today" to be read as
+        # either "a key is set" or "somebody else's free tier is carrying us".
+        source = (
+            "this deployment's own key"
+            if catfeed.provider_id() == "configured"
+            else "a public keyless model"
+        )
         body = (
             f"🔔 **Nudges** — {on(nudges)} · the cat's own cards, at most "
             f"{devtoy.NUDGE_DAILY_CAP} a day, {int(devtoy.NUDGE_MIN_GAP // 3600)}h apart\n"
             f"💬 **Chat** — {on(chat)} · answers and reactions to what you type here\n"
+            f"🧠 **Brain** — {on(brain)} · sentences it writes itself, by {source}\n"
             f"📣 **Ping** — {on(ping)} · whether those cards may mention you\n"
             f"📌 **Home** — <#{home}>\n\n"
             f"-# {today}/{devtoy.NUDGE_DAILY_CAP} cards today. The panel button posts the "

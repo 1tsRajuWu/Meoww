@@ -426,14 +426,44 @@ the new dashboard host.
   `python scripts/mirror_space.py`, which sends the tracked tree as one commit,
   refuses a dirty tree or an unpushed `HEAD` for the same reason `ship.py` does,
   and has `--check` for asking what differs without sending anything.
-- The chat half of the Dev Cat is set up **here**, not on Render: that machine
-  carries the live VIP token, so the application whose Developer Portal page
-  needs Message Content enabled is the VIP one, and
-  `ENABLE_MESSAGE_CONTENT_INTENT=1` belongs in the Space's own variables (the
+- **There are two machines, and the VIP one is the second.**
+  `1tsrajowo-meow-premium.hf.space` is the deployment that carries the VIP token
+  and therefore the one that runs `cogs.devtoy`: its boot log loads it (`Loaded
+  cogs.devtoy`), it signs in as *Meoww Premium* (application
+  `1558691012975534222`), and it publishes a short per-server list — the six
+  commands `bond`, `game`, `music`, `premium`, `question`, `questions` — rather
+  than the main bot's ninety-odd. The first Space runs `cogs.leveling` and
+  friends and never loads the toy. Both answer `/health` with
+  `"service":"decat-gateway"`, and both are kept current by
+  `scripts/mirror_space.py --repo 1tsRajOwO/<name>`.
+- The chat half of the Dev Cat is set up **on the VIP Space**, not on Render:
+  that machine carries the live VIP token, so the application whose Developer
+  Portal page needs Message Content enabled is the VIP one, and
+  `ENABLE_MESSAGE_CONTENT_INTENT=1` belongs in that Space's own variables (the
   Settings tab) as well as in `render.yaml`. With the variable set and the intent
   un-granted, or the other way round, nothing crashes: the boot names the intent
   it dropped and the cat simply never answers. Nothing about the rest of the toy
   — `/cat`, the panel, the arcade, the cat's own cards — depends on it.
+- **The brain is optional and the cat works without it.** `CAT_AI_KEY` (with
+  `CAT_AI_URL` and `CAT_AI_MODEL`, any OpenAI-compatible endpoint) buys the
+  cat's sentences — `/cat ask`, its answers in chat, and the opener of its own
+  cards. Unset, `utils/catfeed` asks a public keyless model instead, and if that
+  is unreachable the cat says a line written in `utils/devtoy`, so no card is ever
+  empty and nothing in the toy is a hard dependency on a third party. Set the key
+  on the VIP Space (Settings → Variables), which is where the cog actually runs;
+  declaring it in `render.yaml` only prompts for it. `/cat settings` says which of
+  the two is answering, and the per-server **Brain** switch turns the outbound
+  call off entirely.
+- **`/cat` is registered per server, so the module switch is what makes it
+  appear.** `devcat` ships off (`enabled_by_default=False`) and a server's command
+  list is built from *that server's* modules — switched off, the command is not
+  registered at all and nothing refuses, because there is nothing to press. It is
+  switched on from the dashboard's Systems page for that server, or over the API
+  with `POST /api/set-module` and the `X-Admin-Passkey` header. One caveat worth
+  knowing before debugging an invisible command: a boot restores the newest
+  cloud backup and that decision reads `_progress_mark`, which is built from
+  member-progress timestamps — a module toggle made after the newest backup is
+  therefore *not* protected by it, and can be reverted by the next restart.
 - What is asked instead: its `/health`, whose `service` field is built from
   `utils/brand.py`. A rebrand moves the check and the answer together, so a
   machine still announcing the retired name fails the release — which is the
