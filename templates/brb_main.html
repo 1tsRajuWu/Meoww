@@ -614,7 +614,7 @@
   <script>
   (function() {
     // -------------------------------------------------------------
-    // R0: PIXEL HEADLINE — "Building The Website." built block by block
+    // R0: PIXEL HEADLINE — two-line poster built block by block
     // -------------------------------------------------------------
     // A 5x7 bitmap font rendered as square LED blocks on a canvas that
     // auto-fits this box at any devicePixelRatio. Choreography is a state
@@ -631,6 +631,7 @@
         titleReduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       } catch (e) {}
       var titleText = 'Building The Website.';
+      var titleLines = ['Building', 'The Website.'];
       var PIXEL_FONT_5X7 = {
         'B': ['11110','10001','10001','11110','10001','10001','11110'],
         'u': ['00000','00000','10001','10001','10001','10001','01110'],
@@ -670,59 +671,64 @@
       var titleCanvas = null, titleCtx = null, titleBlocks = [];
       var titlePitch = 4, titleW = 0, titleH = 0;
       var titlePhase = 'build', titlePhaseT = 0, titleBuildEnd = 1;
+      function lineCells(s) {
+        var n = 0;
+        for (var i = 0; i < s.length; i++) n += (s.charAt(i) === ' ') ? 3 : 6;
+        return n - 1;
+      }
       function layoutTitlePixels() {
         if (!titleEl || !titleCtx) return;
         var availW = titleEl.clientWidth || 320;
         var dpr = Math.min(2.5, window.devicePixelRatio || 1);
-        var totalCells = 0;
-        for (var ci = 0; ci < titleText.length; ci++) {
-          totalCells += (titleText.charAt(ci) === ' ') ? 3 : 6;
+        var maxCells = 0, li;
+        for (li = 0; li < titleLines.length; li++) {
+          maxCells = Math.max(maxCells, lineCells(titleLines[li]));
         }
-        totalCells -= 1;
-        var p = Math.min(5, availW / totalCells);
+        var p = Math.min(8, availW / maxCells);
         p = Math.max(1.4, p);
         titlePitch = p;
-        titleW = Math.round(totalCells * p);
-        titleH = Math.round(8 * p);
+        titleW = Math.round(maxCells * p);
+        titleH = Math.round((titleLines.length * 8 + (titleLines.length - 1) * 3) * p);
         titleCanvas.width = Math.round(titleW * dpr);
         titleCanvas.height = Math.round(titleH * dpr);
         titleCanvas.style.width = titleW + 'px';
         titleCanvas.style.height = titleH + 'px';
         titleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        var cursorX = 0;
         titleBlocks = [];
         var t = 0.4;
-        for (var li = 0; li < titleText.length; li++) {
-          var ch = titleText.charAt(li);
-          var glyph = PIXEL_FONT_5X7[ch] || PIXEL_FONT_5X7[' '];
-          if (ch !== ' ') {
-            for (var gy = 0; gy < 7; gy++) {
-              for (var gx = 0; gx < 5; gx++) {
-                if (glyph[gy].charAt(gx) === '1') {
-                  var tx = cursorX + gx * p + p * 0.1;
-                  var ty = gy * p + p * 0.1;
-                  titleBlocks.push({
-                    tx: tx, ty: ty,
-                    sx: tx + (Math.random() - 0.5) * 2 * p,
-                    sy: ty - (30 + Math.random() * 70),
-                    t0: t, dur: BLOCK_DUR, size: p * 0.8
-                  });
-                  t += BLOCK_STAGGER;
+        for (var row = 0; row < titleLines.length; row++) {
+          var line = titleLines[row];
+          var lineW = lineCells(line) * p;
+          var ox = (titleW - lineW) / 2;
+          var oy = row * (8 * p + 3 * p);
+          var cursorX = 0;
+          for (var ci = 0; ci < line.length; ci++) {
+            var ch = line.charAt(ci);
+            var glyph = PIXEL_FONT_5X7[ch] || PIXEL_FONT_5X7[' '];
+            if (ch !== ' ') {
+              for (var gy = 0; gy < 7; gy++) {
+                for (var gx = 0; gx < 5; gx++) {
+                  if (glyph[gy].charAt(gx) === '1') {
+                    var tx = ox + cursorX + gx * p + p * 0.1;
+                    var ty = oy + gy * p + p * 0.1;
+                    titleBlocks.push({
+                      tx: tx, ty: ty,
+                      sx: tx + (Math.random() - 0.5) * 2 * p,
+                      sy: ty - (30 + Math.random() * 70),
+                      t0: t, dur: BLOCK_DUR, size: p * 0.8
+                    });
+                    t += BLOCK_STAGGER;
+                  }
                 }
               }
+              t += LETTER_GAP;
+              cursorX += 6 * p;
+            } else {
+              cursorX += 3 * p;
             }
-            t += LETTER_GAP;
-            cursorX += 6 * p;
-          } else {
-            cursorX += 3 * p;
           }
         }
         titleBuildEnd = t;
-        var ox = (titleW - (cursorX - p)) / 2;
-        for (var bi = 0; bi < titleBlocks.length; bi++) {
-          titleBlocks[bi].tx += ox;
-          titleBlocks[bi].sx += ox;
-        }
       }
       function drawTitlePixels() {
         if (!titleCtx) return;

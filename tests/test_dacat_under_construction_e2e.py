@@ -983,6 +983,7 @@ class TestHeadlineBlockBuildUp(unittest.TestCase):
         self.assertIn("title-pixels", self.raw)
         self.assertIn("PIXEL_FONT_5X7", self.raw)
         self.assertIn("FF6B4A", self.raw)
+        self.assertIn("titleLines", self.raw)
 
     def test_builder_preserves_accessible_name(self):
         """Canvas is aria-hidden behind an aria-label of the full line."""
