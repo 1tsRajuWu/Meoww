@@ -952,5 +952,32 @@ class TestTier4RealWorldAcceptance(unittest.TestCase):
         self.assertIn("if (!ctx) return;", raw)
 
 
+class TestHeadlineBlockBuildUp(unittest.TestCase):
+    """Headline builds one letter at a time, from the ground up, keeping plain text."""
+
+    def setUp(self):
+        self.raw = read_template()
+        self.rendered = render_page()
+
+    def test_headline_plain_text_intact_without_script(self):
+        """The h1 ships the full line as markup so no-JS readers lose nothing."""
+        self.assertIn(">Building The Website.<", self.rendered)
+
+    def test_letter_cells_and_ground_rise(self):
+        """Builder wraps glyphs in clipped cells rising out of the baseline."""
+        self.assertIn("title-letter", self.raw)
+        self.assertIn("translateY(120%)", self.raw)
+        self.assertIn("overflow: hidden", self.raw)
+
+    def test_builder_preserves_accessible_name(self):
+        """Split glyphs are aria-hidden behind an aria-label of the full line."""
+        self.assertIn('setAttribute(\'aria-label\'', self.raw)
+        self.assertIn('aria-hidden', self.raw)
+
+    def test_builder_respects_reduced_motion(self):
+        """Reduced-motion readers skip the build and keep the static line."""
+        self.assertIn("prefers-reduced-motion", self.raw)
+
+
 if __name__ == "__main__":
     unittest.main()

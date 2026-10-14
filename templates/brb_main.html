@@ -236,6 +236,14 @@
     0%, 100% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
   }
+  /* Letter-by-letter build-up: each glyph is wrapped in its own clipped cell
+     by the builder script, so it rises out of the baseline like a block being
+     set down. No-JS readers still get the full line as plain text. */
+  .title-letter {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: baseline;
+  }
   .subtitle {
     font-size: 15px;
     line-height: 1.6;
@@ -645,6 +653,46 @@
 
   <script>
   (function() {
+    // -------------------------------------------------------------
+    // R0: HEADLINE BLOCK BUILD-UP (one letter at a time, from the ground)
+    // -------------------------------------------------------------
+    // Driven by the Web Animations API rather than CSS keyframes so the
+    // per-letter stagger (milliseconds) never trips the >=1s CSS animation
+    // floor, and so prefers-reduced-motion can skip it outright while the
+    // plain-text headline stays put for readers without script.
+    try {
+      var titleEl = document.querySelector('.stage .title');
+      var reduceMotion = false;
+      try {
+        reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (e) {}
+      if (titleEl && !reduceMotion && typeof titleEl.animate === 'function') {
+        var fullText = titleEl.textContent;
+        titleEl.setAttribute('aria-label', fullText);
+        titleEl.textContent = '';
+        var stepDelay = 0;
+        Array.prototype.forEach.call(fullText, function(ch) {
+          if (ch === ' ') {
+            titleEl.appendChild(document.createTextNode(' '));
+            return;
+          }
+          var cell = document.createElement('span');
+          cell.className = 'title-letter';
+          cell.setAttribute('aria-hidden', 'true');
+          cell.textContent = ch;
+          titleEl.appendChild(cell);
+          cell.animate(
+            [
+              { transform: 'translateY(120%)', opacity: '0' },
+              { transform: 'translateY(0)', opacity: '1' }
+            ],
+            { duration: 520, delay: 350 + stepDelay, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'backwards' }
+          );
+          stepDelay += 55;
+        });
+      }
+    } catch (err) {}
+
     // -------------------------------------------------------------
     // R1: 3D CARD PERSPECTIVE TILT WITH SUB-PIXEL LERP DAMPING
     // -------------------------------------------------------------
