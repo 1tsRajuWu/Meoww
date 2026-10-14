@@ -154,14 +154,29 @@ def same_bytes(repo: str, path: str) -> bool:
 
 
 def plan(api, repo: str, files: dict[str, str]) -> tuple[list[str], list[str]]:
-    """What to send and what to drop, measured rather than assumed."""
+    """What to send and what to drop, measured rather than assumed.
+
+    A path the **index** holds but the working tree no longer has is a difference
+    and not an error: that is what a deletion nobody has committed looks like
+    from here, and ``--check`` exists to describe exactly this kind of tree
+    (`--check` is the one mode that runs without the clean-tree refusal, so a
+    ``.stat()`` on a file that is gone was a crash rather than an answer). There
+    is nothing to send for it — the bytes are not on disk — so it is counted as
+    a drop: the machine holds it and this tree does not. Nothing is deleted by
+    the *sending* path, which refuses a tree like this one outright.
+    """
     sizes, blobs = remote(api, repo)
     send: list[str] = []
+    gone: set[str] = set()
     for path in sorted(files):
+        local = ROOT / path
+        if not local.is_file():
+            gone.add(path)
+            continue
         if path not in sizes:
             send.append(path)
             continue
-        if sizes[path] != (ROOT / path).stat().st_size:
+        if sizes[path] != local.stat().st_size:
             send.append(path)
             continue
         if blobs.get(path) == files[path]:
@@ -169,7 +184,7 @@ def plan(api, repo: str, files: dict[str, str]) -> tuple[list[str], list[str]]:
         if same_bytes(repo, path):
             continue
         send.append(path)
-    drop = sorted(path for path in sizes if path not in files)
+    drop = sorted(path for path in sizes if path not in files or path in gone)
     return send, drop
 
 

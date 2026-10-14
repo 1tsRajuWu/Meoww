@@ -297,6 +297,26 @@ HELP_MODULES = {
         "color": 0xFFD700,
         "emoji": "💎"
     },
+    "devcat": {
+        "title": "🐈 Dev Cat & Solo Arcade",
+        "desc": (
+            "One cat, in one server — the developer's own. Adopt it, look after it, "
+            "and keep yourself entertained when nobody else is around.\n\n"
+            "> `/cat adopt [name]` — Take a cat home (one each)\n"
+            "> `/cat status [member]` — Mood, food, energy, streak and badges\n"
+            "> `/cat feed` · `/cat pet` · `/cat play` — Look after it; each has its own clock\n"
+            "> `/cat rename` · `/cat top` — Rename it, or see whose cat is living best\n"
+            "> `/cat bored` — The arcade: guess my number, paw reflex, word scramble, cat duel, "
+            "and small things to do, with your own records\n\n"
+            "The cat sends a quiet card of its own now and then, and answers when you "
+            "name it — both switchable with `/cat settings`, which is the "
+            "administrator's, as is `/cat panel`. **This system only exists in the "
+            "developer's server, inside the VIP bot**: anywhere else every command "
+            "here is refused, and it is not even loaded by the main bot."
+        ),
+        "color": 0xFFD700,
+        "emoji": "🐈"
+    },
 }
 
 
@@ -318,7 +338,8 @@ HELP_HOME_BODY = (
     "- ⚡ **Leveling** — XP, ranks, reward roles\n"
     "- 🐾 **Social & Fun** — pets, roleplay, memes, quotes\n"
     "- 🎫 **Tickets** — private staff support\n"
-    "- 📊 **Activity Tracker** — per-channel msg & voice stats"
+    "- 📊 **Activity Tracker** — per-channel msg & voice stats\n"
+    "- 🐈 **Dev Cat** — one cat's server: a pet, an arcade, and quiet company (VIP dev only)"
 )
 
 # The category *structure* comes from the feature registry; the prose below
@@ -1119,7 +1140,6 @@ def build_cmd_card(bot, interaction, *, viewer, rows, scoped, search: str | None
 
     start = CMD_ALL
     extra = None
-    options = _cmd_options(scoped)
     if search:
         query = str(search).strip()
         pages[CMD_SEARCH_ID] = (f"## 🔍 {query}", _search_body(scoped, viewer, query))

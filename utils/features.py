@@ -172,6 +172,11 @@ class Feature:
     enabled_by_default: bool = True
     # False means the feature has no dashboard switch (core utilities).
     toggleable: bool = True
+    # True means the cog is **only** loaded by the VIP bot (see `vip_only_cogs`).
+    # The main bot runs this same tree, so a system that belongs to the premium
+    # instance says so here rather than by being written down in the loader — one
+    # place to look, and the loader reads it.
+    vip_only: bool = False
     # Help-menu category key, if it has one.
     help_key: str | None = None
     # Per-server settings this system declares, drawn on its dashboard card.
@@ -597,6 +602,101 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.premium",
         help_key="premium",
     ),
+    # The Dev Cat — a plaything for the developer's own server, and the one system
+    # in this registry that is not for servers in general.
+    #
+    # Two gates, and they do different jobs. `vip_only` keeps the cog out of the
+    # main bot's process entirely (the premium instance is the only one that loads
+    # it). The **hardcoded guild gate** in `utils/devtoy` refuses every server but
+    # one — including the server this instance is *in* when the switch is on
+    # somewhere else — and that id is written down in `utils/bot_channels.py`, one
+    # home, with a scan test. It ships OFF (`enabled_by_default=False`) not because
+    # the gate is weak but because per-server registration is the only lever
+    # Discord offers for hiding a slash command in one server: nothing appears
+    # anywhere until it is switched on in that one, and the dashboard is where the
+    # switches live.
+    #
+    # The arcade is `/cat bored` and not a root of its own, and that is Discord's
+    # ceiling rather than a preference: the tree already holds exactly one hundred
+    # top-level commands, so a second root makes `cogs.claims` fail to load
+    # (`CommandLimitReached` — a one-over limit is not a warning, it is a cog that
+    # never registers). The hub is a card of buttons, so the command is only ever
+    # the door. Nothing here is a port of `cogs/games.py`: the main bot's casino is
+    # not in this process at all, and these four are solo games one person plays
+    # against the cat.
+    Feature(
+        id="devcat",
+        name="Dev Cat & Solo Arcade",
+        icon="🐈",
+        category="Premium",
+        description=(
+            "One cat, one server: adopt it, feed it, pet it and play with it, post "
+            "a panel whose buttons keep working, play four solo arcade games with "
+            "personal records, and let the cat say something on its own now and "
+            "then. It refuses every server but the developer's own, and it loads "
+            "in the VIP bot only."
+        ),
+        gate_commands=("cat",),
+        commands=(
+            "/cat adopt", "/cat status", "/cat feed", "/cat pet", "/cat play",
+            "/cat rename", "/cat top", "/cat bored", "/cat panel", "/cat settings",
+        ),
+        cog="cogs.devtoy",
+        vip_only=True,
+        # Off until it is switched on in the one server it lives in. Not a
+        # security measure — the guild gate is that — but the reason the command
+        # is invisible in every other server instead of refusing there.
+        enabled_by_default=False,
+        help_key="devcat",
+        settings=(
+            Setting(
+                id="nudges",
+                label="The cat's own cards",
+                help=(
+                    "A quiet card the cat sends by itself when nothing has happened: "
+                    "a nudge, a riddle, a challenge. At most three a day, four hours "
+                    "apart, and never a ping unless the switch below is on."
+                ),
+                kind="bool",
+                default=True,
+            ),
+            Setting(
+                id="reactions",
+                label="Answers in chat",
+                help=(
+                    "Whether the cat may react to, or answer, what people type here. "
+                    "A mention or the cat's own name gets a sentence; anything else "
+                    "gets at most one small reaction a minute. Needs the Message "
+                    "Content intent on the deployment, and does nothing without it."
+                ),
+                kind="bool",
+                default=True,
+            ),
+            Setting(
+                id="ping",
+                label="Let the cat mention you",
+                help=(
+                    "Off by default: the cards carry no mention at all, so nothing "
+                    "notifies anybody. On, the cat's own person (the best-cared-for "
+                    "cat's owner) is mentioned on the cards the cat sends by itself."
+                ),
+                kind="bool",
+                default=False,
+            ),
+            Setting(
+                id="home_channel",
+                label="Where the cat talks",
+                help=(
+                    "A channel id for the cat's own cards, as an override of the "
+                    "hardcoded room. Leave it empty and the cat uses its own room, "
+                    "then this server's bound `#bot-cmd`-style channel, then says "
+                    "nothing at all rather than posting somewhere nobody reads."
+                ),
+                kind="text",
+                default="",
+            ),
+        ),
+    ),
     Feature(
         id="system",
         name="System & Server Control",
@@ -755,6 +855,18 @@ def cog_paths() -> list[str]:
             seen.add(path)
             unique.append(path)
     return unique
+
+
+def vip_only_cogs() -> frozenset[str]:
+    """Cogs only the VIP bot loads.
+
+    The main bot runs this same tree with the other identity, so a premium-only
+    system has to be *absent* from its process rather than refused at runtime — a
+    command that exists but always refuses still occupies one of Discord's hundred
+    slots in every server the main bot is in. Read by ``bot.py``'s loader; the
+    registry is where a system says it belongs to one identity.
+    """
+    return frozenset(f.cog for f in FEATURES if f.vip_only and f.cog)
 
 
 def default_disabled() -> frozenset[str]:

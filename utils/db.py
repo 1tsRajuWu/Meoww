@@ -1105,6 +1105,54 @@ async def setup():
         await db.execute(_support.CREATE_TABLE)
         await db.execute(_support.CREATE_INDEX)
 
+        # ── The Dev Cat ───────────────────────────────────────────────────────
+        # One row per member in the developer's own server: the cat they adopted,
+        # what it is feeling, and the bookkeeping that keeps it from pinging them.
+        # Created here as well as by the cog so a database restored from a backup
+        # taken before this table existed gets it on the next boot.
+        await db.execute('''CREATE TABLE IF NOT EXISTS devcat_pets (
+            guild_id INTEGER,
+            user_id INTEGER,
+            name TEXT DEFAULT '',
+            fed REAL DEFAULT 0,
+            mood REAL DEFAULT 0,
+            energy REAL DEFAULT 0,
+            adopted_at REAL DEFAULT 0,
+            updated_at REAL DEFAULT 0,
+            last_fed REAL DEFAULT 0,
+            last_pet REAL DEFAULT 0,
+            last_play REAL DEFAULT 0,
+            care_days INTEGER DEFAULT 0,
+            last_care_day TEXT DEFAULT '',
+            care_score INTEGER DEFAULT 0,
+            games INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
+        )''')
+        # One row per member per game: the best number they have posted, and how
+        # many times they played it. ``best`` is the raw figure — whether lower or
+        # higher wins is the game's own business (``utils/devtoy``), not the
+        # column's, because a table that encoded the direction would need a
+        # migration the day a game's scoring changed.
+        await db.execute('''CREATE TABLE IF NOT EXISTS devcat_records (
+            guild_id INTEGER,
+            user_id INTEGER,
+            game TEXT,
+            best REAL DEFAULT 0,
+            plays INTEGER DEFAULT 0,
+            updated_at REAL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, game)
+        )''')
+        # The cat's own diary: when it last sent a card nobody asked for, and how
+        # many it has sent today. A single row per server rather than a log — the
+        # only questions ever asked of it are "may it speak now" and "how long
+        # since it did", and both are one row.
+        await db.execute('''CREATE TABLE IF NOT EXISTS devcat_ambient (
+            guild_id INTEGER PRIMARY KEY,
+            last_nudge REAL DEFAULT 0,
+            nudge_day TEXT DEFAULT '',
+            nudge_count INTEGER DEFAULT 0
+        )''')
+
         # One-time repair of the fixtures that reached production — last, because
         # it is the only migration here that deletes rows from a table this
         # function also creates. This is the other half of what
@@ -2633,6 +2681,186 @@ def read_alone_time_rows_sync(guild_id) -> list[dict]:
     finally:
         conn.close()
     return [_alone_row(row) for row in rows]
+
+
+# ── The Dev Cat: one pet per member, in the developer's own server ───────────
+#
+# The column list lives here once and every reader below builds its answer from
+# it, for the reason the alone-time list does: two readers and one writer over one
+# row shape is how a column goes missing from a card.
+_DEVCAT_PET_COLUMNS: tuple[str, ...] = (
+    "guild_id", "user_id", "name", "fed", "mood", "energy", "adopted_at",
+    "updated_at", "last_fed", "last_pet", "last_play", "care_days",
+    "last_care_day", "care_score", "games",
+)
+_DEVCAT_PET_FLOATS = frozenset({
+    "fed", "mood", "energy", "adopted_at", "updated_at", "last_fed",
+    "last_pet", "last_play",
+})
+_DEVCAT_PET_INTS = frozenset({"guild_id", "user_id", "care_days", "care_score", "games"})
+
+
+def _devcat_pet_row(row) -> dict:
+    """One stored pet as a plain dict, with each column in its own type."""
+    record: dict = {}
+    for index, name in enumerate(_DEVCAT_PET_COLUMNS):
+        value = row[index]
+        if name in _DEVCAT_PET_FLOATS:
+            record[name] = float(value or 0.0)
+        elif name in _DEVCAT_PET_INTS:
+            record[name] = int(value or 0)
+        else:
+            record[name] = str(value or "")
+    return record
+
+
+async def devcat_pet(guild_id: int, user_id: int) -> dict | None:
+    """One member's cat, or ``None`` when they have not adopted one here."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT " + ", ".join(_DEVCAT_PET_COLUMNS)
+            + " FROM devcat_pets WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+    return _devcat_pet_row(row) if row else None
+
+
+async def save_devcat_pet(guild_id: int, user_id: int, fields: dict) -> None:
+    """Write one cat row whole.
+
+    Whole, rather than one column at a time: the caller always holds the state the
+    card is about (``utils/devtoy`` derives it in one pass), and a partial write is
+    how a drifted dial and a stamped clock end up describing different cats.
+    """
+    values = [guild_id, user_id]
+    for column in _DEVCAT_PET_COLUMNS[2:]:
+        value = fields.get(column)
+        if value is None:
+            value = 0.0 if column in _DEVCAT_PET_FLOATS else (
+                0 if column in _DEVCAT_PET_INTS else ""
+            )
+        values.append(value)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO devcat_pets ("
+            + ", ".join(_DEVCAT_PET_COLUMNS)
+            + ") VALUES (" + ", ".join("?" for _ in _DEVCAT_PET_COLUMNS) + ")",
+            tuple(values),
+        )
+        await db.commit()
+
+
+async def devcat_leaderboard(guild_id: int, limit: int = 10) -> list[dict]:
+    """The best-cared-for cats in one server, happiest first.
+
+    Ordered by the *care score* rather than by mood, because mood is a function of
+    when the card happens to be read and a leaderboard that reshuffles itself
+    every hour is not a leaderboard.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT " + ", ".join(_DEVCAT_PET_COLUMNS)
+            + " FROM devcat_pets WHERE guild_id = ? "
+            "ORDER BY care_score DESC, care_days DESC, user_id ASC LIMIT ?",
+            (guild_id, max(1, int(limit))),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [_devcat_pet_row(row) for row in rows]
+
+
+async def devcat_record(guild_id: int, user_id: int, game: str) -> dict | None:
+    """One member's record at one game."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT best, plays, updated_at FROM devcat_records "
+            "WHERE guild_id = ? AND user_id = ? AND game = ?",
+            (guild_id, user_id, str(game)),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return {"best": float(row[0] or 0.0), "plays": int(row[1] or 0), "updated_at": float(row[2] or 0.0)}
+
+
+async def devcat_records(guild_id: int, user_id: int) -> dict[str, dict]:
+    """Every record one member holds, keyed by game id."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT game, best, plays, updated_at FROM devcat_records "
+            "WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ) as cur:
+            rows = await cur.fetchall()
+    return {
+        str(row[0]): {
+            "best": float(row[1] or 0.0),
+            "plays": int(row[2] or 0),
+            "updated_at": float(row[3] or 0.0),
+        }
+        for row in rows
+    }
+
+
+async def save_devcat_record(
+    guild_id: int, user_id: int, game: str, best: float, *, plays: int | None = None
+) -> None:
+    """Store one record, keeping the play count when the caller does not set it.
+
+    ``plays`` is optional on purpose: a finished game always increments it, while
+    the ambient bookkeeping that records a *first* score does not want to invent
+    one, and a default of zero would silently reset a count that already existed.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        if plays is None:
+            async with db.execute(
+                "SELECT plays FROM devcat_records "
+                "WHERE guild_id = ? AND user_id = ? AND game = ?",
+                (guild_id, user_id, str(game)),
+            ) as cur:
+                row = await cur.fetchone()
+            plays = int(row[0] or 0) if row else 0
+        await db.execute(
+            "INSERT OR REPLACE INTO devcat_records "
+            "(guild_id, user_id, game, best, plays, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (guild_id, user_id, str(game), float(best), int(plays), time.time()),
+        )
+        await db.commit()
+
+
+async def devcat_ambient(guild_id: int) -> dict:
+    """The cat's own bookkeeping row — always a dict, never ``None``.
+
+    A server that has never had an unprompted card has no row, and that is a valid
+    answer rather than an error: the caller asks "may it speak now", and the answer
+    for a fresh install is yes.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT last_nudge, nudge_day, nudge_count FROM devcat_ambient WHERE guild_id = ?",
+            (guild_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return {"last_nudge": 0.0, "nudge_day": "", "nudge_count": 0}
+    return {
+        "last_nudge": float(row[0] or 0.0),
+        "nudge_day": str(row[1] or ""),
+        "nudge_count": int(row[2] or 0),
+    }
+
+
+async def save_devcat_ambient(
+    guild_id: int, *, last_nudge: float, nudge_day: str, nudge_count: int
+) -> None:
+    """Write the bookkeeping row whole — the three fields are one decision."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO devcat_ambient "
+            "(guild_id, last_nudge, nudge_day, nudge_count) VALUES (?, ?, ?, ?)",
+            (guild_id, float(last_nudge), str(nudge_day), int(nudge_count)),
+        )
+        await db.commit()
 
 
 # ── The operator's blocklist ─────────────────────────────────────────────────

@@ -58,6 +58,14 @@ DIRECT_WRITES = {
     "bot_config.py": [
         "user.edit()",           # the bot's own profile, not a server's
     ],
+    "devtoy.py": [
+        # The cat's panel, and only that: the card is one this bot posted, the
+        # buttons are registered on the bot so they outlive a deploy, and pressing
+        # one re-renders that same card for whoever pressed it. Nothing here
+        # touches anybody's server — there is no role, no channel and no
+        # permission in the file.
+        "message.edit()",
+    ],
     "moderation.py": [
         "channel.purge()",       # /purge removes messages, not the channel
     ],

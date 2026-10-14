@@ -32,14 +32,35 @@ ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log", "test", "
 #: bot never reads.
 OPERATOR_ROLES: frozenset[str] = frozenset({"guilds", "cmdlog"})
 
+#: The **developer's own server**, by id: the one place in this tree where a
+#: server id is deliberately written into code, and it is here for the one feature
+#: that is by definition one server's — the Dev Cat (``utils/devtoy.py``).
+#:
+#: The rule this breaks is a real one (see ``docs/architecture.md``: *a hardcoded
+#: channel id names exactly one server, which is why the update channel, the
+#: failure channel, level-up cards and bug reports were all invisible everywhere
+#: else*). The exception is stated rather than implied: the toy is a plaything for
+#: one person in one server, it refuses every other guild by design, and the ids
+#: below have exactly one home — ``tests/test_devtoy.py`` scans the tree and fails
+#: if either number appears anywhere else, which is the shape the Dev role id and
+#: the legacy update channel already use.
+DEV_SERVER_GUILD_ID = 1550227368889684058
+
+#: The room in that server the cat's own cards land in when nobody asked for one.
+#: A member cannot forge it, and the toy falls back to the server's own bound bot
+#: channel (then to posting nothing) when it is absent, so a renamed room is a
+#: setting rather than a code change.
+DEV_CHAT_CHANNEL_ID = 1550229468201877596
+
 #: The server the bot calls home: the one whose ``#update``, ``#bot-error`` and
 #: ``#bug`` exist to receive what the bot has to say about itself. It is the
 #: fallback destination for a report, never the first choice.
 #:
 #: Declared as a default rather than hardcoded because *which* server this is is a
 #: deployment fact — the fallback for a report has to be somewhere a report can
-#: actually be read, and only the operator knows where that is.
-_DEFAULT_BOT_SERVER_GUILD_ID = 1550227368889684058
+#: actually be read, and only the operator knows where that is. The default it
+#: falls back to is the developer's own server above, so the digits keep one home.
+_DEFAULT_BOT_SERVER_GUILD_ID = DEV_SERVER_GUILD_ID
 
 
 def bot_server_guild_id() -> int:

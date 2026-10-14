@@ -232,6 +232,23 @@ services:
         sync: false
       - key: LEMONSQUEEZY_CHECKOUT_ENTERPRISE
         sync: false
+      # **The Dev Cat's chat half, which is a deployment switch and nothing
+      # else.** The toy in `cogs/devtoy.py` reacts to, and answers, what people
+      # type in the developer's server — and Discord sends a bot no message text
+      # at all without the privileged Message Content intent. Two things have to
+      # be true for that: this variable, and the intent enabled on **this
+      # application** in the Developer Portal (the VIP app — the intent is per
+      # application, not per bot token). With neither, everything else about the
+      # toy works and the cat simply never answers; `drop_ungranted_intents`
+      # prints which one is missing at boot rather than failing the connection.
+      #
+      # Declared rather than left to the dashboard, for the reason this manifest
+      # has been caught by before: an undeclared variable is never *prompted*
+      # for, so a Blueprint sync deploys it empty and the feature is off with
+      # nothing anywhere to say so. The Space running this token today needs the
+      # same value in its own settings.
+      - key: ENABLE_MESSAGE_CONTENT_INTENT
+        value: "1"
       - key: OWNER_DISCORD_ELEVATION
         value: "1"
       - key: PLAN_CHECKOUT

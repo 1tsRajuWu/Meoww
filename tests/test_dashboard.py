@@ -648,6 +648,13 @@ class DeploymentConfig(unittest.TestCase):
         # whatever hour somebody pushed.
         "SILENT_UPDATES",
         "UPDATE_WINDOW_IST",
+        # ``ENABLE_MESSAGE_CONTENT_INTENT`` is the same kind of value again: not a
+        # credential but a **capability switch**, and one that has to mean the same
+        # thing on every host running this code — the Dev Cat's chat half reads it,
+        # and a prompt is where one deployment answers "on" and the next silently
+        # does not. It is not a secret in any sense: Discord's intent list is public
+        # documentation, and the value is ``1``.
+        "ENABLE_MESSAGE_CONTENT_INTENT",
     })
 
     def committed_secrets(self, manifest: str) -> list:
@@ -777,7 +784,21 @@ class ContentSecurityPolicy(unittest.TestCase):
                     allowed,
                     f"{name} loads {origin}, which script-src forbids — the chart can never draw",
                 )
-        self.assertGreater(found, 0, "the scan must actually find the chart library")
+        market = os.path.join(TEMPLATES, "market.html")
+        if os.path.isfile(market):
+            self.assertGreater(found, 0, "the scan must actually find the chart library")
+        else:
+            # The market page is the only template that ever loaded a script
+            # from outside this origin, and it is retired with the maintenance
+            # screen — so zero is the honest count now, and the guard above is
+            # the one that catches a page which stopped loading its chart
+            # library the day the template comes back.
+            self.assertEqual(
+                found,
+                0,
+                "a template loads an external script while the market page, the "
+                "only one that ever did, is retired",
+            )
 
     def test_the_rest_of_the_policy_is_still_locked_down(self):
         self.assertIn("default-src 'self'", self.policy_directive("default-src"))
@@ -1085,6 +1106,12 @@ class PreviewHarness(unittest.TestCase):
             os.path.join(self.ROOT, "templates", "dashboard.html"), encoding="utf-8"
         ).read()
         self.assertIn('href="/market"', page, "the dashboard links nowhere to the charts")
+
+        if not os.path.isfile(os.path.join(self.ROOT, "templates", "market.html")):
+            self.skipTest(
+                "the market page is retired with the maintenance screen, so the "
+                "harness has nothing to serve — the link law above still ran"
+            )
 
         client = self._load_harness().app.test_client()
         landing = client.get("/market")

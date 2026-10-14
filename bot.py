@@ -155,6 +155,14 @@ bot = commands.Bot(
 
 # The cog list, the command->module gates and the default states all come from
 # utils/features.py. Add or retire a feature there, not here.
+#: Cogs the **VIP instance** loads and the main one does not. The other half of
+#: the split is ``features.vip_only_cogs()``, which the loader below adds to this
+#: set: a premium-only system says so in the registry, so adding one is a registry
+#: edit rather than a second list here that nobody remembers to update.
+VIP_CORE_COGS: tuple[str, ...] = (
+    "cogs.premium", "cogs.music", "cogs.social", "cogs.questions",
+)
+
 INITIAL_COGS = features.cog_paths()
 MODULE_COMMAND_MAP = features.MODULE_COMMAND_MAP
 ALWAYS_ALLOWED_COMMANDS = features.ALWAYS_ALLOWED_COMMANDS
@@ -2197,9 +2205,17 @@ async def main():
         print(f"[CLOUD SYNC] Startup restore error: {e}", flush=True)
 
     is_vip = permissions.is_vip_token(TOKEN)
+    vip_only = features.vip_only_cogs()
+    premium_cogs = set(VIP_CORE_COGS) | vip_only
     async with bot:
         for cog in INITIAL_COGS:
-            if is_vip and cog not in ("cogs.premium", "cogs.music", "cogs.social", "cogs.questions"):
+            # A premium system is not *refused* on the main bot — it is never
+            # loaded. That is the only thing that keeps its command out of every
+            # server's picker without spending one of Discord's hundred slots on
+            # something that would only ever answer "no".
+            if cog in vip_only and not is_vip:
+                continue
+            if is_vip and cog not in premium_cogs:
                 continue
             try:
                 await bot.load_extension(cog)

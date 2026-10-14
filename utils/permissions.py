@@ -38,7 +38,15 @@ import discord
 #: pickers and hands the ceiling slots back.
 VIP_BOT_ID = 1558691012975534222
 #: Root commands reserved to the VIP instance (see above).
-VIP_ONLY_COMMANDS = frozenset({"premium", "bond", "music", "game", "questions", "question"})
+#:
+#: ``cat`` is here as well as being `vip_only` in the registry, and the two are not
+#: the same fact: the registry keeps the **cog** out of the main bot's process,
+#: while this list is what stops the main bot's publisher from ever putting the
+#: name in a scope — belt and braces, because a command that exists in a tree is
+#: one registration away from being visible.
+VIP_ONLY_COMMANDS = frozenset({
+    "premium", "bond", "music", "game", "questions", "question", "cat",
+})
 
 
 def is_vip_app_id(app_id) -> bool:
@@ -397,6 +405,27 @@ COMMAND_ACCESS: dict[str, str] = {
     "premium perks": EVERYONE,
     "premium invite": EVERYONE,
     "game": EVERYONE,
+
+    # -- The Dev Cat: one server's plaything, and the VIP bot only --------- #
+    # A cat is *your own* pet — adopting one, feeding it and playing with it
+    # touch nothing that belongs to somebody else, and reading somebody else's
+    # cat is what `/cat status <member>` and the leaderboard are for, so they are
+    # as public as `/rank`. The two exceptions are the server's own furniture:
+    # `/cat settings` decides what the cat may do *unprompted* to everybody, and
+    # `/cat panel` posts a card carrying a persistent view into a channel — the
+    # same shape of decision `/add` answers to, at the same rank.
+    "cat adopt": EVERYONE,
+    "cat status": EVERYONE,
+    "cat feed": EVERYONE,
+    "cat pet": EVERYONE,
+    "cat play": EVERYONE,
+    "cat rename": EVERYONE,
+    "cat top": EVERYONE,
+    "cat panel": ADMIN,
+    "cat settings": ADMIN,
+    # The arcade is one person's records and nobody else's business, but it is
+    # their own business: everybody.
+    "cat bored": EVERYONE,
 }
 
 

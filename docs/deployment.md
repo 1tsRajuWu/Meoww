@@ -426,6 +426,14 @@ the new dashboard host.
   `python scripts/mirror_space.py`, which sends the tracked tree as one commit,
   refuses a dirty tree or an unpushed `HEAD` for the same reason `ship.py` does,
   and has `--check` for asking what differs without sending anything.
+- The chat half of the Dev Cat is set up **here**, not on Render: that machine
+  carries the live VIP token, so the application whose Developer Portal page
+  needs Message Content enabled is the VIP one, and
+  `ENABLE_MESSAGE_CONTENT_INTENT=1` belongs in the Space's own variables (the
+  Settings tab) as well as in `render.yaml`. With the variable set and the intent
+  un-granted, or the other way round, nothing crashes: the boot names the intent
+  it dropped and the cat simply never answers. Nothing about the rest of the toy
+  — `/cat`, the panel, the arcade, the cat's own cards — depends on it.
 - What is asked instead: its `/health`, whose `service` field is built from
   `utils/brand.py`. A rebrand moves the check and the answer together, so a
   machine still announcing the retired name fails the release — which is the
@@ -532,7 +540,21 @@ which `/bot dbstatus` and the dashboard's Cloud card both say out loud.
 - `SUPABASE_SERVICE_KEY`: Service role key (not anon key)
 
 ### Optional
-- `ENABLE_MESSAGE_CONTENT_INTENT=1`: Enable message content intent
+- `ENABLE_MESSAGE_CONTENT_INTENT=1`: the privileged **Message Content** intent.
+  Discord sends a bot no message text at all without it, so this is the switch
+  behind anything that reads what people type — today that is the **Dev Cat's**
+  chat half (`cogs/devtoy.py`), which therefore does nothing without it while
+  every other part of the toy works. Two things have to be true, and the second
+  is not in this repository: this variable **and** the intent enabled for *that*
+  application in the Developer Portal. The intent belongs to the
+  **application** — so on the VIP app (`meoww-premium`, the one that is live),
+  not on the main bot's; a flag set for the wrong application changes nothing and
+  looks exactly like a feature that does not work. `render.yaml` declares it so a
+  Blueprint sync prompts for it rather than deploying it empty, and the Space,
+  whose token is the live one, needs the same value in its own settings. Boot
+  prints which intent it had to drop (`drop_ungranted_intents`) rather than
+  failing the connection, so the symptom of a half-done setup is a line in the
+  host log and a cat that never answers
 - `ENABLE_MEMBERS_INTENT=1`: Enable members intent
 - `ERROR_WEBHOOK_URL`: Error reporting webhook
 - `UPTIMEROBOT_API_KEY`: the **read-only** UptimeRobot key (My Settings -> API
