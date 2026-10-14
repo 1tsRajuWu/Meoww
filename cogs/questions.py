@@ -367,6 +367,23 @@ class QuestionSubmitButton(discord.ui.Button):
             await self.session.cog.handle_submit_button(interaction, self.session)
 
 
+class QuestionEditButton(discord.ui.Button):
+    """Ephemeral edit button shown after a member submits an answer."""
+
+    def __init__(self, session: QuestionSession):
+        super().__init__(
+            label="Edit Answer",
+            style=discord.ButtonStyle.secondary,
+            emoji="✏️",
+            custom_id=f"questions_edit:{session.session_id}",
+        )
+        self.session = session
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.session.cog:
+            await self.session.cog.handle_submit_button(interaction, self.session)
+
+
 class QuestionAnswerModal(discord.ui.Modal):
     """Discord modal for submitting / updating text responses."""
 
@@ -434,19 +451,21 @@ class QuestionAnswerModal(discord.ui.Modal):
                 should_resolve_early = True
 
         msg = (
-            "✅ Your response has been updated!"
+            "✅ Your response has been updated! Tap Edit below to change it."
             if is_update
-            else "✅ Your response has been recorded!"
+            else "✅ Your response has been recorded! Tap Edit below to change it."
         )
         embed = discord.Embed(
             title="✅ Answer Updated" if is_update else "✅ Answer Recorded",
             description=msg,
             color=0x23A55A,
         )
+        edit_view = discord.ui.View(timeout=None)
+        edit_view.add_item(QuestionEditButton(self.session))
         if not interaction.response.is_done():
-            await interaction.response.send_message(msg, embed=embed, ephemeral=True)
+            await interaction.response.send_message(msg, embed=embed, view=edit_view, ephemeral=True)
         else:
-            await interaction.followup.send(msg, embed=embed, ephemeral=True)
+            await interaction.followup.send(msg, embed=embed, view=edit_view, ephemeral=True)
 
         # Early completion check: if all role members answered, resolve immediately
         if should_resolve_early and self.session.cog:
@@ -492,25 +511,17 @@ class Questions(commands.Cog):
 
         if session.resolved:
             sub_count_text = f"`{len(session.answers)}` recorded (Closed)"
-            status_text = "🔒 **Submissions are closed.**"
-            footer_text = f"DaCat Questions • ID: {session.session_id} • Concluded"
+            footer_text = f"🔒 Submissions are closed • Concluded"
             color = 0x747F8D
         else:
             sub_count_text = f"`{len(session.answers)}` recorded"
-            status_text = "👇 **Role members: click below to submit or update your answer!**"
-            footer_text = f"DaCat Questions • ID: {session.session_id} • Closes {dur_label}"
+            footer_text = f"👇 Tap below to answer • Closes {dur_label}"
             color = ACCENT
 
         q_lines = session.question_text.splitlines()
         q_display = "\n> ".join(q_lines) if q_lines else session.question_text
 
-        desc = (
-            f"> **\"{q_display}\"**\n\n"
-            f"🎯 **Target Role:** {session.role.mention}\n"
-            f"⏳ **Expires:** <t:{time_ts}:R> (<t:{time_ts}:F>)\n"
-            f"⏱️ **Duration:** `{dur_label}`\n\n"
-            f"{status_text}"
-        )
+        desc = f"> **\"{q_display}\"**"
 
         embed = discord.Embed(
             title=f"❓ Question for @{role_name}",
@@ -518,12 +529,10 @@ class Questions(commands.Cog):
             color=color,
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_author(name="DaCat Questions • Interactive Role Prompt", icon_url=VIP_GEM_GIF)
-        embed.set_thumbnail(url=ANIMATED_ARROW_GIF)
         embed.add_field(name="🎯 Target Role", value=session.role.mention, inline=True)
         embed.add_field(name="⏳ Closes", value=f"<t:{time_ts}:R>", inline=True)
         embed.add_field(name="📝 Submissions", value=sub_count_text, inline=True)
-        embed.set_footer(text=footer_text, icon_url=VIP_CROWN_GIF)
+        embed.set_footer(text=footer_text)
         return embed
 
     def build_question_card(self, session: QuestionSession) -> Panel:
@@ -532,34 +541,25 @@ class Questions(commands.Cog):
         dur_label = format_duration(session.duration_seconds)
 
         if session.resolved:
-            status_text = "🔒 **Submissions are closed.**"
             button_label = "Submissions Closed"
             button_emoji = "🔒"
-            footer_text = f"DaCat • ID: {session.session_id} • Concluded"
+            footer_text = f"🔒 Submissions are closed • Concluded"
             sub_count_text = f"`{len(session.answers)}` recorded (Closed)"
         else:
-            status_text = "👇 **Role members: click below to submit or update your answer!**"
             button_label = "Submit Answer"
             button_emoji = "✍️"
-            footer_text = f"DaCat • ID: {session.session_id} • Closes <t:{time_ts}:R>"
+            footer_text = f"👇 Tap below to answer • Closes <t:{time_ts}:R>"
             sub_count_text = f"`{len(session.answers)}` recorded"
 
         q_lines = session.question_text.splitlines()
         q_display = "\n> ".join(q_lines) if q_lines else session.question_text
-        body = (
-            f"> **\"{q_display}\"**\n\n"
-            f"🎯 **Target Role:** {session.role.mention}\n"
-            f"⏳ **Expires:** <t:{time_ts}:R> (<t:{time_ts}:F>)\n"
-            f"⏱️ **Duration:** `{dur_label}`\n\n"
-            f"{status_text}"
-        )
+        body = f"> **\"{q_display}\"**"
 
         role_name = getattr(session.role, "name", "Role")[:100]
         panel = Panel(
             title=f"Question for @{role_name}",
             body=body,
             accent=ACCENT,
-            gallery=[ANIMATED_ARROW_GIF],
             fields=[
                 ("Target Role", session.role.mention),
                 ("Closes", f"<t:{time_ts}:R>"),
@@ -904,7 +904,10 @@ class Questions(commands.Cog):
             return
         data = getattr(interaction, "data", None) or {}
         custom_id = data.get("custom_id", "")
-        if not custom_id.startswith("questions_submit:"):
+        if not (
+            custom_id.startswith("questions_submit:")
+            or custom_id.startswith("questions_edit:")
+        ):
             return
         if interaction.response.is_done():
             return
