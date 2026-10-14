@@ -1808,7 +1808,7 @@ def _enforce_be_right_back():
     if normalized_lower in main_routes or path_lower in main_routes:
         bot_name = _bot_display_name()
         invite = discord_auth.invite_url() if discord_auth.client_id() else ""
-        return Response(
+        resp = Response(
             render_template(
                 "brb_main.html",
                 bot_name=bot_name,
@@ -1818,6 +1818,10 @@ def _enforce_be_right_back():
             status=200,
             mimetype="text/html; charset=utf-8",
         )
+        # This screen changes under the reviewer: never let a tab sit on a
+        # stale copy of it and report yesterday's text as today's bug.
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     return None
 
