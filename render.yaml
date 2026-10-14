@@ -172,3 +172,73 @@ services:
       # PRIVACY.md section 5 and TERMS.md section 12.
       - key: ALERT_WEBHOOK_URL
         sync: false
+  - type: web
+    # The VIP bot: the same code, the other identity. Declared 2026-10-14
+    # because this service existed on the dashboard with no blueprint entry,
+    # so no sync ever prompted for its token and every one of its deploys died
+    # at boot in `RuntimeError: DISCORD_TOKEN not found` — the exact shape the
+    # `meow-discord-bot-fmhp` duplicate took in the note above. Naming it here
+    # is what makes the next Blueprint sync adopt it (Render matches by name)
+    # and ask for the values below instead of deploying it empty again.
+    name: meoww-premium
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      # **The VIP application's token** — not the main bot's. `bot.py` reads
+      # `DISCORD_TOKEN` first and `VIP_BOT_TOKEN` second, so answering either
+      # prompt starts this service; answering with the main token would log in
+      # as the wrong bot and fight the `Meoww` service over commands. Tokens
+      # are per service: the entry above keeps its own.
+      - key: DISCORD_TOKEN
+        sync: false
+      # The same credential under its own name, for operators who keep both
+      # bots' tokens side by side. Either this or `DISCORD_TOKEN` starts the
+      # service; neither set is the red deploy on the dashboard today.
+      - key: VIP_BOT_TOKEN
+        sync: false
+      # The VIP application's client id — public, like the main one above, and
+      # **different** from it: the invite links and Discord sign-in on this
+      # host are built from it, so the main id here would invite the wrong bot.
+      - key: DISCORD_CLIENT_ID
+        value: "1558691012975534222"
+      # The rest mirrors the main service: one process, two identities, and a
+      # prompt answered differently on the two hosts is a behaviour answered
+      # differently. The shared secrets (backup bucket, session key, passkey,
+      # proxy stamp) must hold the **same** values here as there — the two
+      # processes back up one database and sign into one dashboard.
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: FLASK_SECRET_KEY
+        sync: false
+      - key: ADMIN_PASSKEY
+        sync: false
+      - key: OWNER_PROXY_SECRET
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: UPTIMEROBOT_API_KEY
+        sync: false
+      - key: UPTIMEROBOT_STATUS_PAGE
+        sync: false
+      - key: RENDER_DEPLOY_HOOK_URL
+        sync: false
+      - key: LEMONSQUEEZY_CHECKOUT_PRO
+        sync: false
+      - key: LEMONSQUEEZY_CHECKOUT_ENTERPRISE
+        sync: false
+      - key: OWNER_DISCORD_ELEVATION
+        value: "1"
+      - key: PLAN_CHECKOUT
+        value: "0"
+      - key: PLAN_ENFORCEMENT
+        value: "0"
+      - key: UPDATE_WINDOW_IST
+        value: "03:33,04:00,04:44"
+      - key: SILENT_UPDATES
+        value: "0"

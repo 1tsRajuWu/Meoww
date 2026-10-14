@@ -15,6 +15,15 @@
     subdomain, chosen when the service was created on 2026-09-12 and kept
     through the rename)
   - Dashboard: https://dashboard.render.com/web/srv-daiqibp594qs739qebc0
+- Service: meoww-premium — the VIP bot: the same code, the other identity
+  (premium, music, bond, game, questions). Reachable at
+  https://meoww-premium.onrender.com (the creation subdomain).
+  - Dashboard: https://dashboard.render.com/web/srv-db7foeqj9qps73c9p420
+  - Token: the VIP application's token, answered in `DISCORD_TOKEN` (or
+    `VIP_BOT_TOKEN`). This service ran with neither set, so every deploy died
+    at boot in `RuntimeError: DISCORD_TOKEN not found`; the manifest now
+    declares it, so a Blueprint sync adopts it by name and prompts for the
+    token instead of deploying it empty.
 - Runtime: Python 3.11
 - Plan: Free tier
 - Build: `pip install -r requirements.txt`
@@ -53,7 +62,8 @@ lost in the process. What still cannot be read back from a laptop is an environm
 variable's *value*, so the prompts below remain the part worth looking at before
 pressing Sync by hand.
 
-The account is meant to hold exactly two services: this one, and
+The account is meant to hold exactly three services: the two in this file
+(`Meoww` and `meoww-premium` — one process, two Discord identities), and
 `discord-github-bot` (a different repository, seen next to `Meow` in the
 dashboard). Anything else appearing there is a sync that did not match a name in
 this file.

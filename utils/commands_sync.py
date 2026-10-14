@@ -204,6 +204,11 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         # and /lockdown & /unlock support scope="channel" | "server".
         "addmoney", "removemoney", "setmoney", "addbank",
         "lockdown-server", "unlock-server",
+        # Folded for the ceiling: `/dbstatus` is `/bot dbstatus` now — the top
+        # level was removed when the tree hit Discord's hundred-command limit,
+        # but the registration was never added here, so it still squats a slot
+        # in every server and fails on click (the tree has no such root).
+        "dbstatus",
         # The music player that `deleted_features/cogs/music.py` was: a queue in
         # one voice channel, replaced by `/radio`'s stations in
         # `deleted_features/radio_2026_09/` and then by `cogs/radio.py`. Both

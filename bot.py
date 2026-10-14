@@ -2144,6 +2144,21 @@ async def main():
     for line in config_audit.boot_lines():
         print(line, flush=True)
 
+    # Fail fast: without a token nothing below can work — the cloud restore
+    # would run against an empty bucket config, twenty cogs would load, and
+    # only then would the boot die minutes in. A tokenless deploy is a service
+    # whose Environment Variables were never answered (each Render service
+    # needs its own: `Meoww` takes the main bot's token, `meoww-premium` takes
+    # the VIP one), so say that here, in seconds, instead of after minutes of
+    # doomed setup.
+    if not TOKEN:
+        raise RuntimeError(
+            "DISCORD_TOKEN not found (VIP_BOT_TOKEN is accepted too). Set it "
+            "in your .env file (local) or in the service's Environment "
+            "Variables on Render — Meoww takes the main bot's token, "
+            "meoww-premium takes the VIP bot's token."
+        )
+
     # 1. Restore persistent SQLite database from cloud before loading cogs or connecting
     _install_shutdown_flush()
     try:
@@ -2162,12 +2177,6 @@ async def main():
                 print(f"Loaded {cog}")
             except Exception as e:
                 print(f"Failed to load {cog}: {e}")
-
-        if not TOKEN:
-            raise RuntimeError(
-                "DISCORD_TOKEN not found. Set it in your .env file (local) "
-                "or in your host's Environment Variables (Railway/Oracle)."
-            )
 
         # keep_alive() starts the Web Admin Dashboard and uptime keep-alive
         keep_alive(bot)

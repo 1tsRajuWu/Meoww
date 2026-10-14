@@ -56,7 +56,7 @@ SETTINGS_READER = "utils/config_audit.py"
 #: exactly what it says: retired code kept for reference, with its own tests, and
 #: none of it is loaded, imported or deployed. Its environment reads are not this
 #: deployment's surface.
-SKIP_DIRS = {"deleted_features", "tests", ".venv", "venv", "_site", "__pycache__", ".git"}
+SKIP_DIRS = {"deleted_features", "tests", ".venv", "venv", "_site", "__pycache__", ".git", ".claude"}
 
 #: Every way this tree reaches for the environment, including the two indirections
 #: that a plain ``os.getenv`` search misses: a name handed to ``_env_flag``, and a
@@ -227,7 +227,7 @@ class TheRuntimeReachesTheEnvironmentThroughOneModule(unittest.TestCase):
             offenders,
             [],
             "these read the environment directly instead of through "
-            f"config_audit.get/flag, so the registry is no longer the whole "
+            "config_audit.get/flag, so the registry is no longer the whole "
             "surface: " + "; ".join(offenders),
         )
 
@@ -398,7 +398,7 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
             found.append((kind, named.group(1) if named else ""))
         return found
 
-    def test_the_manifest_names_the_service_the_account_has(self):
+    def test_the_manifest_names_the_services_the_account_has(self):
         """A sync matches on **name**, so a name the account does not have creates a bot.
 
         ``render.yaml`` declared ``meow-discord-bot`` — which is the service's
@@ -420,23 +420,29 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
         written twice (that same line and the fallback the code reaches a Render
         host at) and those must agree; and the one string may never be used as the
         other, which is what the edit that caused this looks like.
+
+        The account now holds **two** services from this repository — ``Meoww``
+        (the main bot) and ``meoww-premium`` (the VIP bot: same code, other
+        identity) — because the second ran with no manifest entry, so no sync
+        ever prompted for its token and every deploy died the same
+        ``DISCORD_TOKEN not found`` death as the duplicate above. The law is the
+        same shape for both: every name the manifest declares is recorded in the
+        guide, and no name is a hostname.
         """
         services = self.services_in_the_manifest()
         self.assertEqual(
-            len(services),
-            1,
-            f"the manifest should declare exactly one web service; it declares {services}",
+            {(kind, name) for kind, name in services},
+            {("web", "Meoww"), ("web", "meoww-premium")},
+            f"the manifest should declare the two bot services; it declares {services}",
         )
-        kind, declared = services[0]
-        self.assertEqual(kind, "web", "the bot is a web service, and the sync matches it by name")
-        self.assertTrue(declared, "the service in the manifest has no name")
         recorded = re.findall(r"^\s*- Service:\s*(\S+)", self.deployment, flags=re.MULTILINE)
-        self.assertEqual(len(recorded), 1, "docs/deployment.md should record the service once")
         self.assertEqual(
-            declared,
-            recorded[0],
-            "render.yaml and docs/deployment.md disagree about the service's name",
+            {name for _, name in services},
+            set(recorded),
+            "render.yaml and docs/deployment.md disagree about the services' names",
         )
+        for _kind, declared in services:
+            self.assertTrue(declared, "a service in the manifest has no name")
 
         address = self.the_address_the_code_falls_back_to()
         self.assertTrue(address, "the deployment has no address to compare a name against")
@@ -448,17 +454,23 @@ class DocumentationAgreesWithTheRegistry(unittest.TestCase):
             "the address the guide records is not the one the code reaches this host at",
         )
 
-        name = declared
-        self.assertNotIn(
-            ".",
-            name,
-            f"{name!r} reads as a hostname; the manifest's name is the dashboard name",
-        )
+        for _kind, name in services:
+            self.assertNotIn(
+                ".",
+                name,
+                f"{name!r} reads as a hostname; the manifest's name is the dashboard name",
+            )
+        # The original incident, pinned on the service it happened to: its
+        # manifest name was its address, so a sync minted a second service.
+        # (`meoww-premium` is exempt from this half: its name was read off the
+        # dashboard, and matching its creation subdomain is Render's default
+        # rather than a copy-paste.)
         self.assertNotEqual(
-            name.lower(),
+            "meoww",
             address.split(".")[0].lower(),
-            f"{name!r} is this service's address, not its name: a Blueprint sync would "
-            "create a second service instead of updating the one that runs the bot",
+            "the main service's manifest name is its address, not its name: a "
+            "Blueprint sync would create a second service instead of updating "
+            "the one that runs the bot",
         )
 
 
