@@ -5,7 +5,7 @@ New here? Perfect — this guide assumes it's your first time touching this repo
 ## 1. One-time setup (5 minutes)
 
 ```bash
-git clone https://github.com/1tsRajOwO/meow-discord-bot.git
+git clone https://gitlab.com/1tsRaj/meoww.git
 cd meow-discord-bot
 python3 -m venv .venv
 source .venv/bin/activate

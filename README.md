@@ -153,7 +153,7 @@ Each folder has its own `README.md` explaining what's inside in plain words.
 ### Step 2 — Get the files + configure
 
 ```bash
-git clone https://github.com/1tsRajOwO/meow-discord-bot.git
+git clone https://gitlab.com/1tsRaj/meoww.git
 cd meow-discord-bot
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
