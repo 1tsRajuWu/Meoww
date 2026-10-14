@@ -467,6 +467,29 @@ the new dashboard host.
   declaring it in `render.yaml` only prompts for it. `/cat settings` says which of
   the two is answering, and the per-server **Brain** switch turns the outbound
   call off entirely.
+- **How to ask the chat half a question without a keyboard: `GET
+  /api/devcat-simulate`.** Passkey-only, and it exists because the listener
+  ignores bots and webhooks *by design* — so the last hop of the chat half needs a
+  person to type, and "is the cat answering in there" had no answer a terminal
+  could get on the machine it had just deployed. The route runs the **real**
+  decision (`DevToy.rehearse`, the call the listener itself makes), sends nothing
+  to Discord and moves no clock, so a rehearsal cannot cost the member the answer
+  it was rehearsing:
+
+  ```
+  curl -s -H "X-Admin-Passkey: $ADMIN_PASSKEY" \
+    "https://1tsrajowo-meow-premium.hf.space/api/devcat-simulate?text=hello%20cat&mentioned=1"
+  ```
+
+  The answer names the gate when one refused (*the cat lives in one server only*,
+  *the Dev Cat system is switched off for this server*, *"Answers in chat" is
+  switched off*, *the Message Content intent is off*), the rule that matched
+  (`mention`, a keyword, or a bare `reaction`), the sentence, and whether the
+  **model** or the cat's own written pool produced it — so a host with no key is
+  never mistaken for a host with no cat. `text` is required (`400` without it),
+  `guild_id` defaults to the developer's server, `mentioned` is read out of the
+  text when it is not given, and a host that has not loaded the cog answers `409`
+  and says which host has (the VIP one).
 - **`/cat` is registered per server, so the module switch is what makes it
   appear.** `devcat` ships off (`enabled_by_default=False`) and a server's command
   list is built from *that server's* modules — switched off, the command is not
@@ -474,9 +497,31 @@ the new dashboard host.
   switched on from the dashboard's Systems page for that server, or over the API
   with `POST /api/set-module` and the `X-Admin-Passkey` header. One caveat worth
   knowing before debugging an invisible command: a boot restores the newest
-  cloud backup and that decision reads `_progress_mark`, which is built from
-  member-progress timestamps — a module toggle made after the newest backup is
-  therefore *not* protected by it, and can be reverted by the next restart.
+  cloud backup and that decision reads `_progress_mark` — at the time of that
+  note it was built from member-progress timestamps only, and the Dev Cat's own
+  three stamps (`devcat_pets.updated_at`, `devcat_records.updated_at`,
+  `devcat_ambient.last_nudge`) joined it for the reason below. A module toggle
+  is still *not* protected by it, and can be reverted by the next restart.
+- **The two machines do not share a backup file, and that variable is
+  `CLOUD_SYNC_NAMESPACE`.** One bucket, one `bot.db` and one `sync-owner.json` is
+  right for one bot — the lease exists so that a single writer cannot become two
+  writers — but the VIP Space is a *different application* (the bullet above), so
+  with one shared file it was the perpetual loser of that rule: it restored the
+  main bot's copy at every boot, was refused every upload (*"'…' owns the bucket
+  — running two instances of the bot against one backup is how progress gets
+  reverted"*), and everything only it held — the Dev Cat — stayed inside the
+  container and died with the next restart. That is not a theory: the live
+  `/health` of that Space read `backup: blocked` while the main Space uploaded
+  every five minutes, and **all six objects in the bucket held zero
+  `devcat_pets` rows**. Set `CLOUD_SYNC_NAMESPACE=vip` in **that Space's**
+  Settings → Variables and it files its own `vip-bot.db`, its own
+  `vip-bot-db-*` snapshots and its own `vip-sync-owner.json` claim; the two name
+  sets are disjoint, so neither host can read, restore from or prune the other's
+  history. Unset — the main Space and the Render service — every name is what it
+  always was. **The first boot after the switch adopts the shared database
+  once**, so turning it on does not cost that bot its levels and coins, and a
+  database that already holds progress of its own is kept rather than replaced:
+  the host being moved is the host that holds the only copy of the cat.
 - What is asked instead: its `/health`, whose `service` field is built from
   `utils/brand.py`. A rebrand moves the check and the answer together, so a
   machine still announcing the retired name fails the release — which is the

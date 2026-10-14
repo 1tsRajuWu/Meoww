@@ -49,11 +49,42 @@ SUPABASE_URL: str = config_audit.get("SUPABASE_URL").rstrip("/")
 SUPABASE_KEY: str = config_audit.get("SUPABASE_SERVICE_KEY")
 BUCKET: str = "bot-backups"
 
+#: What a *second application* calls its own half of a shared bucket.
+#:
+#: One bucket, one file and one lease is right for one bot: the claim exists so
+#: that a single writer cannot be two writers. It is wrong for a second Discord
+#: application kept in the same bucket, and this deployment has one — the VIP
+#: Space is `Meoww Premium`, the only host that loads the Dev Cat. With one
+#: shared file its side of that rule is always the losing one: it restored the
+#: main bot's copy at every boot and was refused every upload (*"'r-1tsrajowo-
+#: meow-...' owns the bucket"*), so nothing it wrote could leave the container —
+#: which is how an adopted cat came back unnamed after a restart. Set
+#: ``CLOUD_SYNC_NAMESPACE=vip`` on that Space and it gets its own primary file,
+#: its own snapshots and its own lease, and the two stop competing over a file
+#: that only one of them can hold.
+NAMESPACE: str = config_audit.get("CLOUD_SYNC_NAMESPACE").strip()
+
+
+def _named(name: str) -> str:
+    """One object name, prefixed by this application's namespace when it has one.
+
+    A function rather than four literals: the namespace has to reach the primary
+    file, the snapshot prefix and the lease together, or a namespaced instance
+    would write its own database and then compete for the shared claim.
+    """
+    return f"{NAMESPACE}-{name}" if NAMESPACE else name
+
+
 #: The primary backup file — always the latest state.
-CURRENT_FILE: str = "bot.db"
+CURRENT_FILE: str = _named("bot.db")
 #: Snapshots for point-in-time restore, named ``bot-db-YYYYMMDD-HHMMSS.db``.
-SNAPSHOT_PREFIX: str = "bot-db-"
+SNAPSHOT_PREFIX: str = _named("bot-db-")
 SNAPSHOT_SUFFIX: str = ".db"
+#: The un-prefixed names, which is what every single-application deployment uses
+#: and what a namespaced application adopts once (see :func:`_restore_once`).
+SHARED_FILE: str = "bot.db"
+SHARED_SNAPSHOT_PREFIX: str = "bot-db-"
+SHARED_LEASE_FILE: str = "sync-owner.json"
 #: How many snapshots to keep (oldest pruned first).
 try:
     BACKUP_KEEP: int = max(1, int(config_audit.get("BACKUP_KEEP", "5")))
@@ -279,12 +310,25 @@ def _storage_delete(name: str) -> bool:
 # Snapshot naming
 # --------------------------------------------------------------------------- #
 
-def _snapshot_names(objects: list[dict]) -> list[str]:
-    """Return snapshot filenames sorted newest-first."""
+def _snapshot_names(objects: list[dict], prefix: str | None = None) -> list[str]:
+    """Return snapshot filenames sorted newest-first.
+
+    ``prefix`` is a parameter because a namespaced application adopts the shared
+    database once, and the snapshots that go with that file are named with the
+    *shared* prefix. The two sets are disjoint — ``vip-bot-db-…`` does not start
+    with ``bot-db-`` and ``bot-db-…`` does not start with ``vip-bot-db-`` — so
+    neither application can read or prune the other's history.
+
+    It defaults to :data:`SNAPSHOT_PREFIX` *at call time* rather than in the
+    signature: a default argument is bound once, when the module is imported, so
+    a signature default would answer with the module's import-time name — a
+    snapshot list that silently ignored a reload or a patched constant.
+    """
+    prefix = SNAPSHOT_PREFIX if prefix is None else prefix
     names = [
         o["name"]
         for o in objects
-        if o["name"].startswith(SNAPSHOT_PREFIX) and o["name"].endswith(SNAPSHOT_SUFFIX)
+        if o["name"].startswith(prefix) and o["name"].endswith(SNAPSHOT_SUFFIX)
     ]
     return sorted(names, reverse=True)
 
@@ -303,8 +347,9 @@ COUNTED_TABLES: tuple[str, ...] = ("economy", "user_levels", "mod_cases", "warni
 #: Below this many rows a database counts as effectively empty.
 MIN_MEANINGFUL_ROWS: int = 3
 
-#: Object holding the single-writer lease.
-LEASE_FILE: str = "sync-owner.json"
+#: Object holding the single-writer lease — namespaced with the file it guards,
+#: for the reason written above :func:`_named`.
+LEASE_FILE: str = _named("sync-owner.json")
 #: A lease older than this belongs to a process that is no longer running.
 #: A redeploy starts writing again within this window at worst. Three backup
 #: ticks, not one: a single missed touch used to read a live-but-quiet holder
@@ -404,7 +449,10 @@ def _total_rows(counts: dict[str, int] | None = None) -> int:
 
 
 def _progress_mark(path: str | None = None) -> float:
-    """The newest member-progress timestamp a database holds, or 0.0.
+    """The newest state a database holds that a member would notice losing.
+
+    Member progress is the bulk of it, and the Dev Cat's own three stamps are
+    read for the same reason — see the second half of this function.
 
     The restore decision is made on this, not on row counts: two writers can
     hold the same rows with different values, and installing the older copy
@@ -459,6 +507,35 @@ def _progress_mark(path: str | None = None) -> float:
                 best = max(best, moment.timestamp())
         except (sqlite3.Error, ValueError, OverflowError, OSError):
             pass
+
+        # The Dev Cat — the state none of the axes above can see. Its rows are
+        # written on one host only (the VIP Space is the one that loads the
+        # cog), and adopting, feeding or playing with a cat moves no level and
+        # no economy stamp, so a backup taken before the adoption *tied* the
+        # live file and was installed over it: the cat came back unnamed. All
+        # three stamps are epoch seconds, and all three are written by a
+        # member's own action rather than by a boot.
+        #
+        # ``guild_modules`` is deliberately **not** read, even though a module
+        # switch is the same kind of write with the same history. Its stamp is
+        # ``CURRENT_TIMESTAMP``, and the boot's own one-time migration inserts
+        # rows carrying it — so a mark that jumped to boot time would judge
+        # every real backup older and keep an empty database, which is the
+        # failure this mark exists to prevent, arrived at from the other side.
+        for query in (
+            "SELECT MAX(updated_at) FROM devcat_pets",
+            "SELECT MAX(updated_at) FROM devcat_records",
+            "SELECT MAX(last_nudge) FROM devcat_ambient",
+        ):
+            try:
+                row = conn.execute(query).fetchone()
+            except sqlite3.Error:
+                continue
+            if row and row[0] is not None:
+                try:
+                    best = max(best, float(row[0]))
+                except (TypeError, ValueError):
+                    continue
     except Exception:
         return best
     finally:
@@ -491,6 +568,33 @@ def _keep_newer_local(name: str) -> str:
     print(
         f"[CLOUD SYNC] ✅ Local database is newer than '{name}' — keeping it, "
         "and the next backup will ship it.",
+        flush=True,
+    )
+    return "restored"
+
+
+def _adopt_local() -> str:
+    """Make the live database this application's own, under its own name.
+
+    The local file is not merely *newer* here; it is the only copy that holds what
+    this application is for, so it is adopted rather than weighed. The bookkeeping
+    is deliberately the same as :func:`_keep_newer_local`: uploads stay allowed
+    (this file *is* the truth now), the instance counts as restored because its
+    database is its own descendant, and the next backup tick ships it under the
+    namespace instead of leaving it in the container.
+    """
+    global _last_sync_hash, _restored_from, _restored_counts, _restored_at
+
+    _last_sync_hash = None
+    _restored_from = "local"
+    _restored_counts = _row_counts()
+    _restored_at = time.time()
+    _touch_contact()
+    _clear_block()
+    print(
+        f"[CLOUD SYNC] 🐾 No '{CURRENT_FILE}' yet and this database holds real "
+        "progress — adopting what this host has as this application's own; the "
+        "next backup saves it under that name.",
         flush=True,
     )
     return "restored"
@@ -577,6 +681,24 @@ def _restore_once() -> str:
     if any(o.get("name") == CURRENT_FILE for o in objects):
         candidates.append(CURRENT_FILE)
     candidates.extend(_snapshot_names(objects))
+
+    #: A namespaced application that has nothing of its own yet adopts this
+    #: deployment's shared database once. Without that step, switching the
+    #: namespace on would start that bot from an empty file and take every
+    #: level, coin and warning with it: the file it has been restoring all
+    #: along is exactly the one it is being moved off.
+    adopted = False
+    if NAMESPACE and not candidates:
+        shared = [SHARED_FILE] if any(o.get("name") == SHARED_FILE for o in objects) else []
+        shared.extend(_snapshot_names(objects, SHARED_SNAPSHOT_PREFIX))
+        if shared and _total_rows() > 0:
+            # The local file already holds real progress. Installing the other
+            # application's copy over it is the loss this namespace exists to
+            # end — what this host holds is what that copy has never held — so
+            # what it has is adopted as its own, and saved on the next tick.
+            return _adopt_local()
+        candidates = shared
+        adopted = bool(shared)
 
     if not candidates:
         # No database files at all — a lease alone is not data. Treating it
@@ -675,6 +797,13 @@ def _restore_once() -> str:
     if best is not None:
         name, data, counts = best
         _install(name, data, counts)
+        if adopted:
+            print(
+                f"[CLOUD SYNC] 🐾 No '{CURRENT_FILE}' yet — adopted the shared "
+                f"database '{name}' as this application's starting point; the "
+                "next backup saves it under its own name.",
+                flush=True,
+            )
         return "restored"
 
     if local_mark > 0:
@@ -1222,8 +1351,12 @@ def _consult_bucket() -> str | None:
     # The lease file is not data: a bucket holding only a claim has no backup
     # in it, and counting it as data blocked both restore and upload forever
     # with each blaming the other.
+    # Both leases count as claims and neither counts as data. A namespaced
+    # application must not read the other application's lease as a backup — and
+    # its own empty bucket, holding only that lease, is not "data it cannot see".
+    leases = {LEASE_FILE, SHARED_LEASE_FILE}
     _cloud_has_data = any(
-        (o.get("name") if isinstance(o, dict) else o) != LEASE_FILE for o in objects
+        (o.get("name") if isinstance(o, dict) else o) not in leases for o in objects
     )
     return None
 

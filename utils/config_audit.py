@@ -491,6 +491,23 @@ SETTINGS: tuple[Setting, ...] = (
         "the frequency in seconds between cloud database backups",
         "the default interval of 300 seconds is used.",
     ),
+    # Tuning rather than a capability, and the distinction is the point: a
+    # deployment running **one** application wants the shared file, so its
+    # absence is correct there and must not be reported as a fault on every
+    # boot. It is a *second* application in the same bucket that has to set it.
+    Setting(
+        "CLOUD_SYNC_NAMESPACE",
+        TUNING,
+        "the name this application's backup, snapshots and lease are filed under, "
+        "when two applications share one bucket",
+        "every host sharing the bucket writes and claims the same 'bot.db', so "
+        "only one of them ever can — the rest are refused every upload on the "
+        "lease and lose whatever only they hold at the next restart. That is "
+        "how the VIP Space, the single host that carries the Dev Cat, kept "
+        "resetting an adopted cat. Set it on that host (e.g. 'vip'), and it "
+        "keeps its own file, its own snapshots and its own claim, adopting the "
+        "shared database once as its starting point.",
+    ),
 
     # --- supplied by the platform ------------------------------------------ #
     # Listed because the parity test accounts for every name the code reads, and

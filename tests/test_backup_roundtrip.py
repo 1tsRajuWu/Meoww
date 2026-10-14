@@ -8,6 +8,7 @@ Supabase standing in for the real API.
 import contextlib
 import dataclasses
 import datetime
+import importlib
 import io
 import os
 import sqlite3
@@ -335,6 +336,92 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(mark, now - 86400)
         self.assertLessEqual(mark, now + 1)
         self.assertEqual(cs._progress_mark("/nonexistent-dir/no.db"), 0.0)
+
+    def test_progress_mark_reads_the_cats_own_stamps(self):
+        """A pet is state a member notices losing, so it moves the mark too.
+
+        The three axes above cannot see the Dev Cat: adopting, feeding or playing
+        with a cat moves no level and no economy stamp, so a backup taken before
+        the adoption *tied* the live file — and a tie is an install, which is how
+        an adopted cat came back unnamed after a restart.
+        """
+        now = time.time()
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO devcat_pets VALUES "
+            "(?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, '', 0, 0)",
+            (GUILD, MEMBER, "Biscuit", now - 10, now),
+        )
+        conn.commit()
+        conn.close()
+        self.assertAlmostEqual(cs._progress_mark(cs.db_path()), now, delta=1.0)
+
+    def test_progress_mark_reads_the_cats_records_and_its_own_cards(self):
+        """And the other two stamps the toy writes, not just the pet row."""
+        now = time.time()
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO devcat_records VALUES (?, ?, ?, 0, 1, ?)",
+            (GUILD, MEMBER, "memory", now - 5),
+        )
+        conn.commit()
+        conn.close()
+        self.assertAlmostEqual(cs._progress_mark(cs.db_path()), now - 5, delta=1.0)
+
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute("DELETE FROM devcat_records")
+        conn.execute(
+            "INSERT OR REPLACE INTO devcat_ambient VALUES (?, ?, '', 1)", (GUILD, now - 3)
+        )
+        conn.commit()
+        conn.close()
+        self.assertAlmostEqual(cs._progress_mark(cs.db_path()), now - 3, delta=1.0)
+
+    def test_a_backup_that_predates_the_cat_is_not_installed_over_it(self):
+        """The defect those stamps exist to stop, driven through the real door.
+
+        Both sides hold the same member progress and only the live file holds a
+        cat. Before the toy's stamps were read, the marks were equal, the cloud
+        copy won the comparison, and the pet was gone — which is the shape of the
+        report: *I adopted a cat and it got reset*.
+        """
+        fake = _FakeSupabase()
+        _make_db(cs.db_path())
+        now = time.time()
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO devcat_pets VALUES "
+            "(?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, '', 0, 0)",
+            (GUILD, MEMBER, "Biscuit", now - 10, now),
+        )
+        conn.execute("UPDATE user_levels SET last_message_ts = ?", (now - 3600,))
+        conn.commit()
+        conn.close()
+        with open(cs.db_path(), "rb") as fh:
+            data = fh.read()
+
+        # The cloud copy: byte-for-byte this database, one hour of member
+        # progress older, and with no cat in it.
+        fd, path = tempfile.mkstemp(prefix="meow-precat-", suffix=".db")
+        os.close(fd)
+        with open(path, "wb") as fh:
+            fh.write(data)
+        conn = sqlite3.connect(path)
+        conn.execute("DELETE FROM devcat_pets")
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as fh:
+            fake.files[cs.CURRENT_FILE] = fh.read()
+        os.remove(path)
+
+        self.assertTrue(self._restore_with(fake))
+        self.assertEqual(cs._restored_from, "local")
+        conn = sqlite3.connect(cs.db_path())
+        kept = conn.execute(
+            "SELECT name FROM devcat_pets WHERE user_id = ?", (MEMBER,)
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(kept, "a backup taken before the cat replaced the cat")
 
 
 class DeleteRequestShape(unittest.TestCase):
@@ -1277,3 +1364,195 @@ class TheBackupRoundTripsPacked(TempDatabaseMixin, unittest.IsolatedAsyncioTestC
         row = conn.execute("SELECT wallet, bank FROM economy WHERE user_id=?", (MEMBER,)).fetchone()
         conn.close()
         self.assertEqual(row, (SEED_WALLET, SEED_BANK))
+
+
+class TheVariableIsWhatNamesTheObjects(unittest.TestCase):
+    """``CLOUD_SYNC_NAMESPACE`` is the whole of the names, read at import.
+
+    Reloaded rather than patched, and kept to its own class because a reload
+    resets this module's state for whoever runs next: the law is about *the
+    variable* producing the four names together — a namespaced instance that
+    wrote ``vip-bot.db`` and then claimed the shared ``sync-owner.json`` would be
+    as stuck as before.
+    """
+
+    def tearDown(self):
+        os.environ.pop("CLOUD_SYNC_NAMESPACE", None)
+        importlib.reload(cs)
+
+    def test_the_namespace_names_the_file_the_snapshots_and_the_lease(self):
+        self.assertEqual(
+            (cs.CURRENT_FILE, cs.SNAPSHOT_PREFIX, cs.LEASE_FILE),
+            (cs.SHARED_FILE, cs.SHARED_SNAPSHOT_PREFIX, cs.SHARED_LEASE_FILE),
+            "without the variable nothing about the shared bucket may move",
+        )
+        try:
+            with mock.patch.dict(os.environ, {"CLOUD_SYNC_NAMESPACE": "vip"}):
+                reloaded = importlib.reload(cs)
+                self.assertEqual(reloaded.CURRENT_FILE, "vip-bot.db")
+                self.assertEqual(reloaded.SNAPSHOT_PREFIX, "vip-bot-db-")
+                self.assertEqual(reloaded.LEASE_FILE, "vip-sync-owner.json")
+                self.assertEqual(reloaded.SHARED_FILE, "bot.db")
+        finally:
+            importlib.reload(cs)
+
+        # And neither application can read or prune the other's history: the two
+        # snapshot prefixes are disjoint, which is what keeps a prune honest.
+        objects = [
+            {"name": "bot-db-20260101-000000.db"},
+            {"name": "vip-bot-db-20260101-000000.db"},
+        ]
+        with mock.patch.object(cs, "SNAPSHOT_PREFIX", "vip-bot-db-"):
+            self.assertEqual(
+                cs._snapshot_names(objects), ["vip-bot-db-20260101-000000.db"]
+            )
+        self.assertEqual(
+            cs._snapshot_names(objects, cs.SHARED_SNAPSHOT_PREFIX),
+            ["bot-db-20260101-000000.db"],
+        )
+
+
+class ASecondApplicationInTheSameBucket(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
+    """Two Discord applications, one bucket: what the namespace has to prove.
+
+    The defect this class was written for was measured live rather than guessed.
+    The VIP Space — the only host that loads ``cogs.devtoy`` — answered
+    ``/health`` with ``backup: blocked``: *'r-1tsrajowo-meow-…' owns the bucket
+    (2.1 min ago) — running two instances of the bot against one backup is how
+    progress gets reverted*, while the main Space was uploading normally. Every
+    byte the cat had ever been given lived on the side of that rule that is not
+    allowed to save, and none of the bucket's six objects held a ``devcat_pets``
+    row. So there are two halves to prove: a namespaced application writes its
+    own file and its own claim, and it adopts the shared database exactly once
+    instead of being cut off from it.
+    """
+
+    async def asyncSetUp(self):
+        self.use_temp_database("namespaced_test.db")
+        await db.setup()
+        cs._last_sync_hash = None
+        cs._restore_blocked_reason = None
+        cs._restored_from = None
+        cs._restored_counts = {}
+        cs._restored_at = 0.0
+        cs._remote_checked = False
+        cs._cloud_has_data = False
+        cs._lease_touched = 0.0
+        cs._shrink_refusals = 0
+        cs._last_upload_ts = 0.0
+        cs._last_snapshot_ts = 0.0
+        self._orig_url = cs.SUPABASE_URL
+        self._orig_key = cs.SUPABASE_KEY
+        cs.SUPABASE_URL = "https://test.supabase.co"
+        cs.SUPABASE_KEY = "test-key"
+
+    async def asyncTearDown(self):
+        cs.SUPABASE_URL = self._orig_url
+        cs.SUPABASE_KEY = self._orig_key
+        self.release_temp_database()
+
+    @contextlib.contextmanager
+    def namespaced(self):
+        """This module as a host with ``CLOUD_SYNC_NAMESPACE=vip`` imported it.
+
+        The four names are the ones the reload law above pins to the variable, so
+        what is patched here is the configuration, not a stand-in for it.
+        """
+        with mock.patch.object(cs, "NAMESPACE", "vip"), \
+             mock.patch.object(cs, "CURRENT_FILE", "vip-bot.db"), \
+             mock.patch.object(cs, "SNAPSHOT_PREFIX", "vip-bot-db-"), \
+             mock.patch.object(cs, "LEASE_FILE", "vip-sync-owner.json"):
+            yield
+
+    def _restore_with(self, fake: _FakeSupabase) -> bool:
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n, quiet=False: fake.download(n)):
+            return cs.restore_from_cloud()
+
+    def _backup_into(self, fake: _FakeSupabase) -> bool:
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n, quiet=False: fake.download(n) or b""), \
+             mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)), \
+             mock.patch.object(cs, "_storage_delete", side_effect=lambda n: fake.delete(n)):
+            return cs.backup_to_cloud_sync()
+
+    def test_the_other_applications_lease_does_not_block_this_one(self):
+        """The live refusal, answered: its own claim is what it waits behind."""
+        _make_db(cs.db_path())
+        cs._remote_checked = True
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {"economy": 1, "user_levels": 1}
+        fake = _FakeSupabase()
+        theirs = cs._json.dumps(
+            {"owner": "r-1tsrajowo-meow-l1rnr8uh-7abb9-tfdgq", "ts": cs.time.time()}
+        ).encode()
+        fake.files[cs.SHARED_LEASE_FILE] = theirs
+
+        with self.namespaced():
+            self.assertTrue(self._backup_into(fake))
+            self.assertIn("vip-bot.db", fake.files, "it saves under its own name")
+            self.assertIn("vip-sync-owner.json", fake.files, "and claims its own slot")
+        self.assertNotIn(cs.SHARED_FILE, fake.files, "the shared database is not its file")
+        self.assertEqual(
+            fake.files[cs.SHARED_LEASE_FILE], theirs, "and its claim is left alone"
+        )
+
+    def test_it_adopts_the_shared_database_when_it_has_nothing_of_its_own(self):
+        """Switching the namespace on must not take every level and coin with it."""
+        fake = _FakeSupabase()
+        _make_db(cs.db_path())
+        with open(cs.db_path(), "rb") as fh:
+            fake.files[cs.SHARED_FILE] = fh.read()
+        # An empty container: the tables exist, nothing has happened in them yet.
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute("DELETE FROM economy")
+        conn.execute("DELETE FROM user_levels")
+        conn.commit()
+        conn.close()
+
+        with self.namespaced():
+            self.assertTrue(self._restore_with(fake))
+            self.assertEqual(cs._restored_from, cs.SHARED_FILE)
+        conn = sqlite3.connect(cs.db_path())
+        row = conn.execute("SELECT wallet FROM economy WHERE user_id = ?", (MEMBER,)).fetchone()
+        conn.close()
+        self.assertIsNotNone(row, "the shared database was not adopted")
+        self.assertEqual(row[0], SEED_WALLET)
+
+    def test_it_keeps_its_own_database_instead_of_the_shared_one(self):
+        """The adoption may never be the install that loses the cat.
+
+        This is the ordering that matters: the host that is being moved onto its
+        own file is the host that holds the only copy of what it is for, so an
+        existing database of its own is adopted rather than overwritten — even
+        against a shared copy that looks newer on member progress.
+        """
+        _make_db(cs.db_path())
+        with open(cs.db_path(), "rb") as fh:
+            data = fh.read()
+        fd, shared = tempfile.mkstemp(prefix="meow-shared-", suffix=".db")
+        os.close(fd)
+        with open(shared, "wb") as fh:
+            fh.write(data)
+        conn = sqlite3.connect(shared)
+        conn.execute("UPDATE economy SET wallet = ?", (999_999,))
+        conn.execute("UPDATE user_levels SET last_message_ts = ?", (time.time() + 1000,))
+        conn.commit()
+        conn.close()
+        fake = _FakeSupabase()
+        with open(shared, "rb") as fh:
+            fake.files[cs.SHARED_FILE] = fh.read()
+        os.remove(shared)
+
+        with self.namespaced():
+            self.assertTrue(self._restore_with(fake))
+            self.assertEqual(cs._restored_from, "local")
+        conn = sqlite3.connect(cs.db_path())
+        wallet = conn.execute("SELECT wallet FROM economy WHERE user_id = ?", (MEMBER,)).fetchone()[0]
+        conn.close()
+        self.assertEqual(
+            wallet,
+            SEED_WALLET,
+            "this application's own database was replaced by the other one's",
+        )
