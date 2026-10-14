@@ -1,4 +1,4 @@
-"""The Dev Cat: the Discord half of a pet that lives in the developer's own server.
+"""The Dev Cat: the Discord half of a pet that lives in the operators' own servers.
 
 ``utils/devtoy`` holds the rules and this holds the gateway — the same split
 ``utils/company.py`` / ``cogs/company.py`` uses, and for the same reason: every
@@ -29,9 +29,9 @@ the cat works with no network at all beyond Discord.
 Two gates, and they are different things. The registry ships this system **off**,
 because per-server registration is the only mechanism Discord offers for hiding a
 slash command in one server, so the toy appears nowhere until it is switched on
-in the developer's server. And :func:`utils.devtoy.in_dev_server` refuses every
-guild but that one — hardcoded on purpose, in one place, with a scan test — so a
-switch flipped in the wrong server is refused rather than obeyed.
+in a server of the operator's own. And :func:`utils.devtoy.in_dev_server` refuses
+every guild but those two — the ids hardcoded on purpose, in one place, with a
+scan test — so a switch flipped in the wrong server is refused rather than obeyed.
 """
 from __future__ import annotations
 
@@ -397,7 +397,7 @@ class DuelView(discord.ui.View):
 # The cog
 # --------------------------------------------------------------------------- #
 class DevToy(commands.Cog):
-    """A cat that lives in one server, for one person, and refuses everywhere else."""
+    """A cat in the bot's own servers, for the operator, and refused everywhere else."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -456,8 +456,8 @@ class DevToy(commands.Cog):
         if not devtoy.in_dev_server(guild_id):
             await self._refuse(
                 interaction,
-                "🐈 The cat lives in one server only — the developer's own. "
-                "Nothing here happens anywhere else, by design.",
+                "🐈 The cat lives in the bot's own servers only — this is not one "
+                "of them. Nothing here happens anywhere else, by design.",
             )
             return False
         return True
@@ -885,7 +885,7 @@ class DevToy(commands.Cog):
                 "all (set ENABLE_MESSAGE_CONTENT_INTENT=1 on this host)"
             )
         if not devtoy.in_dev_server(guild_id):
-            return "the cat lives in one server only, and this is not it"
+            return "the cat lives in the bot's own servers only, and this is not one of them"
         if not self.bot.is_module_enabled(guild_id, MODULE):
             return "the Dev Cat system is switched off for this server"
         if not await self.setting_bool(guild_id, "reactions", default=True):
@@ -1050,7 +1050,7 @@ class DevToy(commands.Cog):
     # ------------------------------------------------------------------ #
     cat = app_commands.Group(
         name="cat",
-        description="🐈 The Dev Cat — a pet that lives in the developer's own server (VIP).",
+        description="🐈 The Dev Cat — a pet that lives in the bot's own servers (VIP).",
     )
 
     @cat.command(name="adopt", description="Adopt your own cat (one each).")

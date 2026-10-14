@@ -71,7 +71,10 @@ def _licence_instance_name(guild, guild_id: int | None) -> str:
     return f"Discord server {guild_id}"
 
 
-HOME_GUILD_ID = 1542278896148422676
+#: Read from the module that owns "which servers are the bot's own" rather than
+#: written down here a second time: this id decides where home-guild behaviour
+#: applies, and two copies of a snowflake are one rename away from disagreeing.
+HOME_GUILD_ID = bot_channels.HOME_GUILD_ID
 HOME_BOT_CMD_CHANNEL_ID = 1547637176697757846
 HOME_LOG_CHANNEL_ID = 1546718348119773260
 

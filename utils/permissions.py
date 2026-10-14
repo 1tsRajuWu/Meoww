@@ -406,7 +406,7 @@ COMMAND_ACCESS: dict[str, str] = {
     "premium invite": EVERYONE,
     "game": EVERYONE,
 
-    # -- The Dev Cat: one server's plaything, and the VIP bot only --------- #
+    # -- The Dev Cat: the operators' own servers' plaything, and the VIP bot only #
     # A cat is *your own* pet — adopting one, feeding it and playing with it
     # touch nothing that belongs to somebody else, and reading somebody else's
     # cat is what `/cat status <member>` and the leaderboard are for, so they are

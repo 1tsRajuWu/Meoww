@@ -300,7 +300,7 @@ HELP_MODULES = {
     "devcat": {
         "title": "🐈 Dev Cat & Solo Arcade",
         "desc": (
-            "One cat, in one server — the developer's own. Adopt it, look after it, "
+            "One cat, in the bot's own servers. Adopt it, look after it, "
             "and keep yourself entertained when nobody else is around.\n\n"
             "> `/cat adopt [name]` — Take a cat home (one each)\n"
             "> `/cat status [member]` — Mood, food, energy, streak and badges\n"

@@ -1,4 +1,4 @@
-"""The Dev Cat: the rules behind a pet that lives in the developer's own server.
+"""The Dev Cat: the rules behind a pet that lives in the operators' own servers.
 
 One system, three surfaces, and this module is the whole of the first two:
 the cat that drifts and needs feeding, the solo arcade it plays with you, and the
@@ -8,15 +8,21 @@ the split is the one ``utils/company.py`` and ``utils/alonetime.py`` already use
 every rule worth arguing about is testable without a gateway, and the half that
 needs Discord can only be tested by using it.
 
-**It is one server's, and that is a decision rather than a default.** The gate is
-:func:`in_dev_server`, backed by :data:`utils.bot_channels.DEV_SERVER_GUILD_ID` —
-the single place a server id is allowed to be written into this tree, guarded by a
-scan in ``tests/test_devtoy.py`` that fails if the digits appear anywhere else.
-Every other server gets a refusal, and no module switch can widen it. The registry
-still ships the system **off** (see ``Feature.enabled_by_default``), because a
-per-server switch is the only lever Discord offers for hiding a slash command in
-one server — so the toy is invisible until it is switched on *in that server*, and
-refused even if it is switched on somewhere else.
+**It is the bot's own servers' only, and that is a decision rather than a default.**
+The gate is :func:`in_dev_server`, backed by
+:func:`utils.bot_channels.is_own_guild_id` — and the two ids that answer it
+(:data:`utils.bot_channels.DEV_SERVER_GUILD_ID` and
+:data:`utils.bot_channels.HOME_GUILD_ID`) keep exactly one home in
+``utils/bot_channels.py``, guarded by a scan in ``tests/test_devtoy.py`` that
+fails if either number appears anywhere else. Two, not one, because that is the
+same fact ``bot_channels.is_own_server`` already answers for ``/qna``: the operator
+sits in both servers, and a gate naming only the other one refuses in the server
+its owner is sitting in. Every *other* server gets a refusal, and no module switch
+can widen it. The registry still ships the system **off** (see
+``Feature.enabled_by_default``), because a per-server switch is the only lever
+Discord offers for hiding a slash command in one server — so the toy is invisible
+until it is switched on *in that server*, and refused even if it is switched on
+somewhere else.
 
 Three rules the numbers encode, each one a way a pet feature becomes a nuisance:
 
@@ -89,11 +95,15 @@ def humanize(seconds: float) -> str:
 # The gate
 # --------------------------------------------------------------------------- #
 def in_dev_server(guild_id) -> bool:
-    """Whether a guild id is the developer's own server — the only one this runs in."""
-    try:
-        return int(guild_id) == int(bot_channels.DEV_SERVER_GUILD_ID)
-    except (TypeError, ValueError):
-        return False
+    """Whether a guild id is one of the bot's own servers — the only ones this runs in.
+
+    Delegates to :func:`utils.bot_channels.is_own_guild_id` rather than comparing
+    against the one constant itself: there are two own servers (the Dev Cat's
+    ``DEV_SERVER_GUILD_ID`` and the home guild whose legacy update channel made the
+    ``/qna`` gate learn the same lesson), and a second opinion about *which* two
+    would be the drift this module's one-home rule exists to prevent.
+    """
+    return bot_channels.is_own_guild_id(guild_id)
 
 
 def is_dev_channel(channel_id) -> bool:

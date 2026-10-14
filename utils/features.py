@@ -602,15 +602,15 @@ FEATURES: tuple[Feature, ...] = (
         cog="cogs.premium",
         help_key="premium",
     ),
-    # The Dev Cat — a plaything for the developer's own server, and the one system
+    # The Dev Cat — a plaything for the operators' own servers, and the one system
     # in this registry that is not for servers in general.
     #
     # Two gates, and they do different jobs. `vip_only` keeps the cog out of the
     # main bot's process entirely (the premium instance is the only one that loads
     # it). The **hardcoded guild gate** in `utils/devtoy` refuses every server but
-    # one — including the server this instance is *in* when the switch is on
-    # somewhere else — and that id is written down in `utils/bot_channels.py`, one
-    # home, with a scan test. It ships OFF (`enabled_by_default=False`) not because
+    # the bot's own two — including the server this instance is *in* when the switch
+    # is on somewhere else — and those ids are written down in `utils/bot_channels.py`,
+    # one home, with a scan test. It ships OFF (`enabled_by_default=False`) not because
     # the gate is weak but because per-server registration is the only lever
     # Discord offers for hiding a slash command in one server: nothing appears
     # anywhere until it is switched on in that one, and the dashboard is where the
@@ -630,11 +630,11 @@ FEATURES: tuple[Feature, ...] = (
         icon="🐈",
         category="Premium",
         description=(
-            "One cat, one server: adopt it, feed it, pet it and play with it, post "
-            "a panel whose buttons keep working, play four solo arcade games with "
-            "personal records, and let the cat say something on its own now and "
-            "then. It refuses every server but the developer's own, and it loads "
-            "in the VIP bot only."
+            "One cat, the bot's own servers: adopt it, feed it, pet it and play with "
+            "it, post a panel whose buttons keep working, play four solo arcade games "
+            "with personal records, and let the cat say something on its own now and "
+            "then. It refuses every server but the bot's own, and it loads in the "
+            "VIP bot only."
         ),
         gate_commands=("cat",),
         commands=(
@@ -644,7 +644,7 @@ FEATURES: tuple[Feature, ...] = (
         ),
         cog="cogs.devtoy",
         vip_only=True,
-        # Off until it is switched on in the one server it lives in. Not a
+        # Off until it is switched on in a server it lives in. Not a
         # security measure — the guild gate is that — but the reason the command
         # is invisible in every other server instead of refusing there.
         enabled_by_default=False,

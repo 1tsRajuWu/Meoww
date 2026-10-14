@@ -128,7 +128,7 @@ class TheOperatorCanAskWhatTheCatWouldSay(_DashboardFixture):
     def test_another_server_comes_back_with_the_gate_named(self):
         body = self.ask(text="hello", guild_id=OTHER_GUILD, mentioned=1).get_json()
         self.assertEqual(body["would"], "nothing")
-        self.assertIn("one server only", body["gate"])
+        self.assertIn("own servers only", body["gate"])
         self.assertIsNone(body["reply"])
 
     def test_a_host_without_the_cog_says_which_host_has_it(self):

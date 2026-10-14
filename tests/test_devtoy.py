@@ -1,11 +1,11 @@
-"""The Dev Cat: one server's pet, and every way it could misbehave.
+"""The Dev Cat: the operators' own servers' pet, and every way it could misbehave.
 
 Four properties, each one a way a feature like this goes wrong rather than a way it
 works:
 
-* **The gate.** It is one server's, by a number written into the code — so the
-  number has exactly one home (the same scan law the Dev role id already has), and
-  the refusal happens in a second server rather than in a comment.
+* **The gate.** It is the bot's own two servers', by numbers written into the code —
+  so the numbers have exactly one home (the same scan law the Dev role id already
+  has), and the refusal happens in a stranger's server rather than in a comment.
 * **The clock.** Mood, food and energy are derived from elapsed time, so the rules
   are testable without waiting four hours: a month of neglect is one subtraction,
   and the arithmetic is pinned against brute force.
@@ -43,6 +43,10 @@ from utils import bot_channels, catfeed, db, devtoy, features, permissions
 
 ROOT = Path(__file__).resolve().parent.parent
 DEV_GUILD = bot_channels.DEV_SERVER_GUILD_ID
+#: The *second* own server — the home guild, which the operator sits in and which
+#: this gate used to refuse. Its presence in this file is the regression the real
+#: report was: `/cat` missing from the picker of the bot's own home server.
+HOME_GUILD = bot_channels.HOME_GUILD_ID
 OTHER_GUILD = 777001
 #: 03:00 IST on a fixed date, so a test that walks twelve hours of "cards" stays
 #: inside one day. A raw epoch here made the daily-cap tests pass or fail depending
@@ -175,13 +179,31 @@ class CogCase(unittest.IsolatedAsyncioTestCase, TempDatabaseMixin):
 # --------------------------------------------------------------------------- #
 # The gate
 # --------------------------------------------------------------------------- #
-class TheGateIsOneServer(unittest.TestCase):
-    def test_the_developer_server_is_the_only_one(self):
+class TheGateIsTheBotsOwnServers(unittest.TestCase):
+    """Both of them, and neither one fewer: a gate that names one refuses in the
+    other, which is the same defect ``bot_channels.is_own_server`` was written to
+    fix — this is its id-only twin."""
+
+    def test_both_own_servers_are_allowed(self):
         self.assertTrue(devtoy.in_dev_server(DEV_GUILD))
         self.assertTrue(devtoy.in_dev_server(str(DEV_GUILD)))
+        self.assertTrue(devtoy.in_dev_server(HOME_GUILD))
+        self.assertTrue(devtoy.in_dev_server(str(HOME_GUILD)))
+
+    def test_everywhere_else_is_refused(self):
         self.assertFalse(devtoy.in_dev_server(OTHER_GUILD))
         self.assertFalse(devtoy.in_dev_server(None))
         self.assertFalse(devtoy.in_dev_server("not-a-snowflake"))
+
+    def test_the_gate_agrees_with_the_own_server_rule_it_delegates_to(self):
+        """One rule about which servers are the bot's own, asked of one function —
+        a second opinion here would be the drift this suite keeps finding."""
+        for guild_id in (DEV_GUILD, HOME_GUILD, OTHER_GUILD):
+            with self.subTest(guild_id=guild_id):
+                self.assertEqual(
+                    devtoy.in_dev_server(guild_id),
+                    bot_channels.is_own_guild_id(guild_id),
+                )
 
     def test_the_room_the_cat_talks_in_is_one_room(self):
         self.assertTrue(devtoy.is_dev_channel(bot_channels.DEV_CHAT_CHANNEL_ID))
@@ -229,7 +251,7 @@ class TheCogRefusesEverywhereElse(CogCase):
     async def test_another_server_is_refused_with_a_sentence(self):
         interaction = fake_interaction(guild_id=OTHER_GUILD)
         self.assertFalse(await self.cog.interaction_check(interaction))
-        self.assertIn("one server only", refusal_text(interaction))
+        self.assertIn("own servers only", refusal_text(interaction))
 
     async def test_a_dm_is_refused(self):
         interaction = fake_interaction()
@@ -252,7 +274,7 @@ class TheCogRefusesEverywhereElse(CogCase):
         """Views do not run a cog's ``interaction_check``, so they check themselves."""
         interaction = fake_interaction(guild_id=OTHER_GUILD)
         await self.cog.care_button(interaction, "pet")
-        self.assertIn("one server only", refusal_text(interaction))
+        self.assertIn("own servers only", refusal_text(interaction))
         self.assertIsNone(await db.devcat_pet(DEV_GUILD, 5))
 
 
@@ -1046,7 +1068,7 @@ class TheOperatorCanRehearseTheChatHalf(CogCase):
     async def test_another_server_is_refused_with_the_reason(self):
         report = await self.cog.rehearse(OTHER_GUILD, 5, "hello", mentioned=True)
         self.assertEqual(report["would"], "nothing")
-        self.assertIn("one server only", report["gate"])
+        self.assertIn("own servers only", report["gate"])
         self.assertIsNone(report["reply"])
 
     async def test_every_gate_says_which_one_it_is(self):

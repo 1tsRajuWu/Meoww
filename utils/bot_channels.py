@@ -32,19 +32,29 @@ ROLES: tuple[str, ...] = ("update", "error", "bug", "commands", "log", "test", "
 #: bot never reads.
 OPERATOR_ROLES: frozenset[str] = frozenset({"guilds", "cmdlog"})
 
-#: The **developer's own server**, by id: the one place in this tree where a
-#: server id is deliberately written into code, and it is here for the one feature
-#: that is by definition one server's — the Dev Cat (``utils/devtoy.py``).
+#: The **developer's own server**, by id: one of the two places in this tree where
+#: a server id is deliberately written into code, and it is here for the feature
+#: that is by definition the operators' own — the Dev Cat (``utils/devtoy.py``).
 #:
 #: The rule this breaks is a real one (see ``docs/architecture.md``: *a hardcoded
 #: channel id names exactly one server, which is why the update channel, the
 #: failure channel, level-up cards and bug reports were all invisible everywhere
 #: else*). The exception is stated rather than implied: the toy is a plaything for
-#: one person in one server, it refuses every other guild by design, and the ids
-#: below have exactly one home — ``tests/test_devtoy.py`` scans the tree and fails
-#: if either number appears anywhere else, which is the shape the Dev role id and
-#: the legacy update channel already use.
+#: one person in their own servers, it refuses every other guild by design, and
+#: the ids below have exactly one home — ``tests/test_devtoy.py`` scans the tree
+#: and fails if either number appears anywhere else, which is the shape the Dev
+#: role id and the legacy update channel already use.
 DEV_SERVER_GUILD_ID = 1550227368889684058
+
+#: The **second** of the bot's own servers — the one that holds
+#: :data:`LEGACY_UPDATE_CHANNEL_ID`, where the Dev role was created, and which
+#: ``utils/db.py`` seeds as the main guild. It has exactly the same claim to being
+#: the bot's own server as the one above: the operator sits in both, and a gate
+#: that names only the other one refuses in the server its owner is sitting in —
+#: the same defect ``is_own_server`` exists to fix for ``/qna``, now answered in
+#: one place for every id-only question. ``cogs/bot_config.py`` reads this rather
+#: than writing the digits down a second time.
+HOME_GUILD_ID = 1542278896148422676
 
 #: The room in that server the cat's own cards land in when nobody asked for one.
 #: A member cannot forge it, and the toy falls back to the server's own bound bot
@@ -116,6 +126,27 @@ DEV_ROLE_ID = 1548948461301534791
 LEGACY_UPDATE_CHANNEL_ID = 1548948620600942632
 
 
+def is_own_guild_id(guild_id) -> bool:
+    """Whether an id alone names one of the two servers the bot considers its own.
+
+    The id-only twin of :func:`is_own_server`, for the callers that have nothing
+    but a guild id to ask with — the Dev Cat's gate is one: a refusal is sent from
+    a coroutine that was handed ``interaction.guild_id``, and the operator's own
+    rehearsal route takes the id as text. Same two answers, same words:
+    :data:`bot_server_guild_id` (the ``BOT_SERVER_GUILD_ID`` deployment fact) and
+    :data:`HOME_GUILD_ID` (the server that holds the legacy update channel — by id,
+    so a deleted channel cannot revoke the claim).
+
+    Both are ids a member cannot forge: a guild cannot choose its own snowflake,
+    and neither value is anything a server can acquire by naming a channel.
+    """
+    try:
+        own = int(guild_id)
+    except (TypeError, ValueError):
+        return False
+    return own == bot_server_guild_id() or own == HOME_GUILD_ID
+
+
 def is_own_server(guild) -> bool:
     """Whether this guild is a server the bot considers **its own**.
 
@@ -131,16 +162,15 @@ def is_own_server(guild) -> bool:
     Both are ids a member cannot forge: neither ``BOT_SERVER_GUILD_ID`` nor the
     legacy channel id is anything a server can acquire by naming a channel. A guild
     that holds neither is a server the bot is a **visitor** in, whatever its
-    channels are called.
+    channels are called. The id check comes first through
+    :func:`is_own_guild_id` so the two functions cannot drift about what the two
+    servers *are*; the channel lookup below is the belt to that pair of braces —
+    it still answers for a guild object that carries the legacy channel.
     """
     if guild is None:
         return False
-    guild_id = getattr(guild, "id", None)
-    try:
-        if guild_id is not None and int(guild_id) == bot_server_guild_id():
-            return True
-    except (TypeError, ValueError):
-        pass
+    if is_own_guild_id(getattr(guild, "id", None)):
+        return True
     holder = getattr(guild, "get_channel", None)
     if holder is None:
         return False

@@ -253,6 +253,27 @@ class WhichServersAreTheBotsOwn(unittest.TestCase):
     def test_a_guild_with_no_channel_lookup_is_not_assumed_to_be_one(self):
         self.assertFalse(bot_channels.is_own_server(_RoleGuild([])))
 
+    # -- the id-only twin, which is what the Dev Cat's gate asks ------------ #
+
+    def test_by_id_both_own_servers_answer_yes(self):
+        """The two ids, int or str: the Dev Cat's gate has nothing but an id to
+        ask with, and it must mean exactly what this class means."""
+        for guild_id in (bot_channels.bot_server_guild_id(), bot_channels.HOME_GUILD_ID):
+            for as_ in (guild_id, str(guild_id)):
+                with self.subTest(guild_id=as_):
+                    self.assertTrue(bot_channels.is_own_guild_id(as_))
+
+    def test_by_id_a_stranger_is_a_stranger(self):
+        self.assertFalse(bot_channels.is_own_guild_id(9999))
+        self.assertFalse(bot_channels.is_own_guild_id(None))
+        self.assertFalse(bot_channels.is_own_guild_id("development"))
+
+    def test_the_home_guild_is_its_own_even_with_no_channels_to_show_for_it(self):
+        """By id rather than by its legacy channel: the channel lookup is a belt
+        to that pair of braces, and a deleted room cannot revoke the claim."""
+        self.assertTrue(bot_channels.is_own_server(_ChannelGuild(bot_channels.HOME_GUILD_ID, [])))
+        self.assertTrue(bot_channels.is_own_guild_id(bot_channels.HOME_GUILD_ID))
+
 
 class TheOperatorIdHasOneHome(unittest.TestCase):
     """Two ids decide who operates this bot and where they do it: the Dev role a

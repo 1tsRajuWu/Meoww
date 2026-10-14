@@ -481,9 +481,9 @@ the new dashboard host.
     "https://1tsrajowo-meow-premium.hf.space/api/devcat-simulate?text=hello%20cat&mentioned=1"
   ```
 
-  The answer names the gate when one refused (*the cat lives in one server only*,
-  *the Dev Cat system is switched off for this server*, *"Answers in chat" is
-  switched off*, *the Message Content intent is off*), the rule that matched
+  The answer names the gate when one refused (*the cat lives in the bot's own
+  servers only*, *the Dev Cat system is switched off for this server*, *"Answers
+  in chat" is switched off*, *the Message Content intent is off*), the rule that matched
   (`mention`, a keyword, or a bare `reaction`), the sentence, and whether the
   **model** or the cat's own written pool produced it — so a host with no key is
   never mistaken for a host with no cat. `text` is required (`400` without it),

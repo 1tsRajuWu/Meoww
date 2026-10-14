@@ -1106,7 +1106,7 @@ async def setup():
         await db.execute(_support.CREATE_INDEX)
 
         # ── The Dev Cat ───────────────────────────────────────────────────────
-        # One row per member in the developer's own server: the cat they adopted,
+        # One row per member, per the bot's own server: the cat they adopted there,
         # what it is feeling, and the bookkeeping that keeps it from pinging them.
         # Created here as well as by the cog so a database restored from a backup
         # taken before this table existed gets it on the next boot.
@@ -2683,7 +2683,7 @@ def read_alone_time_rows_sync(guild_id) -> list[dict]:
     return [_alone_row(row) for row in rows]
 
 
-# ── The Dev Cat: one pet per member, in the developer's own server ───────────
+# ── The Dev Cat: one pet per member, in the bot's own servers ────────────────
 #
 # The column list lives here once and every reader below builds its answer from
 # it, for the reason the alone-time list does: two readers and one writer over one
