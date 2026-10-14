@@ -978,6 +978,11 @@ class TestHeadlineBlockBuildUp(unittest.TestCase):
         """Reduced-motion readers skip the build and keep the static line."""
         self.assertIn("prefers-reduced-motion", self.raw)
 
+    def test_build_replays_on_click_and_refocus(self):
+        """The build-up replays on pointerdown and tab refocus."""
+        self.assertIn("buildTitle", self.raw)
+        self.assertIn("visibilitychange", self.raw)
+
 
 if __name__ == "__main__":
     unittest.main()

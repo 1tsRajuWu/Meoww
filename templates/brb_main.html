@@ -659,19 +659,21 @@
     // Driven by the Web Animations API rather than CSS keyframes so the
     // per-letter stagger (milliseconds) never trips the >=1s CSS animation
     // floor, and so prefers-reduced-motion can skip it outright while the
-    // plain-text headline stays put for readers without script.
+    // plain-text headline stays put for readers without script. Builds on
+    // load, and rebuilds on click or tab refocus so the motion is replayable.
     try {
       var titleEl = document.querySelector('.stage .title');
-      var reduceMotion = false;
+      var titleReduceMotion = false;
       try {
-        reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        titleReduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       } catch (e) {}
-      if (titleEl && !reduceMotion && typeof titleEl.animate === 'function') {
-        var fullText = titleEl.textContent;
-        titleEl.setAttribute('aria-label', fullText);
+      var titleFullText = titleEl ? titleEl.textContent : '';
+      function buildTitle() {
+        if (!titleEl || titleReduceMotion || typeof titleEl.animate !== 'function') return;
+        titleEl.setAttribute('aria-label', titleFullText);
         titleEl.textContent = '';
         var stepDelay = 0;
-        Array.prototype.forEach.call(fullText, function(ch) {
+        Array.prototype.forEach.call(titleFullText, function(ch) {
           if (ch === ' ') {
             titleEl.appendChild(document.createTextNode(' '));
             return;
@@ -691,6 +693,11 @@
           stepDelay += 55;
         });
       }
+      buildTitle();
+      window.addEventListener('pointerdown', buildTitle, { passive: true });
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) buildTitle();
+      });
     } catch (err) {}
 
     // -------------------------------------------------------------
