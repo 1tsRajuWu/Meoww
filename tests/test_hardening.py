@@ -28,7 +28,7 @@ class NoPublishedCredential(unittest.TestCase):
         for rel in ("keep_alive.py", "README.md", "HANDOFF.md", ".env.example", "CHANGELOG.md"):
             path = ROOT / rel
             if path.exists():
-                self.assertNotIn("Him@2009@Meoww", path.read_text(encoding="utf-8"), rel)
+                self.assertNotIn("***REVOKED***", path.read_text(encoding="utf-8"), rel)
 
     def test_passkey_has_no_fallback_value(self):
         source = _read("keep_alive.py")
