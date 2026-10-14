@@ -35,6 +35,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import datetime as _datetime
 import json as _json
 from dataclasses import dataclass
 
@@ -399,6 +400,97 @@ def _total_rows(counts: dict[str, int] | None = None) -> int:
     return sum((counts if counts is not None else _row_counts()).values())
 
 
+def _progress_mark(path: str | None = None) -> float:
+    """The newest member-progress timestamp a database holds, or 0.0.
+
+    The restore decision is made on this, not on row counts: two writers can
+    hold the same rows with different values, and installing the older copy
+    silently un-earns XP, coins and purchases — the member re-earns them and
+    the level-up card fires again for a level it already announced. Row counts
+    cannot see that; the newest activity timestamp can.
+
+    ``user_levels.last_message_ts`` is the highest-frequency writer; the
+    economy's ``last_*`` stamps and the activity days back it up, so progress
+    earned without chatting still moves the mark. Anything unreadable,
+    missing or unparsable reads 0.0 rather than raising: a mark that raised
+    would turn the boot's restore into a crash, and 0.0 simply means "no
+    progress I can see", which restores exactly as before.
+    """
+    best = 0.0
+    try:
+        conn = sqlite3.connect(path or db_path(), timeout=5.0)
+    except Exception:
+        return 0.0
+    try:
+        def _column(table: str, column: str) -> list:
+            try:
+                return [row[0] for row in conn.execute(f"SELECT {column} FROM {table}")]
+            except sqlite3.Error:
+                return []
+
+        for stamp in _column("user_levels", "last_message_ts"):
+            try:
+                best = max(best, float(stamp or 0))
+            except (TypeError, ValueError):
+                continue
+        for stamp in (
+            _column("economy", "last_daily")
+            + _column("economy", "last_weekly")
+            + _column("economy", "last_work")
+            + _column("activity_messages", "date")
+        ):
+            if not stamp:
+                continue
+            try:
+                moment = _datetime.datetime.fromisoformat(str(stamp)[:26])
+            except ValueError:
+                try:
+                    moment = _datetime.datetime.strptime(str(stamp)[:10], "%Y-%m-%d")
+                except ValueError:
+                    continue
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=_datetime.timezone.utc)
+            try:
+                best = max(best, moment.timestamp())
+            except (OverflowError, OSError, ValueError):
+                continue
+    except Exception:
+        return best
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return best
+
+
+def _keep_newer_local(name: str) -> str:
+    """Keep the live database: the cloud candidate is older on every axis.
+
+    A host that reboots with a live database must not have it replaced by an
+    older backup — that is the whole of the "level 15, and again 15" defect:
+    the member's XP jumps backwards and every level is earned twice, with a
+    card each time, and coins and purchases silently go with it. The local
+    file stays, and the bookkeeping says so: uploads stay allowed (the local
+    file *is* the truth now) and the next backup cycle ships the fresher
+    state promptly instead of defending the older one.
+    """
+    global _last_sync_hash, _restored_from, _restored_counts, _restored_at
+
+    _last_sync_hash = None
+    _restored_from = "local"
+    _restored_counts = _row_counts()
+    _restored_at = time.time()
+    _touch_contact()
+    _clear_block()
+    print(
+        f"[CLOUD SYNC] ✅ Local database is newer than '{name}' — keeping it, "
+        "and the next backup will ship it.",
+        flush=True,
+    )
+    return "restored"
+
+
 def _db_readable(path: str | None = None) -> bool:
     """True when the file opens as SQLite at all.
 
@@ -486,6 +578,12 @@ def _restore_once() -> str:
     #: come back up and save again, rather than being blocked forever.
     empty_fallback: tuple[str, bytes, dict[str, int]] | None = None
 
+    #: What this host already holds. A reboot must not replace a live database
+    #: with an older backup — that regression is the "level 15, and again 15"
+    #: defect — so each candidate is asked whether it is actually newer before
+    #: it is installed.
+    local_mark = _progress_mark(db_path())
+
     for name in candidates:
         data = _storage_download(name)
         if data is None:
@@ -540,10 +638,14 @@ def _restore_once() -> str:
                 empty_fallback = (name, data, counts)
             continue
 
+        if _progress_mark(temp) < local_mark:
+            _remove(temp)
+            return _keep_newer_local(name)
+
         _install(name, data, counts, temp=temp)
         return "restored"
 
-    if empty_fallback is not None:
+    if empty_fallback is not None and local_mark <= 0:
         name, data, counts = empty_fallback
         _install(name, data, counts)
         print(
@@ -552,6 +654,11 @@ def _restore_once() -> str:
             flush=True,
         )
         return "restored"
+
+    if empty_fallback is not None:
+        # Every backup is empty but this host holds real progress: installing
+        # the empty file would wipe it, so the live database stays.
+        return _keep_newer_local(empty_fallback[0])
 
     print("[CLOUD SYNC] ❌ No usable snapshot found in Supabase.", flush=True)
     # The bucket has backups, but none of them could be used. Uploading now

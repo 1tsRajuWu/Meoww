@@ -263,7 +263,7 @@ COMMAND_ACCESS: dict[str, str] = {
     "customquote delete": SUBMITTER,
     # -- Moderation -------------------------------------------------------- #
     "warn": MODERATE,
-    "mute": MODERATE,
+    "timeout": MODERATE,
     "unmute": MODERATE,
     "warnings": MODERATE,
     "ban": BAN,

@@ -209,6 +209,11 @@ RETIRED_COMMANDS: frozenset[str] = frozenset(
         # but the registration was never added here, so it still squats a slot
         # in every server and fails on click (the tree has no such root).
         "dbstatus",
+        # Renamed at the owner's request: `/mute` is `/timeout` now, and the
+        # verb is "Timeout" everywhere a person reads it. The old root stays
+        # registered until this list deletes it — the boot retires before it
+        # upserts, so the slot is freed before the new name needs it.
+        "mute",
         # The music player that `deleted_features/cogs/music.py` was: a queue in
         # one voice channel, replaced by `/radio`'s stations in
         # `deleted_features/radio_2026_09/` and then by `cogs/radio.py`. Both

@@ -15,7 +15,7 @@ HELP_MODULES = {
             "> `/warn <member> <reason>` — Issue an official warning\n"
             "> `/warnings <member>` — View warning history for a user\n"
             "> `/clearwarnings <member>` — Clear all warnings for a user\n"
-            "> `/mute <member> <duration> [reason]` — Timeout/mute a member\n"
+            "> `/timeout <member> <duration> [reason]` — Time out a member\n"
             "> `/unmute <member>` — Remove timeout\n"
             "> `/kick <member> [reason]` — Kick a member from the server\n"
             "> `/ban <member> [delete_days] [reason]` — Ban a member\n"

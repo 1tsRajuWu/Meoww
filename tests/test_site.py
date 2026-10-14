@@ -694,6 +694,25 @@ class EveryPublicPageSharesOneFrame(unittest.TestCase):
             self.assertIn(f'href="{way}"', body, f"the 404 offers no way to {way}")
         self.assertIn("meow.css", body, "the 404 arrived unstyled")
 
+    def test_a_mistyped_address_survives_its_own_template_breaking(self):
+        """The error page extends the shared layout, and when that layout is
+        absent the render raises — which turned every mistyped address into a
+        500 on a host whose base had not shipped. The fallback carries the same
+        sentence and the same ways onward with nothing behind them."""
+        import jinja2.exceptions  # noqa: PLC0415 — only this test breaks the render
+
+        with unittest.mock.patch.object(
+            keep_alive, "render_template",
+            side_effect=jinja2.exceptions.TemplateNotFound("site_base.html"),
+        ):
+            response = self._get("/this-address-is-not-a-page")
+        self.assertEqual(response.status_code, 404)
+        body = response.get_data(as_text=True)
+        self.assertIn("nothing at that address", body)
+        for way in ("/systems", "/start", "/login"):
+            self.assertIn(f'href="{way}"', body, f"the fallback offers no way to {way}")
+        self.assertIn("meow.css", body, "the fallback arrived unstyled")
+
 
 class EverySignedInPageSharesThatSameFrame(_DashboardFixture):
     """The dashboard's eleven pages, served the way a signed-in browser gets them.

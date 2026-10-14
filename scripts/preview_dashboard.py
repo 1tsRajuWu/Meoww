@@ -1719,7 +1719,7 @@ def api_member_action():
     LAST_MEMBER_ACTION.update(data)
     action = str(data.get("action") or "")
     names = {
-        "warn": "Warn", "timeout": "Mute", "timeout_remove": "Unmute",
+        "warn": "Warn", "timeout": "Timeout", "timeout_remove": "Unmute",
         "kick": "Kick", "ban": "Ban", "unban": "Unban", "clear_warnings": "Warnings cleared",
     }
     return jsonify({

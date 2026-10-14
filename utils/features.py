@@ -281,13 +281,13 @@ FEATURES: tuple[Feature, ...] = (
             "links and floods — are their own system: see *Auto Moderation*."
         ),
         gate_commands=(
-            "ban", "kick", "mute", "unmute", "unban", "warn", "warnings",
+            "ban", "kick", "timeout", "unmute", "unban", "warn", "warnings",
             "clearwarnings", "purge", "modlog", "appeal", "lockdown",
             "unlock", "slowmode", "addrole", "removerole",
             "announce",
         ),
         commands=(
-            "/ban", "/kick", "/mute", "/unmute", "/warn", "/warnings",
+            "/ban", "/kick", "/timeout", "/unmute", "/warn", "/warnings",
             "/clearwarnings", "/purge", "/modlog", "/appeal", "/lockdown",
             "/unlock",
             "/slowmode", "/addrole", "/removerole", "/announce",

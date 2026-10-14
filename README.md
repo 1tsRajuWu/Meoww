@@ -80,7 +80,7 @@ else is linked from the [table of contents](#contents).
 
 | | Feature | What you get |
 |---|---|---|
-| 🛡️ | **Moderation & Logs** | `/ban /kick /mute /warn /purge`, mod cases, `#logs` audit trail |
+| 🛡️ | **Moderation & Logs** | `/ban /kick /timeout /warn /purge`, mod cases, `#logs` audit trail |
 | 🎟️ | **Support Tickets** | Button panel → private staff channels (`/ticket setup`) |
 | ❓ | **Anonymous Q&A** | `/qna ask` relays a question with no name on it; you answer from Discord or the console's **Questions** page, and the answer is DMed — never posted |
 | 🏆 | **Leveling & XP** | Message + voice XP, level-up cards, `/rank /leaderboard` |
@@ -354,7 +354,7 @@ skip — a suite that quietly stops collecting tests cannot pass as green.
 |---|---|
 | Bot offline but logs say "ready" | Wait 1–2 min — global commands register slowly |
 | No slash commands at all | Re-invite with the `applications.commands` scope |
-| "Missing Permissions" on ban/kick/mute | Drag the bot's role **above** the target roles |
+| "Missing Permissions" on ban/kick/timeout | Drag the bot's role **above** the target roles |
 | Ticket button creates nothing | Bot needs `Manage Channels` — see below |
 | Free host sleeps/stops | Expected on free tiers: something **outside** the host has to knock on `/health` (see *Free, and online without you* in `docs/deployment.md`) — nothing inside the container can stop Render's idle timer |
 
@@ -386,7 +386,7 @@ needs it (`utils/discord_auth.py`):
 |---|---|
 | View Channels, Send Messages, Embed Links, Attach Files, Read Message History | every command that answers, including the cards |
 | Add Reactions, Use External Emojis | the starboard |
-| Kick Members, Ban Members, Moderate Members | `/kick`, `/ban`, `/mute`, and automod's timeout |
+| Kick Members, Ban Members, Moderate Members | `/kick`, `/ban`, `/timeout`, and automod's timeout |
 | Manage Messages | `/purge` |
 | Manage Server | Discord-native AutoMod rule sync from the dashboard and `/automod native` |
 | Manage Channels | `/lock`, `/unlock`, and ticket channels |

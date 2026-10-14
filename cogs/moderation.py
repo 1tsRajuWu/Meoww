@@ -10,7 +10,7 @@ ACTION_CONFIG = {
     "Warn":   ("⚠️",  0xF1C40F, "Warned",   "\u001b[1;33m"),   # gold
     "Ban":    ("🔨",  0xE74C3C, "Banned",   "\u001b[1;31m"),   # red
     "Kick":   ("👢",  0xE67E22, "Kicked",   "\u001b[1;33m"),   # orange
-    "Mute":   ("🔇",  0x9B59B6, "Muted",    "\u001b[1;35m"),   # purple
+    "Timeout":   ("🔇",  0x9B59B6, "Timed out",    "\u001b[1;35m"),   # purple
     "Unmute": ("🔊",  0x2ECC71, "Unmuted",  "\u001b[1;32m"),   # green
     "Unban":  ("✅",  0x2ECC71, "Unbanned", "\u001b[1;32m"),   # green
 }
@@ -164,12 +164,12 @@ class Moderation(commands.Cog):
         await interaction.response.defer()
         await self._act(interaction, "kick", member, reason=reason, label="Kick")
 
-    @app_commands.command(name="mute", description="Timeout (mute) a member.")
-    @app_commands.describe(member="Member to mute", minutes="Duration in minutes", reason="Reason for the mute")
+    @app_commands.command(name="timeout", description="Time out a member.")
+    @app_commands.describe(member="Member to time out", minutes="Duration in minutes", reason="Reason for the timeout")
     @app_commands.checks.has_permissions(moderate_members=True)
-    async def mute(self, interaction: discord.Interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: str = "No reason provided"):
+    async def timeout(self, interaction: discord.Interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: str = "No reason provided"):
         await interaction.response.defer()
-        await self._act(interaction, "timeout", member, reason=reason, minutes=minutes, label="Mute")
+        await self._act(interaction, "timeout", member, reason=reason, minutes=minutes, label="Timeout")
 
     @app_commands.command(name="unmute", description="Remove timeout from a member.")
     @app_commands.describe(member="Member to unmute")

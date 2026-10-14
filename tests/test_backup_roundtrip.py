@@ -7,10 +7,12 @@ Supabase standing in for the real API.
 """
 import contextlib
 import dataclasses
+import datetime
 import io
 import os
 import sqlite3
 import tempfile
+import time
 import unittest
 import urllib.error
 from unittest import mock
@@ -63,6 +65,9 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         await db.setup()
         cs._last_sync_hash = None
         cs._restore_blocked_reason = None
+        cs._restored_from = None
+        cs._restored_counts = {}
+        cs._restored_at = 0.0
         cs._remote_checked = False
         # Set env vars for Supabase
         self._orig_url = cs.SUPABASE_URL
@@ -169,6 +174,93 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
              mock.patch.object(cs, "_storage_upload", side_effect=lambda n, d: fake.upload(n, d)):
             self.assertFalse(cs.backup_to_cloud_sync())
         self.assertNotIn("bot.db", fake.files)
+
+    def _seed_progress(self, path: str, last_message_ts: float) -> None:
+        """One level row whose watermark is exactly `last_message_ts`."""
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "INSERT OR REPLACE INTO user_levels VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (GUILD, MEMBER, SEED_XP, SEED_LEVEL, 100, 0, 0, last_message_ts),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO economy VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (MEMBER, GUILD, SEED_WALLET, SEED_BANK, None, None, None),
+        )
+        conn.commit()
+        conn.close()
+
+    def _restore_with(self, fake: _FakeSupabase) -> bool:
+        with mock.patch.object(cs, "_storage_list_raw", return_value=fake.list_objects()), \
+             mock.patch.object(cs, "_storage_download", side_effect=lambda n, quiet=False: fake.download(n)):
+            return cs.restore_from_cloud()
+
+    def test_restore_keeps_a_live_database_newer_than_the_backup(self):
+        """A reboot must not replace a live database with an older backup.
+
+        Seen live as "level 15, and again 15": the member's XP jumps backwards
+        and every level is earned twice, with a card each time — and coins and
+        purchases silently go with it.
+        """
+        fake = _FakeSupabase()
+        # The bucket holds yesterday's progress...
+        self._seed_progress(cs.db_path(), last_message_ts=time.time() - 86400)
+        with open(cs.db_path(), "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        # ...while this host kept earning until just now.
+        self._seed_progress(cs.db_path(), last_message_ts=time.time())
+        self.assertTrue(self._restore_with(fake))
+        self.assertEqual(cs._restored_from, "local")
+        conn = sqlite3.connect(cs.db_path())
+        kept = conn.execute(
+            "SELECT last_message_ts FROM user_levels WHERE user_id=?", (MEMBER,)
+        ).fetchone()[0]
+        conn.close()
+        self.assertGreater(kept, time.time() - 3600)
+
+    def test_restore_still_replaces_an_older_live_database(self):
+        """The rule cuts one way: an older live file still loses to the backup."""
+        fake = _FakeSupabase()
+        self._seed_progress(cs.db_path(), last_message_ts=time.time())
+        with open(cs.db_path(), "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        self._seed_progress(cs.db_path(), last_message_ts=time.time() - 86400)
+        self.assertTrue(self._restore_with(fake))
+        self.assertEqual(cs._restored_from, "bot.db")
+        conn = sqlite3.connect(cs.db_path())
+        kept = conn.execute(
+            "SELECT last_message_ts FROM user_levels WHERE user_id=?", (MEMBER,)
+        ).fetchone()[0]
+        conn.close()
+        self.assertGreater(kept, time.time() - 3600)
+
+    def test_restore_tie_goes_to_the_backup(self):
+        """Equal marks are deterministic: today's behavior, byte for byte."""
+        fake = _FakeSupabase()
+        _make_db(cs.db_path())
+        with open(cs.db_path(), "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        self.assertTrue(self._restore_with(fake))
+        self.assertEqual(cs._restored_from, "bot.db")
+
+    def test_progress_mark_reads_all_three_axes(self):
+        """XP stamps, economy stamps and activity days all move the mark."""
+        now = time.time()
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute(
+            "INSERT OR REPLACE INTO economy VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (MEMBER, GUILD, 0, 0, None, None,
+             datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc).isoformat()),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO activity_messages VALUES (?, ?, ?, ?, ?)",
+            (GUILD, MEMBER, 1, time.strftime("%Y-%m-%d", time.gmtime(now - 86400)), 5),
+        )
+        conn.commit()
+        conn.close()
+        mark = cs._progress_mark(cs.db_path())
+        self.assertGreaterEqual(mark, now - 86400)
+        self.assertLessEqual(mark, now + 1)
+        self.assertEqual(cs._progress_mark("/nonexistent-dir/no.db"), 0.0)
 
 
 class DeleteRequestShape(unittest.TestCase):

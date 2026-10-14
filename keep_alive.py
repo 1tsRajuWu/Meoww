@@ -1783,6 +1783,65 @@ ERROR_PAGES = {
 }
 
 
+def _error_fallback(
+    status: int,
+    *,
+    headline: str,
+    eyebrow: str,
+    explanation: str,
+    ways: list,
+    bot_name: str,
+) -> tuple[str, int]:
+    """The error page with no template behind it.
+
+    ``error.html`` extends the shared layout, and when that layout is absent
+    (archived, mid-rebuild, not yet deployed) the render raises and Flask
+    answers 500 — so a mistyped address, the most common error page anybody
+    ever sees, became the one failure this site has. The fallback carries the
+    same sentences and the same ways onward with nothing behind them: no
+    extends, no includes, no asset that has to exist beyond the shared sheet
+    link (kept because the suite holds the 404 to arriving styled). Every
+    value is escaped here rather than in the template, because one of them —
+    the caller's explanation — can carry text this deployment did not write.
+    """
+    items = "\n".join(
+        '      <li><a href="{href}">{label}</a> — {note}</li>'.format(
+            href=_html.escape(str(way.get("href", "/")), quote=True),
+            label=_html.escape(str(way.get("label", "The front page"))),
+            note=_html.escape(str(way.get("note", ""))),
+        )
+        for way in ways or []
+    )
+    body = (
+        "<!doctype html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '<meta name="robots" content="noindex, nofollow">\n'
+        "<title>{headline} — {bot}</title>\n"
+        '<link rel="stylesheet" href="/static/meow.css">\n'
+        "</head>\n"
+        "<body>\n"
+        "<main>\n"
+        "<p>{code} — {eyebrow}</p>\n"
+        "<h1>{headline}</h1>\n"
+        "<p>{explanation}</p>\n"
+        "<ul>\n{items}\n</ul>\n"
+        "</main>\n"
+        "</body>\n"
+        "</html>\n"
+    ).format(
+        headline=_html.escape(str(headline or "Something went wrong")),
+        bot=_html.escape(str(bot_name or "")),
+        code=int(status),
+        eyebrow=_html.escape(str(eyebrow or "Error")),
+        explanation=_html.escape(str(explanation or "")),
+        items=items,
+    )
+    return body, status
+
+
 def _error_page(status: int, *, explanation: str = ""):
     """One error page, in the site's own shell, for both surfaces.
 
@@ -1830,19 +1889,35 @@ def _error_page(status: int, *, explanation: str = ""):
             "meta": "needs Discord",
         }
     )
-    return (
-        render_template(
-            "error.html",
-            **context,
-            current="",
-            code=status,
-            ways=ways,
-            eyebrow=page["eyebrow"],
+    text = explanation or page["explanation"]
+    try:
+        return (
+            render_template(
+                "error.html",
+                **context,
+                current="",
+                code=status,
+                ways=ways,
+                eyebrow=page["eyebrow"],
+                headline=page["headline"],
+                explanation=text,
+            ),
+            status,
+        )
+    except Exception as exc:  # noqa: BLE001 — the whole point: a broken shell must not break the error page
+        print(
+            f"[SITE] error page template failed ({type(exc).__name__}: {exc}) — "
+            "serving the fallback.",
+            flush=True,
+        )
+        return _error_fallback(
+            status,
             headline=page["headline"],
-            explanation=explanation or page["explanation"],
-        ),
-        status,
-    )
+            eyebrow=page["eyebrow"],
+            explanation=text,
+            ways=ways,
+            bot_name=context.get("bot_name", ""),
+        )
 
 
 @app.errorhandler(404)

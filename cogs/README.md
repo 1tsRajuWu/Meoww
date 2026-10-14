@@ -18,7 +18,7 @@ cogs stay thin.
 | `leveling.py` | Leveling & XP | `/rank /leaderboard /levelroles view|add|remove /givexp /setlevel …` + message/voice listeners |
 | `market.py` | Market | `/market board quote chart buy sell portfolio history` |
 | `meetings.py` | Meetings & Notices | `/meeting create list view reschedule ping cancel` + RSVP buttons |
-| `moderation.py` | Moderation & Logs | `/ban /kick /mute /warn /purge /modlog …` |
+| `moderation.py` | Moderation & Logs | `/ban /kick /timeout /warn /purge /modlog …` |
 | `server_control.py` | Server utilities | `/serverinfo /userinfo /announce /lockdown /check /slowmode /defaultrole …` |
 | `social.py` | Social Roleplay | `/action /marry /ship /hunt /zoo /uwu …` |
 | `tickets.py` | Support Tickets | `/ticket setup` + panel buttons + ratings |

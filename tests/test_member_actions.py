@@ -393,7 +393,7 @@ class TheRecord(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(declared), 4, "the commands' permissions were not found")
         command_for_action = {
             "warn": "warn",
-            "timeout": "mute",
+            "timeout": "timeout",
             "timeout_remove": "unmute",
             "kick": "kick",
             "ban": "ban",

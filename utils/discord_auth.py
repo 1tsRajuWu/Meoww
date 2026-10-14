@@ -151,7 +151,7 @@ MINIMAL_PERMISSION_BITS = (
     # --- moderation (cogs/moderation.py, cogs/automod.py) ---
     ("kick_members", 1 << 1),            # /kick
     ("ban_members", 1 << 2),             # /ban
-    ("moderate_members", 1 << 40),       # /mute, /unmute, automod's 5-minute timeout
+    ("moderate_members", 1 << 40),       # /timeout, /unmute, automod's 5-minute timeout
     ("manage_messages", 1 << 13),        # /purge
     # --- voice: playback (cogs/radio.py) ---
     ("connect", 1 << 20),                # /radio — joining the channel

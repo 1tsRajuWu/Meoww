@@ -1,7 +1,7 @@
 """Member actions as *facts*, so the website and the slash commands cannot disagree.
 
 The dashboard grew a members page, and that made a second caller of powers that
-until now only existed behind ``/kick``, ``/ban``, ``/mute`` and ``/warn``. Two
+until now only existed behind ``/kick``, ``/ban``, ``/timeout`` and ``/warn``. Two
 callers of one power is how a product ends up with two answers to "what happened
 when somebody was banned", and this project already fixed that shape once: the
 bot's own automod timed people out with no record at all until one door
@@ -54,7 +54,7 @@ from . import db, modlog
 #: has to mean one thing.
 ACTIONS: dict[str, str] = {
     "warn": "Warn",
-    "timeout": "Mute",
+    "timeout": "Timeout",
     "timeout_remove": "Unmute",
     "kick": "Kick",
     "ban": "Ban",
