@@ -402,9 +402,8 @@
   }
   .term-line {
     color: rgba(255, 255, 255, 0.7);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
     font-size: 12px;
   }
   .term-line .ts {
@@ -1290,9 +1289,33 @@
       mouse.active = false;
     }
 
+    function playDropSound() {
+      if (!audioCtx) initAudio();
+      if (!audioCtx) return;
+      try {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        var t = audioCtx.currentTime;
+        var drop = audioCtx.createOscillator();
+        var dropGain = audioCtx.createGain();
+        var base = 560 + Math.random() * 120;
+        drop.type = 'sine';
+        drop.frequency.setValueAtTime(base, t);
+        drop.frequency.exponentialRampToValueAtTime(170, t + 0.11);
+        dropGain.gain.setValueAtTime(0.0001, t);
+        dropGain.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
+        dropGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+        drop.connect(dropGain);
+        dropGain.connect(analyser);
+        drop.start(t);
+        drop.stop(t + 0.18);
+      } catch (err) {}
+    }
+
     function onPointerDown(e) {
       initAudio();
-      playShockwaveAudio();
+      playDropSound();
       spawnShockwave(e.clientX, e.clientY);
     }
 

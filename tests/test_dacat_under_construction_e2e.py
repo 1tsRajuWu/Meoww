@@ -288,6 +288,20 @@ class TestR3EdgeTelemetryAndDeploymentTerminal(unittest.TestCase):
         self.assertIn("buildSteps", self.raw)
         self.assertIn("streamNextStep", self.raw)
 
+    def test_terminal_lines_wrap_instead_of_clipping(self):
+        """Log lines wrap fully — no ellipsis truncation mid-reading."""
+        self.assertRegex(
+            self.raw,
+            r"\.term-line\s*\{[^}]*white-space:\s*normal",
+            "term-line must wrap instead of nowrap clipping",
+        )
+        self.assertNotIn("text-overflow: ellipsis", self.raw)
+
+    def test_click_plays_water_drop_sound(self):
+        """Clicks play a water-drop plip through the shared audio graph."""
+        self.assertIn("playDropSound", self.raw)
+        self.assertIn("exponentialRampToValueAtTime", self.raw)
+
     def test_live_streaming_line_and_blinking_cursor(self):
         """Verifies live terminal line carries blinking cursor with blink animation."""
         self.assertIn("term-cursor", self.rendered)
