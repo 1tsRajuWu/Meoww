@@ -527,7 +527,7 @@ class Questions(commands.Cog):
 
         if session.resolved:
             sub_count_text = f"`{len(session.answers)}` recorded (Closed)"
-            footer_text = f"🔒 Submissions are closed • Concluded"
+            footer_text = "🔒 Submissions are closed • Concluded"
             color = 0x747F8D
         else:
             sub_count_text = f"`{len(session.answers)}` recorded"
@@ -559,7 +559,7 @@ class Questions(commands.Cog):
         if session.resolved:
             button_label = "Submissions Closed"
             button_emoji = "🔒"
-            footer_text = f"🔒 Submissions are closed • Concluded"
+            footer_text = "🔒 Submissions are closed • Concluded"
             sub_count_text = f"`{len(session.answers)}` recorded (Closed)"
         else:
             button_label = "Submit Answer"
