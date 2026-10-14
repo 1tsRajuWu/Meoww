@@ -152,6 +152,26 @@ def plain_fstrings(src):
     return sorted(found)
 
 
+def backslash_in_fstring_expression(src):
+    """Backslashes inside ``{...}`` expressions, which are a SyntaxError below 3.12.
+
+    A backslash in the *literal* part of an f-string is fine everywhere; one
+    inside an expression (a regex replacement like ``r'\\1=x'`` interpolated
+    directly) parses locally on 3.12+ and kills the process on the 3.10/3.11
+    hosts this fleet runs on — at import time, so the whole bot stays down.
+    Only the expression text is inspected, via the node's own segment.
+    """
+    found = []
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FormattedValue):
+            continue
+        segment = ast.get_source_segment(src, node) or ""
+        if "\\" in segment[1:-1]:
+            found.append(node.lineno)
+    return sorted(found)
+
+
 class StaticHealth(unittest.TestCase):
     def test_every_live_file_parses(self):
         broken = []
@@ -196,6 +216,20 @@ class StaticHealth(unittest.TestCase):
             for line in plain_fstrings(src):
                 problems.append(f"{rel(path)}:{line}")
         self.assertEqual(problems, [], "f-strings that interpolate nothing")
+
+    def test_no_backslash_in_fstring_expressions(self):
+        """An f-string expression with a backslash is a SyntaxError below 3.12.
+
+        Locally everything runs 3.14, where it parses — and the hosts run
+        3.10/3.11, where the module fails at import and the bot never starts.
+        Compute the value first, then interpolate the name.
+        """
+        problems = []
+        for path in live_files():
+            src = read(path)
+            for line in backslash_in_fstring_expression(src):
+                problems.append(f"{rel(path)}:{line}")
+        self.assertEqual(problems, [], "backslashes inside {...} expressions")
 
     def test_no_duplicate_top_level_definitions(self):
         """A second definition silently wins, which is how a handler goes dead."""

@@ -633,12 +633,12 @@
       var titleText = 'Building The Website.';
       var titleLines = ['Building', 'The Website.'];
       var PIXEL_FONT_5X7 = {
-        'B': ['11110','10001','10001','11110','10001','10001','11110'],
-        'u': ['00000','00000','10001','10001','10001','10001','01110'],
-        'i': ['00100','00000','01100','00100','00100','00100','01110'],
+        'B': ['11110','10101','10101','11110','10101','10101','11110'],
+        'u': ['00000','00000','10101','10101','10101','10101','01110'],
+        'i': ['01100','00000','01100','00100','00100','00100','01110'],
         'l': ['01100','00100','00100','00100','00100','00100','01110'],
-        'd': ['00001','00001','00111','00101','00101','00101','00111'],
-        'n': ['00000','00000','10110','11001','10001','10001','10001'],
+        'd': ['00010','00010','01110','01010','01010','01010','01110'],
+        'n': ['00000','00000','01110','01010','01010','01010','01010'],
         'g': ['01110','10001','10001','01111','00010','00010','11100'],
         'T': ['11111','00100','00100','00100','00100','00100','00100'],
         'h': ['10000','10000','10110','11001','10001','10001','10001'],
@@ -652,17 +652,34 @@
       };
       var MOVE_GLOW = '#FF6B4A';
       var LOCKED = '#FFFFFF';
-      var FUR = '#EDEDF4';
       var HOLD_S = 2.5;
       var DISSOLVE_S = 0.8;
       var WAIT_S = 0.5;
       var CAT_SPEED = 420;
       var TOSS_S = 0.2;
+      var CAT_COUNT = 3;
+      var CAT_FURS = ['#EDEDF4', '#D9D9EA', '#F2E9E4'];
       var titleCanvas = null, titleCtx = null, titleBlocks = [];
       var titlePitch = 4, titleW = 0, titleH = 0, titleGround = 0;
       var titlePhase = 'build', titlePhaseT = 0;
-      var placeIdx = 0, tossT = -1, tossSX = 0, tossSY = 0;
-      var catX = 0, catDir = 1, catRun = 0, catBlinkT = 0, catNextBlink = 2.5;
+      var titleCats = [];
+      function resetTitleBuild() {
+        var p, q;
+        for (p = 0; p < titleBlocks.length; p++) titleBlocks[p].placed = false;
+        titleCats = [];
+        for (q = 0; q < CAT_COUNT; q++) {
+          titleCats.push({
+            x: -2 * titlePitch - q * 30, dir: 1, run: 0,
+            queue: [], qp: 0, tossT: -1, tossSX: 0, tossSY: 0,
+            blinkT: 0, nextBlink: 1 + q * 0.9, fur: CAT_FURS[q % CAT_FURS.length]
+          });
+        }
+        for (p = 0; p < titleBlocks.length; p++) {
+          titleCats[p % CAT_COUNT].queue.push(p);
+        }
+        titlePhase = 'build';
+        titlePhaseT = 0;
+      }
       function lineCells(s) {
         var n = 0;
         for (var i = 0; i < s.length; i++) n += (s.charAt(i) === ' ') ? 3 : 6;
@@ -718,29 +735,20 @@
         }
         resetTitleBuild();
       }
-      function resetTitleBuild() {
-        for (var i = 0; i < titleBlocks.length; i++) titleBlocks[i].placed = false;
-        placeIdx = 0;
-        tossT = -1;
-        catX = -2 * titlePitch;
-        catDir = 1;
-        titlePhase = 'build';
-        titlePhaseT = 0;
-      }
-      function drawCat(sitting) {
+      function drawCat(cat, sitting) {
         if (!titleCtx) return;
         var p = titlePitch;
         var g = titleGround;
-        var bob = sitting ? 0 : Math.abs(Math.sin(catRun)) * 0.12 * p;
+        var bob = sitting ? 0 : Math.abs(Math.sin(cat.run)) * 0.12 * p;
         titleCtx.save();
-        titleCtx.translate(catX, 0);
-        titleCtx.scale(catDir, 1);
-        titleCtx.fillStyle = FUR;
+        titleCtx.translate(cat.x, 0);
+        titleCtx.scale(cat.dir, 1);
+        titleCtx.fillStyle = cat.fur;
         titleCtx.shadowBlur = 0;
         if (sitting) {
           titleCtx.fillRect(-1.15 * p, g - 1.2 * p, 2.3 * p, 1.2 * p);
         } else {
-          var off = Math.sin(catRun) * 0.22 * p;
+          var off = Math.sin(cat.run) * 0.22 * p;
           titleCtx.fillRect(-1.15 * p, g - 1.9 * p, 2.3 * p, 1.0 * p);
           titleCtx.fillRect(-0.75 * p, g - 0.75 * p + off, 0.3 * p, 0.75 * p - off);
           titleCtx.fillRect(0.45 * p, g - 0.75 * p - off, 0.3 * p, 0.75 * p + off);
@@ -749,9 +757,9 @@
         titleCtx.fillRect(0.35 * p, hy, 1.15 * p, 1.15 * p);
         titleCtx.fillRect(0.4 * p, hy - 0.32 * p, 0.32 * p, 0.42 * p);
         titleCtx.fillRect(1.13 * p, hy - 0.32 * p, 0.32 * p, 0.42 * p);
-        var sway = Math.sin(titlePhaseT * 6) * 0.18 * p;
+        var sway = Math.sin(titlePhaseT * 6 + cat.x * 0.05) * 0.18 * p;
         titleCtx.fillRect(-1.45 * p + sway, g - 2.3 * p, 0.28 * p, 1.4 * p);
-        if (catBlinkT <= 0) {
+        if (cat.blinkT <= 0) {
           titleCtx.fillStyle = '#FF2A44';
           titleCtx.shadowColor = '#FF2A44';
           titleCtx.shadowBlur = 6;
@@ -761,17 +769,20 @@
         }
         titleCtx.restore();
       }
-      function drawCarried() {
-        if (!titleCtx || placeIdx >= titleBlocks.length) return;
+      function drawCarried(cat) {
+        if (!titleCtx || cat.qp >= cat.queue.length) return;
         var p = titlePitch;
-        var bob = Math.abs(Math.sin(catRun)) * 0.1 * p;
-        var hx = catX + catDir * 0.9 * p;
+        var bob = Math.abs(Math.sin(cat.run)) * 0.1 * p;
+        var hx = cat.x + cat.dir * 0.9 * p;
         var hy = titleGround - 3.4 * p + bob;
         titleCtx.fillStyle = MOVE_GLOW;
         titleCtx.shadowColor = MOVE_GLOW;
-        titleCtx.shadowBlur = 12;
+        titleCtx.shadowBlur = 8;
         titleCtx.fillRect(hx - 0.4 * p, hy - 0.4 * p, 0.8 * p, 0.8 * p);
         titleCtx.shadowBlur = 0;
+      }
+      function catHasWork(cat) {
+        return cat.qp < cat.queue.length;
       }
       function drawTitlePixels() {
         if (!titleCtx) return;
@@ -779,7 +790,7 @@
         titleCtx.shadowBlur = 0;
         titleCtx.globalAlpha = 1;
         if (titlePhase === 'wait') {
-          drawCat(true);
+          for (var w = 0; w < titleCats.length; w++) drawCat(titleCats[w], true);
           return;
         }
         if (titlePhase === 'hold') {
@@ -791,7 +802,7 @@
             titleCtx.fillRect(titleBlocks[i].tx, titleBlocks[i].ty, titleBlocks[i].size, titleBlocks[i].size);
           }
           titleCtx.shadowBlur = 0;
-          drawCat(true);
+          for (var hc = 0; hc < titleCats.length; hc++) drawCat(titleCats[hc], true);
           return;
         }
         if (titlePhase === 'dissolve') {
@@ -809,7 +820,7 @@
               titleCtx.globalAlpha = 1;
             }
           }
-          drawCat(true);
+          for (var dc = 0; dc < titleCats.length; dc++) drawCat(titleCats[dc], true);
           return;
         }
         for (var k = 0; k < titleBlocks.length; k++) {
@@ -817,21 +828,24 @@
           titleCtx.fillStyle = LOCKED;
           titleCtx.fillRect(titleBlocks[k].tx, titleBlocks[k].ty, titleBlocks[k].size, titleBlocks[k].size);
         }
-        if (tossT >= 0 && placeIdx < titleBlocks.length) {
-          var tb = titleBlocks[placeIdx];
-          var tp = Math.min(1, tossT / TOSS_S);
-          var arc = Math.sin(tp * Math.PI) * 1.4 * titlePitch;
-          var tossX = tossSX + (tb.tx + tb.size / 2 - tossSX) * tp;
-          var tossY = tossSY + (tb.ty + tb.size / 2 - tossSY) * tp - arc;
-          titleCtx.fillStyle = MOVE_GLOW;
-          titleCtx.shadowColor = MOVE_GLOW;
-          titleCtx.shadowBlur = 12;
-          titleCtx.fillRect(tossX - tb.size / 2, tossY - tb.size / 2, tb.size, tb.size);
-          titleCtx.shadowBlur = 0;
-        } else {
-          drawCarried();
+        for (var ci2 = 0; ci2 < titleCats.length; ci2++) {
+          var cc = titleCats[ci2];
+          if (cc.tossT >= 0 && cc.qp < cc.queue.length) {
+            var tb = titleBlocks[cc.queue[cc.qp]];
+            var tp = Math.min(1, cc.tossT / TOSS_S);
+            var arc = Math.sin(tp * Math.PI) * 1.4 * titlePitch;
+            var tossX = cc.tossSX + (tb.tx + tb.size / 2 - cc.tossSX) * tp;
+            var tossY = cc.tossSY + (tb.ty + tb.size / 2 - cc.tossSY) * tp - arc;
+            titleCtx.fillStyle = MOVE_GLOW;
+            titleCtx.shadowColor = MOVE_GLOW;
+            titleCtx.shadowBlur = 8;
+            titleCtx.fillRect(tossX - tb.size / 2, tossY - tb.size / 2, tb.size, tb.size);
+            titleCtx.shadowBlur = 0;
+          } else if (catHasWork(cc)) {
+            drawCarried(cc);
+          }
+          drawCat(cc, !catHasWork(cc) && cc.tossT < 0);
         }
-        drawCat(false);
       }
       var titleLast = 0;
       function titleFrame(now) {
@@ -840,45 +854,61 @@
         if (dt < 0) dt = 0;
         if (dt > 0.05) dt = 0.05;
         titlePhaseT += dt;
-        catNextBlink -= dt;
-        if (catNextBlink <= 0) {
-          catBlinkT = 0.12;
-          catNextBlink = 2 + Math.random() * 2.5;
+        for (var bc = 0; bc < titleCats.length; bc++) {
+          var blinkCat = titleCats[bc];
+          blinkCat.nextBlink -= dt;
+          if (blinkCat.nextBlink <= 0) {
+            blinkCat.blinkT = 0.12;
+            blinkCat.nextBlink = 2 + Math.random() * 2.5;
+          }
+          if (blinkCat.blinkT > 0) blinkCat.blinkT -= dt;
         }
-        if (catBlinkT > 0) catBlinkT -= dt;
         if (titlePhase === 'build') {
-          if (placeIdx >= titleBlocks.length) {
-            titlePhase = 'hold'; titlePhaseT = 0;
-          } else if (tossT >= 0) {
-            tossT += dt;
-            if (tossT >= TOSS_S && placeIdx < titleBlocks.length) {
-              titleBlocks[placeIdx].placed = true;
-              tossT = -1;
-              placeIdx++;
-            }
-          } else {
-            var tgt = titleBlocks[placeIdx].tx + titleBlocks[placeIdx].size / 2;
-            var lo = 1.4 * titlePitch, hi = titleW - 1.4 * titlePitch;
-            if (lo > hi) { lo = hi = titleW / 2; }
-            tgt = Math.max(lo, Math.min(hi, tgt));
-            var cdx = tgt - catX;
-            if (Math.abs(cdx) < 3) {
-              var cp = titlePitch;
-              tossSX = catX + catDir * 0.9 * cp;
-              tossSY = titleGround - 3.4 * cp;
-              tossT = 0;
+          var allDone = true;
+          for (var mc = 0; mc < titleCats.length; mc++) {
+            var cat = titleCats[mc];
+            if (!catHasWork(cat)) continue;
+            allDone = false;
+            var cell = titleBlocks[cat.queue[cat.qp]];
+            if (cat.tossT >= 0) {
+              cat.tossT += dt;
+              if (cat.tossT >= TOSS_S) {
+                cell.placed = true;
+                cat.tossT = -1;
+                cat.qp++;
+              }
             } else {
-              catDir = cdx > 0 ? 1 : -1;
-              catX += catDir * CAT_SPEED * dt;
-              catRun += dt * 14;
+              var goal = cell.tx + cell.size / 2;
+              var edge = 1.4 * titlePitch;
+              var glo = edge, ghi = titleW - edge;
+              if (glo > ghi) { glo = ghi = titleW / 2; }
+              goal = Math.max(glo, Math.min(ghi, goal));
+              var cdx = goal - cat.x;
+              var step = CAT_SPEED * dt;
+              if (Math.abs(cdx) <= Math.max(3, step)) {
+                cat.x = goal;
+                var cp = titlePitch;
+                cat.tossSX = cat.x + cat.dir * 0.9 * cp;
+                cat.tossSY = titleGround - 3.4 * cp;
+                cat.tossT = 0;
+              } else {
+                cat.dir = cdx > 0 ? 1 : -1;
+                cat.x += cat.dir * step;
+                cat.run += dt * 14;
+              }
             }
+          }
+          if (allDone) {
+            titlePhase = 'hold'; titlePhaseT = 0;
           }
         } else if (titlePhase === 'hold' && titlePhaseT >= HOLD_S) {
           titlePhase = 'dissolve'; titlePhaseT = 0;
         } else if (titlePhase === 'dissolve' && titlePhaseT >= DISSOLVE_S) {
           for (var c = 0; c < titleBlocks.length; c++) titleBlocks[c].placed = false;
-          placeIdx = 0;
-          tossT = -1;
+          for (var rc = 0; rc < titleCats.length; rc++) {
+            titleCats[rc].qp = titleCats[rc].queue.length;
+            titleCats[rc].tossT = -1;
+          }
           titlePhase = 'wait'; titlePhaseT = 0;
         } else if (titlePhase === 'wait' && titlePhaseT >= WAIT_S) {
           resetTitleBuild();
