@@ -605,7 +605,6 @@ class Leveling(commands.Cog):
                     
                     print(f"[LEVELS] VC #{vc.name} - {len(humans)} human(s) present", flush=True)
                     company = rewards.voice_company_factor(len(humans) - 1)
-                    print(f"[LEVELS] VC #{vc.name} - Company factor: {company:.2f}", flush=True)
                     
                     # Anti-AFK gate 2: the channel itself must have shown a sign of
                     # life recently. ``seen`` starts the clock for a channel the bot
@@ -613,7 +612,6 @@ class Leveling(commands.Cog):
                     # occupied channel as dead and stop paying real members.
                     channel_age = self._pulse.seen(vc.id, now)
                     freshness = rewards.voice_freshness(channel_age)
-                    print(f"[LEVELS] VC #{vc.name} - Channel age: {channel_age:.0f}s, Freshness: {freshness:.2f}", flush=True)
 
                     for member in humans:
                         if await self.is_exempt(guild, member):
@@ -634,7 +632,6 @@ class Leveling(commands.Cog):
                             self_video=bool(getattr(state, "self_video", False)),
                             self_stream=bool(getattr(state, "self_stream", False)),
                         )
-                        print(f"[LEVELS] Member {member.display_name} - Presence factor: {presence:.2f} (self_deaf: {getattr(state, 'self_deaf', False)}, deaf: {getattr(state, 'deaf', False)}, mute: {getattr(state, 'mute', False)}, self_mute: {getattr(state, 'self_mute', False)})", flush=True)
                         
                         # The payout maths: the configured per-minute rate is the
                         # ceiling, and this factor is how much of it was earned.
@@ -646,13 +643,11 @@ class Leveling(commands.Cog):
                         if factor <= 0.0:
                             print(f"[LEVELS] Member {member.display_name} - Skipped: factor <= 0", flush=True)
                             continue
-                        
+
                         payout = rewards.voice_reward(factor, vc_xp=vc_xp, vc_coins=vc_coins)
-                        print(f"[LEVELS] Member {member.display_name} - Base payout: {payout.coins} coins, {payout.xp} XP", flush=True)
-                        
+
                         perks = await shop.multipliers(member.id, guild.id, now)
                         voice_coins, voice_xp = perks.scaled(payout.coins, payout.xp)
-                        print(f"[LEVELS] Member {member.display_name} - Scaled payout: {voice_coins} coins, {voice_xp} XP", flush=True)
 
                         # Read, decide and write in ONE ``BEGIN IMMEDIATE``
                         # transaction (the shared atomic helper). The old code read on
@@ -695,7 +690,6 @@ class Leveling(commands.Cog):
 
                         try:
                             await update_wallet(member.id, guild.id, voice_coins)
-                            print(f"[LEVELS] Member {member.display_name} - Paid: +{voice_coins} coins, +{voice_xp} XP (Level {old_lvl} -> {new_lvl})", flush=True)
                         except Exception as e:
                             print(f"VC coin deposit error: {e}")
 

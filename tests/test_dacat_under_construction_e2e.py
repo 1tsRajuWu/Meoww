@@ -16,7 +16,6 @@ Run with:
 """
 from __future__ import annotations
 
-import os
 import re
 import sys
 import unittest
@@ -730,7 +729,7 @@ class TestTier3CrossFeaturePairwise(unittest.TestCase):
     def test_particle_canvas_and_equalizer_share_theme_palette(self):
         """Verifies canvas shockwave rings and equalizer bars share DaCat Coral accent token."""
         self.assertIn("--coral", self.raw)
-        self.assertIn("rgba(255, 93, 58", self.raw)
+        self.assertIn("rgba(255, 42, 68", self.raw)
 
     def test_glassmorphic_stage_and_3d_cursor_tilt_transform(self):
         """Verifies stage card backdrop-filter composites smoothly with 3D perspective rotation."""

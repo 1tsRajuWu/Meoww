@@ -450,7 +450,12 @@ class Music(commands.Cog):
         a row, or a session older than the cap, is deleted and announced where
         it was posted. Unknowns (timeouts, login walls) never end a session.
         """
-        await self._sweep_jams()
+        try:
+            await self._sweep_jams()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[MUSIC] jam watch error: {e} — continuing.", flush=True)
 
     @jam_watch.before_loop
     async def _before_jam_watch(self):
@@ -472,13 +477,16 @@ class Music(commands.Cog):
         await ensure_music_schema()
         probe = probe or fetch_jam_status
         outcome: dict = {}
+        rows = await _jam_rows()
+        if not rows:
+            return outcome
         try:
             timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
             session = aiohttp.ClientSession(timeout=timeout)
         except Exception:
             return outcome
         try:
-            for row in await _jam_rows():
+            for row in rows:
                 guild_id, url, _set_by, set_at, channel_id, fails = row
                 if self.bot is not None and hasattr(self.bot, "is_module_enabled"):
                     try:

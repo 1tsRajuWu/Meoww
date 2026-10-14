@@ -571,18 +571,23 @@ async def active_effects(
     """Active effects, dropping any that have just expired."""
     now = time.time() if now is None else now
     async with aiosqlite.connect(db.DB_PATH) as conn:
-        await conn.execute(
-            "DELETE FROM item_effects WHERE user_id=? AND guild_id=? AND expires_ts <= ?",
-            (user_id, guild_id, now),
-        )
         async with conn.execute(
             "SELECT effect, value, expires_ts FROM item_effects "
-            "WHERE user_id=? AND guild_id=? AND expires_ts > ?",
-            (user_id, guild_id, now),
+            "WHERE user_id=? AND guild_id=?",
+            (user_id, guild_id),
         ) as cur:
             rows = await cur.fetchall()
-        await conn.commit()
-    return {row[0]: (float(row[1] or 0.0), float(row[2] or 0.0)) for row in rows}
+        live = [row for row in rows if (row[2] or 0.0) > now]
+        # One round trip, and a write only when something actually expired:
+        # most calls find nothing expired, and a DELETE that matches nothing
+        # still takes a write transaction (WAL + fsync) on every chat message.
+        if len(live) != len(rows):
+            await conn.execute(
+                "DELETE FROM item_effects WHERE user_id=? AND guild_id=? AND expires_ts <= ?",
+                (user_id, guild_id, now),
+            )
+            await conn.commit()
+    return {row[0]: (float(row[1] or 0.0), float(row[2] or 0.0)) for row in live}
 
 
 async def owned_items(user_id: int, guild_id: int) -> list[Item]:

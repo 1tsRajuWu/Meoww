@@ -400,6 +400,15 @@ class FailedCommands(OperatorLogCase):
         self.assertNotIn("CommandInvokeError", operator_log._reason(error))
         self.assertIn("Forbidden", operator_log._reason(error))
 
+    def test_the_reason_scrubs_secret_shaped_text(self):
+        """An exception can quote a URL or a credential back at us; the log
+        card is posted into a channel, so secret-shaped text is redacted."""
+        error = discord.DiscordException("boom: TOKEN=supersecretvalue Authorization: Bearer abcdefghijklmnopqrst")
+        said = operator_log._reason(error)
+        self.assertIn("[redacted]", said)
+        self.assertNotIn("supersecretvalue", said)
+        self.assertNotIn("abcdefghijklmnopqrst", said)
+
     def test_a_failure_never_copies_what_somebody_typed(self):
         """A Python error raised while handling an argument can quote it back.
 

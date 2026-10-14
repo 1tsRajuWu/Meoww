@@ -893,11 +893,14 @@
           </td>
           <td>
             {% if row.current %}
-              {# Signing this browser out from this page would sign the reader
-                 out of the page that tells them so — `/logout` is the word
-                 they already know, and it is a link rather than a button so
-                 nothing here can be pressed by accident. #}
-              <a class="btn btn--quiet" href="/logout">Sign out</a>
+              {# Signing out ends the session server-side, so this is a POST
+                 with a confirmation rather than a link: a GET link is a no-op
+                 by design (any site could trigger it), and a "Sign out" control
+                 that leaves the session live is the worse confusion. #}
+              <form method="post" action="/logout" onsubmit="return confirm('Sign out this browser?');">
+                {{ guard('Signed out.') }}
+                <button class="btn btn--quiet" type="submit">Sign out</button>
+              </form>
             {% elif row.state == 'live' %}
               <form method="post" action="/api/console/access/revoke">
                 {{ guard('Ended that session.') }}

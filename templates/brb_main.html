@@ -20,7 +20,7 @@
     --red-hover: #ff475e;
     --red-glow: rgba(255, 42, 68, 0.45);
     --red-subtle: rgba(255, 42, 68, 0.12);
-    --coral: #ff2a44; /* Crimson Red active theme (fallback alias for tests: rgba(255, 93, 58)) */
+    --coral: #ff2a44; /* Crimson Red active theme */
     --coral-hover: #ff475e;
     --coral-glow: rgba(255, 42, 68, 0.45);
     --coral-subtle: rgba(255, 42, 68, 0.12);
@@ -161,8 +161,8 @@
     gap: 10px;
     padding: 8px 18px;
     border-radius: 999px;
-    background: rgba(255, 93, 58, 0.08);
-    border: 1px solid rgba(255, 93, 58, 0.35);
+    background: rgba(255, 42, 68, 0.08);
+    border: 1px solid rgba(255, 42, 68, 0.35);
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -171,7 +171,7 @@
     margin-bottom: 18px;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 0 24px rgba(255, 93, 58, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 24px rgba(255, 42, 68, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
   .pulse-dot-wrap {
     position: relative;
@@ -222,7 +222,7 @@
       120deg,
       #ffffff 0%,
       #ffffff 35%,
-      #ff8a70 50%,
+      #ff8fa3 50%,
       #ffffff 65%,
       rgba(255, 255, 255, 0.72) 100%
     );
@@ -300,7 +300,7 @@
     position: relative;
     overflow: hidden;
     margin: 4px auto 22px;
-    box-shadow: 0 0 14px rgba(255, 93, 58, 0.25);
+    box-shadow: 0 0 14px rgba(255, 42, 68, 0.25);
   }
   .laser-bar {
     position: absolute;
@@ -308,7 +308,7 @@
     left: -60%;
     width: 60%;
     height: 100%;
-    background: linear-gradient(90deg, transparent 0%, #ff5d3a 40%, #ffffff 70%, #ff8a70 90%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, #ff2a44 40%, #ffffff 70%, #ff8fa3 90%, transparent 100%);
     box-shadow: 0 0 16px var(--coral), 0 0 4px #ffffff;
     animation: laser-slide 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
@@ -344,7 +344,7 @@
   .terminal-toggle:hover {
     color: #ffffff;
     background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 93, 58, 0.3);
+    border-color: rgba(255, 42, 68, 0.3);
   }
   .terminal-toggle .arrow {
     font-size: 12px;
@@ -402,7 +402,7 @@
     font-size: 12px;
   }
   .term-line .ts {
-    color: rgba(255, 93, 58, 0.85);
+    color: rgba(255, 42, 68, 0.85);
     margin-right: 6px;
   }
   .term-line.live {
@@ -438,7 +438,7 @@
     min-width: 44px;
     padding: 13px 36px;
     border-radius: 999px;
-    background: linear-gradient(135deg, #ff5d3a 0%, #ff7252 100%);
+    background: linear-gradient(135deg, #ff2a44 0%, #ff475e 100%);
     color: #0a0a0d;
     font-size: 14px;
     font-weight: 700;
@@ -447,7 +447,7 @@
     position: relative;
     overflow: hidden;
     transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 0 4px 24px rgba(255, 93, 58, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 24px rgba(255, 42, 68, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.2);
     cursor: pointer;
   }
   .btn-coral::after, .btn-white::after {
@@ -472,7 +472,7 @@
   }
   .btn-coral:hover, .btn-white:hover {
     transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 12px 40px rgba(255, 93, 58, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.4);
+    box-shadow: 0 12px 40px rgba(255, 42, 68, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.4);
     color: #000000;
   }
   .btn-coral:active, .btn-white:active {
@@ -557,8 +557,6 @@
         <span id="pop-val">EDGE: GLOBAL</span>
         <span class="telemetry-sep" aria-hidden="true">/</span>
         <span id="ping-val">12ms</span>
-        <span class="telemetry-sep" aria-hidden="true">/</span>
-        <span>BUILD: 2.4-RC</span>
       </div>
 
       <div class="status-pill">
@@ -573,7 +571,7 @@
       <h1 class="title">Building The Website.</h1>
 
       <p class="subtitle">
-        One bot that runs the server. We're rebuilding {{ bot_name or 'DeCat' }} from the ground up: 15 systems, 97 slash commands, real-time market exchange, and live server telemetry in one fluid dashboard.
+        One bot that runs the server — {{ bot_name or 'DeCat' }}, 15 systems and 97 commands, live market and telemetry.
       </p>
 
       <div class="system-matrix">
@@ -640,7 +638,7 @@
             <span class="eq-bar" id="eq-bar-4"></span>
             <span class="eq-bar" id="eq-bar-5"></span>
           </div>
-          <span class="meta-note">Click anywhere to pulse gravity wave • 15 systems online</span>
+          <span class="meta-note">Click anywhere to pulse gravity wave</span>
         </div>
       </div>
     </main>
@@ -1031,7 +1029,7 @@
       ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
 
       if (mouseProximity > 0.3) {
-        ctx.fillStyle = 'rgba(255, 93, 58, ' + alpha + ')';
+        ctx.fillStyle = 'rgba(255, 42, 68, ' + alpha + ')';
       } else {
         ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')';
       }
@@ -1128,8 +1126,8 @@
       // Volumetric Cursor Flashlight Glow
       if (mouse.active) {
         var grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 220);
-        grad.addColorStop(0, 'rgba(255, 93, 58, 0.08)');
-        grad.addColorStop(0.5, 'rgba(255, 93, 58, 0.02)');
+        grad.addColorStop(0, 'rgba(255, 42, 68, 0.08)');
+        grad.addColorStop(0.5, 'rgba(255, 42, 68, 0.02)');
         grad.addColorStop(1, 'transparent');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, width, height);
@@ -1145,7 +1143,7 @@
         if (swAlpha > 0.01) {
           ctx.beginPath();
           ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
-          ctx.strokeStyle = 'rgba(255, 93, 58, ' + swAlpha + ')';
+          ctx.strokeStyle = 'rgba(255, 42, 68, ' + swAlpha + ')';
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
@@ -1173,7 +1171,7 @@
             var rightDot = dots[k + 1];
             if (rightDot && rightDot.displacement > 0.8) {
               var wAlpha = Math.min(0.42, (d1.displacement + rightDot.displacement) * 0.038);
-              ctx.strokeStyle = 'rgba(255, 93, 58, ' + wAlpha + ')';
+              ctx.strokeStyle = 'rgba(255, 42, 68, ' + wAlpha + ')';
               ctx.beginPath();
               ctx.moveTo(d1.x, d1.y);
               ctx.lineTo(rightDot.x, rightDot.y);
@@ -1184,7 +1182,7 @@
             var bottomDot = dots[k + cols];
             if (bottomDot && bottomDot.displacement > 0.8) {
               var wAlpha2 = Math.min(0.42, (d1.displacement + bottomDot.displacement) * 0.038);
-              ctx.strokeStyle = 'rgba(255, 93, 58, ' + wAlpha2 + ')';
+              ctx.strokeStyle = 'rgba(255, 42, 68, ' + wAlpha2 + ')';
               ctx.beginPath();
               ctx.moveTo(d1.x, d1.y);
               ctx.lineTo(bottomDot.x, bottomDot.y);

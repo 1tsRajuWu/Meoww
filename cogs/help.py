@@ -665,7 +665,7 @@ class HelpLayout(discord.ui.LayoutView):
                 )
             )
             parts.append(link_row)
-        parts.append(discord.ui.TextDisplay("-# 🌐 [Website](https://dacat.pages.dev)  ·  [Terms](https://dacat.pages.dev/terms)  ·  [Privacy](https://dacat.pages.dev/privacy)  ·  `/tos`  ·  `/privacy`  ·  DaCat"))
+        parts.append(discord.ui.TextDisplay("-# 🌐 [Website](https://decat.pages.dev)  ·  [Terms](https://decat.pages.dev/terms)  ·  [Privacy](https://decat.pages.dev/privacy)  ·  `/tos`  ·  `/privacy`  ·  DaCat"))
         self.add_item(discord.ui.Container(*parts, accent_color=ACCENT))
 
 
@@ -868,7 +868,7 @@ def _home_body(scoped, viewer, *, where: str = "") -> str:
     if not scoped.usable:
         parts.append(
             "Nothing at all is switched on for you here — an administrator can "
-            "open any system at [dacat.pages.dev](https://dacat.pages.dev)."
+            "open any system at [decat.pages.dev](https://decat.pages.dev)."
         )
     return "\n\n".join(parts)
 

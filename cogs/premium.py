@@ -69,7 +69,7 @@ class PremiumInviteView(discord.ui.View):
         self.add_item(
             discord.ui.Button(
                 label="🌐 View Web Pricing & Perks",
-                url="https://dacat.pages.dev/pricing",
+                url="https://decat.pages.dev/pricing",
                 style=discord.ButtonStyle.link,
                 emoji="✨",
             )
@@ -162,8 +162,8 @@ class Premium(commands.Cog):
                 ),
                 (
                     "📜 Terms & Privacy",
-                    "• Terms of Service: `/legal tos` · [Read Online](https://dacat.pages.dev/terms)\n"
-                    "• Privacy Policy: `/legal privacy` · [Read Online](https://dacat.pages.dev/privacy)\n"
+                    "• Terms of Service: `/legal tos` · [Read Online](https://decat.pages.dev/terms)\n"
+                    "• Privacy Policy: `/legal privacy` · [Read Online](https://decat.pages.dev/privacy)\n"
                     "• Zero financial credentials collected · Compliant with Discord Developer Policy",
                     False,
                 ),

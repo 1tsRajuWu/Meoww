@@ -176,8 +176,22 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("bot.db", fake.files)
 
     def _seed_progress(self, path: str, last_message_ts: float) -> None:
-        """One level row whose watermark is exactly `last_message_ts`."""
+        """One level row whose watermark is exactly `last_message_ts`.
+
+        Creates its own tables: seeds also target bare temp files, where
+        `db.setup()` never ran.
+        """
         conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_levels (guild_id INTEGER, user_id "
+            "INTEGER, xp INTEGER, level INTEGER, total_messages INTEGER, "
+            "voice_minutes INTEGER, total_earned INTEGER, last_message_ts REAL)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS economy (user_id INTEGER, guild_id "
+            "INTEGER, wallet INTEGER, bank INTEGER, last_daily TEXT, "
+            "last_weekly TEXT, last_work TEXT)"
+        )
         conn.execute(
             "INSERT OR REPLACE INTO user_levels VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (GUILD, MEMBER, SEED_XP, SEED_LEVEL, 100, 0, 0, last_message_ts),
@@ -233,6 +247,16 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         conn.close()
         self.assertGreater(kept, time.time() - 3600)
 
+    def test_restore_treats_a_lease_only_bucket_as_fresh(self):
+        """A claim with no database behind it must not block saving forever."""
+        fake = _FakeSupabase()
+        fake.files[cs.LEASE_FILE] = cs._json.dumps(
+            {"owner": "gone-long-ago", "ts": 0}
+        ).encode()
+        self.assertFalse(self._restore_with(fake))
+        self.assertIsNone(cs._restore_blocked_reason)
+        self.assertFalse(cs._cloud_has_data)
+
     def test_restore_tie_goes_to_the_backup(self):
         """Equal marks are deterministic: today's behavior, byte for byte."""
         fake = _FakeSupabase()
@@ -241,6 +265,56 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
             fake.files["bot.db"] = fh.read()
         self.assertTrue(self._restore_with(fake))
         self.assertEqual(cs._restored_from, "bot.db")
+
+    def test_restore_installs_a_fresh_snapshot_behind_a_stale_primary(self):
+        """A stale primary must not hide a snapshot newer than the live file."""
+        import tempfile
+
+        now = time.time()
+        # Live file sits in the middle...
+        self._seed_progress(cs.db_path(), last_message_ts=now - 7200)
+        fake = _FakeSupabase()
+        # ...the primary is older still...
+        fd, older = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(older) and os.remove(older))
+        self._seed_progress(older, last_message_ts=now - 86400)
+        with open(older, "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        # ...but a snapshot is the newest of the three.
+        fd, newer = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(newer) and os.remove(newer))
+        self._seed_progress(newer, last_message_ts=now - 60)
+        with open(newer, "rb") as fh:
+            fake.files["bot-db-20260913-120000.db"] = fh.read()
+        self.assertTrue(self._restore_with(fake))
+        self.assertEqual(cs._restored_from, "bot-db-20260913-120000.db")
+        conn = sqlite3.connect(cs.db_path())
+        kept = conn.execute(
+            "SELECT last_message_ts FROM user_levels WHERE user_id=?", (MEMBER,)
+        ).fetchone()[0]
+        conn.close()
+        self.assertGreater(kept, now - 3600)
+
+    def test_restore_keeps_local_when_every_backup_is_empty(self):
+        """All-empty bucket plus live progress keeps the live file, not a wipe."""
+        fake = _FakeSupabase()
+        conn = sqlite3.connect(cs.db_path())
+        conn.execute("CREATE TABLE IF NOT EXISTS t(x)")
+        conn.commit()
+        conn.close()
+        with open(cs.db_path(), "rb") as fh:
+            fake.files["bot.db"] = fh.read()
+        self._seed_progress(cs.db_path(), last_message_ts=time.time())
+        self.assertTrue(self._restore_with(fake))
+        self.assertEqual(cs._restored_from, "local")
+        conn = sqlite3.connect(cs.db_path())
+        kept = conn.execute(
+            "SELECT last_message_ts FROM user_levels WHERE user_id=?", (MEMBER,)
+        ).fetchone()[0]
+        conn.close()
+        self.assertGreater(kept, time.time() - 3600)
 
     def test_progress_mark_reads_all_three_axes(self):
         """XP stamps, economy stamps and activity days all move the mark."""
@@ -621,6 +695,62 @@ class BackupToSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         ).encode()
         self.assertTrue(self._backup_into(fake))
         self.assertIn("bot.db", fake.files)
+
+    def test_upload_refused_when_the_bucket_is_newer(self):
+        """A stale base must not overwrite fresher progress.
+
+        The lease only says nobody else is writing *right now*: a host whose
+        base is days old still passes every older guard, and its whole-file
+        upload then rewrites live XP, coins and purchases with old values.
+        """
+        import tempfile
+
+        # This host's base is yesterday...
+        self._seed_progress(cs.db_path(), last_message_ts=time.time() - 86400)
+        cs._remote_checked = True   # the state a running instance is in
+        cs._cloud_has_data = True
+        cs._restored_from = "bot.db"
+        cs._restored_counts = {}
+        # ...while the bucket moved on an hour ago.
+        fd, newer = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(newer) and os.remove(newer))
+        self._seed_progress(newer, last_message_ts=time.time() - 3600)
+        with open(newer, "rb") as fh:
+            before = fh.read()
+        fake = _FakeSupabase()
+        fake.files["bot.db"] = before
+        self.assertFalse(self._backup_into(fake))
+        self.assertEqual(fake.files["bot.db"], before)
+        self.assertIn("newer", (cs._last_refusal_reason or "").lower())
+
+    def _seed_progress(self, path: str, last_message_ts: float) -> None:
+        """One level row whose watermark is exactly `last_message_ts`.
+
+        Creates its own tables: seeds also target bare temp files, where
+        `db.setup()` never ran.
+        """
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_levels (guild_id INTEGER, user_id "
+            "INTEGER, xp INTEGER, level INTEGER, total_messages INTEGER, "
+            "voice_minutes INTEGER, total_earned INTEGER, last_message_ts REAL)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS economy (user_id INTEGER, guild_id "
+            "INTEGER, wallet INTEGER, bank INTEGER, last_daily TEXT, "
+            "last_weekly TEXT, last_work TEXT)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO user_levels VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (777, 42, 12345, 7, 100, 0, 0, last_message_ts),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO economy VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (42, 777, 4321, 8765, None, None, None),
+        )
+        conn.commit()
+        conn.close()
 
     def test_backup_prunes_old_snapshots(self):
         _make_db(cs.db_path())

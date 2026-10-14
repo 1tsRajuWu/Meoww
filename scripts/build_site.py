@@ -112,6 +112,10 @@ PROXIED_ROUTES = (
     "/api",
     "/market",
     "/health",
+    # The clickwrap has no static twin and the worker already proxies it (see
+    # DYNAMIC_PREFIXES): leaving it out here rewrites its form to the live
+    # host absolute, breaking `form-action 'self'` and the host-scoped session.
+    "/agree",
     # The hub — seven reader-facing pages about what the bot is and what it is
     # doing — is proxied rather than built here, and that is a decision with a
     # history worth keeping. It used to be a fifth Cloudflare project of its own

@@ -659,6 +659,25 @@ class ARefusalCannotHideTheRest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(status["retry_after"], 900.0, "and it says when to come back")
 
+    def test_a_rate_limit_stops_and_says_when(self):
+        """A 429 is the scope asking for pacing, not one command being wrong.
+
+        Hammering the rest is how a short slowdown becomes a long one, so the
+        publish stops like a spent budget does — and the drain picks the named
+        wait up from ``retry_after`` instead of leaving everything pending.
+        """
+        http = _FakeHTTP(fail_on="bot", fail_code=429, retry_after=12.0)
+        tree = self._tree("bot", "alpha", "beta")
+
+        status = asyncio.run(bot_module._sync_scope(_FakeBot([], tree, http)))
+
+        self.assertEqual(status["published"], 0)
+        self.assertEqual(
+            http.global_sent, ["bot"],
+            "nothing after a slowdown may even be attempted",
+        )
+        self.assertEqual(status["retry_after"], 12.0, "and it says when to come back")
+
 
 class TheStopIsExplained(unittest.IsolatedAsyncioTestCase):
     """A scope that published nothing has to say why — in the boot log."""

@@ -403,6 +403,21 @@ def _is_write_budget_error(exc: BaseException) -> bool:
     return getattr(exc, "code", None) == 30034 or "30034" in str(exc)
 
 
+def _is_rate_limited(exc: BaseException) -> bool:
+    """Whether Discord asked for pacing (HTTP 429).
+
+    discord.py raises ``RateLimited`` (carrying ``retry_after``) for these.
+    The status text is checked too, because not every 429 arrives as that
+    type — and a slowdown answered by hammering the rest of the scope is how
+    a short pause becomes a long one.
+    """
+    if getattr(exc, "status", None) == 429:
+        return True
+    if type(exc).__name__ == "RateLimited":
+        return True
+    return "429" in str(exc) and getattr(exc, "retry_after", None) is not None
+
+
 def _retry_delay(
     exc: BaseException, *, floor: float = 60.0, ceiling: float = 1800.0
 ) -> float | None:
@@ -413,6 +428,12 @@ def _retry_delay(
     the next restart — which is how the guild ended up 22 commands behind in the
     first place.
     """
+    if _is_rate_limited(exc):
+        try:
+            delay = float(getattr(exc, "retry_after", None) or 5.0)
+        except (TypeError, ValueError):
+            delay = 5.0
+        return max(5.0, min(delay, ceiling))
     if not _is_write_budget_error(exc):
         return None
     reported = getattr(exc, "retry_after", None)
@@ -462,7 +483,7 @@ async def _publish_scope(
                 await bot.http.upsert_guild_command(bot.application_id, guild.id, payload)
         except Exception as exc:
             refused.append(name)
-            if budget_error is None and _is_write_budget_error(exc):
+            if budget_error is None and (_is_write_budget_error(exc) or _is_rate_limited(exc)):
                 budget_error = exc
             print(f"[SYNC] ⚠️ /{name}{suffix}: {exc}", flush=True)
             if _is_write_budget_error(exc):
@@ -473,6 +494,11 @@ async def _publish_scope(
                 # updates behind it are still allowed), and stopping at the
                 # first one is how 30 unchanged-by-discord commands stayed
                 # unpublished for weeks while the log said only "published 0".
+                break
+            if _is_rate_limited(exc):
+                # The scope asked for pacing, which is about the scope rather
+                # than this command: the wait Discord named rides along in
+                # ``retry_after`` and the drain picks it up from there.
                 break
             continue
         published += 1
@@ -1897,7 +1923,9 @@ def _error_embed(
     leaves the reader to reproduce the payload against the live API to find out
     why (see :func:`utils.operator_log.discord_field_errors`).
     """
-    body = [f"**{type(error).__name__}**: {str(error)[:600]}", ""]
+    from keep_alive import _SECRETISH as _scrub_secrets  # deferred: keep_alive is fully loaded by call time
+
+    body = [f"**{type(error).__name__}**: {_scrub_secrets.sub(r'\1=[redacted]', str(error))[:600]}", ""]
     if refused:
         body.append(f"**Discord refused:** {refused}")
         body.append("")
@@ -2006,8 +2034,9 @@ def _report_error(error: BaseException, interaction: discord.Interaction | None 
             guild = interaction.guild.name if interaction.guild else "DMs"
             where = f"/{command} by {interaction.user} in {guild}"
         refused = operator_log.discord_field_errors(error)
+        from keep_alive import _SECRETISH as _scrub_secrets  # deferred: same reason as above
         payload = _json.dumps({
-            "content": f"⚠️ **{type(error).__name__}** — {where}\n```{str(error)[:1500]}```"
+            "content": f"⚠️ **{type(error).__name__}** — {where}\n```{_scrub_secrets.sub(r'\1=[redacted]', str(error))[:1500]}```"
             + (f"\nDiscord refused: {refused}" if refused else "")
         }).encode("utf-8")
 

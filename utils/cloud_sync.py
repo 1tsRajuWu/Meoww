@@ -306,8 +306,11 @@ MIN_MEANINGFUL_ROWS: int = 3
 #: Object holding the single-writer lease.
 LEASE_FILE: str = "sync-owner.json"
 #: A lease older than this belongs to a process that is no longer running.
-#: A redeploy starts writing again within this window at worst.
-LEASE_TTL: int = 300
+#: A redeploy starts writing again within this window at worst. Three backup
+#: ticks, not one: a single missed touch used to read a live-but-quiet holder
+#: as dead, and the peer's whole-file upload then clobbered progress the
+#: holder was still earning.
+LEASE_TTL: int = 900
 #: The floor between two lease refreshes (seconds) — the fastest an idle instance
 #: *may* renew its claim, not how often it does: the refresh happens inside the
 #: backup tick, so :data:`SYNC_INTERVAL` is the cadence a boot can rely on.
@@ -422,38 +425,40 @@ def _progress_mark(path: str | None = None) -> float:
     except Exception:
         return 0.0
     try:
-        def _column(table: str, column: str) -> list:
-            try:
-                return [row[0] for row in conn.execute(f"SELECT {column} FROM {table}")]
-            except sqlite3.Error:
-                return []
-
-        for stamp in _column("user_levels", "last_message_ts"):
-            try:
-                best = max(best, float(stamp or 0))
-            except (TypeError, ValueError):
-                continue
-        for stamp in (
-            _column("economy", "last_daily")
-            + _column("economy", "last_weekly")
-            + _column("economy", "last_work")
-            + _column("activity_messages", "date")
-        ):
+        try:
+            row = conn.execute("SELECT MAX(last_message_ts) FROM user_levels").fetchone()
+            if row and row[0] is not None:
+                best = max(best, float(row[0]))
+        except (sqlite3.Error, TypeError, ValueError):
+            pass
+        try:
+            row = conn.execute(
+                "SELECT MAX(last_daily), MAX(last_weekly), MAX(last_work) FROM economy"
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+        for stamp in (row or ()):
             if not stamp:
                 continue
             try:
-                moment = _datetime.datetime.fromisoformat(str(stamp)[:26])
+                moment = _datetime.datetime.fromisoformat(str(stamp))
             except ValueError:
-                try:
-                    moment = _datetime.datetime.strptime(str(stamp)[:10], "%Y-%m-%d")
-                except ValueError:
-                    continue
+                continue
             if moment.tzinfo is None:
                 moment = moment.replace(tzinfo=_datetime.timezone.utc)
             try:
                 best = max(best, moment.timestamp())
             except (OverflowError, OSError, ValueError):
                 continue
+        try:
+            row = conn.execute("SELECT MAX(date) FROM activity_messages").fetchone()
+            if row and row[0]:
+                moment = _datetime.datetime.strptime(
+                    str(row[0])[:10], "%Y-%m-%d"
+                ).replace(tzinfo=_datetime.timezone.utc)
+                best = max(best, moment.timestamp())
+        except (sqlite3.Error, ValueError, OverflowError, OSError):
+            pass
     except Exception:
         return best
     finally:
@@ -573,6 +578,16 @@ def _restore_once() -> str:
         candidates.append(CURRENT_FILE)
     candidates.extend(_snapshot_names(objects))
 
+    if not candidates:
+        # No database files at all — a lease alone is not data. Treating it
+        # as a backup deadlocks both directions (nothing to restore, uploads
+        # blocked for "replacing" something that is not there), so a stray
+        # claim reads as a fresh bucket instead.
+        _cloud_has_data = False
+        _clear_block()
+        print("[CLOUD SYNC] ⚠️ No database files in Supabase bucket — starting fresh.", flush=True)
+        return "empty"
+
     #: An empty backup is a worse answer than a full one, but it is still an
     #: answer: a server whose backups have never held a row must be able to
     #: come back up and save again, rather than being blocked forever.
@@ -584,6 +599,11 @@ def _restore_once() -> str:
     #: it is installed.
     local_mark = _progress_mark(db_path())
 
+    #: The newest candidate that beats the live file, if any. A stale primary
+    #: must not hide a fresh snapshot: every usable candidate is weighed and
+    #: only the best newer one is installed.
+    best: tuple[str, bytes, dict[str, int]] | None = None
+    best_mark = local_mark
     for name in candidates:
         data = _storage_download(name)
         if data is None:
@@ -638,12 +658,30 @@ def _restore_once() -> str:
                 empty_fallback = (name, data, counts)
             continue
 
-        if _progress_mark(temp) < local_mark:
-            _remove(temp)
-            return _keep_newer_local(name)
+        mark = _progress_mark(temp)
+        _remove(temp)
+        if mark < local_mark:
+            print(
+                f"[CLOUD SYNC] ⚠️ '{name}' is older than this host's live "
+                "database — skipping.",
+                flush=True,
+            )
+            continue
 
-        _install(name, data, counts, temp=temp)
+        if best is None or mark > best_mark:
+            best = (name, data, counts)
+            best_mark = mark
+
+    if best is not None:
+        name, data, counts = best
+        _install(name, data, counts)
         return "restored"
+
+    if local_mark > 0:
+        # Every usable backup is older than the live file (or none was
+        # usable at all): installing any of them would rewind progress, so
+        # the live database stays and uploads stay allowed.
+        return _keep_newer_local("the cloud backup")
 
     if empty_fallback is not None and local_mark <= 0:
         name, data, counts = empty_fallback
@@ -1076,7 +1114,7 @@ def other_copy_verdict(*, sleep=time.sleep) -> str | None:
     A name in the bucket is not the same thing as a copy that is answering, and
     at a boot the difference is the whole question: a copy that has been replaced
     leaves its claim behind for up to :data:`LEASE_TTL`, so a machine that has
-    just taken a deploy can read five minutes of "I am here" written by nobody.
+    just taken a deploy can read fifteen minutes of "I am here" written by nobody.
     That is not hypothetical — an upload to the Hugging Face Space replaced its
     container, and the one that came up reported the pod it had left behind (dead
     for seven minutes by then) as another copy of the bot, in a card telling the
@@ -1172,7 +1210,12 @@ def _consult_bucket() -> str | None:
             "backup this instance cannot see"
         )
     _remote_checked = True
-    _cloud_has_data = bool(objects)
+    # The lease file is not data: a bucket holding only a claim has no backup
+    # in it, and counting it as data blocked both restore and upload forever
+    # with each blaming the other.
+    _cloud_has_data = any(
+        (o.get("name") if isinstance(o, dict) else o) != LEASE_FILE for o in objects
+    )
     return None
 
 
@@ -1293,6 +1336,33 @@ def _backup_inner() -> bool:
     if current_hash == _last_sync_hash:
         _lease_touch()  # alive and unchanged: keep the claim warm, upload nothing
         return True
+
+    # The lease says nobody else is writing *right now*, but this host's base
+    # may still be days older than the bucket: a quiet holder keeps its claim
+    # warm while another host uploads, and a whole-file upload from a stale
+    # base then rewrites fresher XP, coins and purchases with old values. The
+    # download costs one read per *changed* cycle only — unchanged cycles
+    # return above — and a bucket that will not answer is not a reason to stop
+    # saving, only the lease is.
+    remote = _storage_download(CURRENT_FILE, quiet=True)
+    if remote is not None:
+        fd2, temp2 = tempfile.mkstemp(prefix="meow-remote-", suffix=".db")
+        os.close(fd2)
+        _remove(temp2)
+        try:
+            with open(temp2, "wb") as handle:
+                handle.write(remote)
+            remote_mark = _progress_mark(temp2)
+        finally:
+            _remove(temp2)
+        if remote_mark > _progress_mark():
+            reason = (
+                "the cloud backup holds newer progress than this host, so "
+                "uploading would overwrite it — restore first"
+            )
+            _last_refusal_reason = reason
+            _warn_once(f"[CLOUD SYNC] 🛑 Not uploading: {reason}")
+            return False
 
     if not _storage_upload(CURRENT_FILE, raw):
         _consecutive_upload_failures += 1

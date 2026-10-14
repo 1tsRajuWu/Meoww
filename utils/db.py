@@ -874,6 +874,7 @@ async def setup():
             "CREATE INDEX IF NOT EXISTS idx_mod_cases_guild ON mod_cases(guild_id, user_id)",
             "CREATE INDEX IF NOT EXISTS idx_economy_guild ON economy(guild_id)",
             "CREATE INDEX IF NOT EXISTS idx_economy_wealth ON economy(guild_id, wallet, bank)",
+            "CREATE INDEX IF NOT EXISTS idx_levels_guild_xp ON user_levels(guild_id, xp)",
         ):
             await db.execute(statement)
         # ``CREATE TABLE IF NOT EXISTS`` never changes a table that already exists,

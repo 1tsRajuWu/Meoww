@@ -11,6 +11,7 @@ Commands:
 
 import datetime
 import time
+import asyncio
 from collections import defaultdict
 
 import aiosqlite
@@ -293,6 +294,17 @@ class Tracker(commands.Cog):
 
     @tasks.loop(seconds=VOICE_FLUSH_INTERVAL)
     async def _vc_flush_loop(self):
+        # The whole body is guarded: discord.py stops a tasks.loop on an
+        # unhandled exception, and a dead flush loop is silently lost voice
+        # time until the next restart.
+        try:
+            await self._vc_flush_tick()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[TRACKER] VC flush loop error: {e} — continuing.", flush=True)
+
+    async def _vc_flush_tick(self):
         if permissions.is_vip_bot(self.bot):
             return
         now = time.time()

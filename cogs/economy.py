@@ -53,8 +53,14 @@ async def check_is_owner(interaction: discord.Interaction) -> bool:
 
 
 async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool | None = None):
-    await ensure_eco(user_id, guild_id)
+    # One connection, not two: ensure_eco's INSERT OR IGNORE rides along in
+    # the same transaction. This runs on every chat message and every voice
+    # tick, so halving its connections halves the hot path's SQLite traffic.
     async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO economy (user_id, guild_id) VALUES (?, ?)",
+            (user_id, guild_id)
+        )
         await conn.execute(
             "UPDATE economy SET wallet = MAX(0, wallet + ?) WHERE user_id=? AND guild_id=?",
             (amount, user_id, guild_id)
@@ -967,6 +973,27 @@ class Economy(commands.Cog):
             return await _deny_admin(interaction, "add bank coins")
         if amount <= 0:
             return await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
+        is_owner = await check_is_owner(interaction)
+        if not is_owner:
+            # Same guards as `/eco-admin add`: a bank gift is a gift, and an
+            # uncapped one lets any admin mint unlimited coins past the till.
+            if member.id == interaction.user.id:
+                return await interaction.response.send_message(
+                    "❌ **Permission Denied:** Admins cannot give bank coins to themselves! Only the **Server Owner** has that privilege.",
+                    ephemeral=True
+                )
+            ADMIN_MAX_GIFT = 50_000
+            if amount > ADMIN_MAX_GIFT:
+                return await interaction.response.send_message(
+                    f"❌ **Limit Exceeded:** Admins can only grant up to **{ADMIN_MAX_GIFT:,}** 🪙 at a time.\nOnly the **Server Owner** can grant larger amounts.",
+                    ephemeral=True
+                )
+            target_eco = await get_eco(member.id, interaction.guild.id)
+            if (target_eco["wallet"] + target_eco["bank"]) >= 1_000_000:
+                return await interaction.response.send_message(
+                    f"❌ **Cap Reached:** {member.mention} already has **{target_eco['wallet'] + target_eco['bank']:,}** 🪙.\nAdmins cannot add coins to members who have 1,000,000+ coins. Only the **Server Owner** can bypass this.",
+                    ephemeral=True
+                )
         await ensure_eco(member.id, interaction.guild.id)
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute(

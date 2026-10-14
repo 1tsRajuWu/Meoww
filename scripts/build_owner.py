@@ -109,6 +109,11 @@ CONSOLE_PREFIXES = (
     # names `/agree`, because it is the backend that puts it in a `Location`
     # header. See the flow test in `tests/test_owner_site.py`.
     "/agree",
+    # The support room: the cards post, reply and pull through `/api/support`
+    # (see `utils/support.py`), and a form that posts to a path this host does
+    # not serve is 301'd to the public site — where the POST becomes a GET
+    # against a POST-only route and the page left behind looks saved.
+    "/api/support",
 )
 
 #: The prefixes the **dashboard** host serves. This table exists rather than a
@@ -168,6 +173,10 @@ DASHBOARD_PREFIXES = (
     "/api/mentionables",
     "/api/command-scope",
     "/api/image",
+    # The support room, same contract as the console's: a form posting to a
+    # path this host redirects is the 301-POST-becomes-GET 405 with a page
+    # that looks saved. Named deliberately rather than inherited.
+    "/api/support",
 )
 
 #: The prefixes the **market** host serves. The market is the one public,

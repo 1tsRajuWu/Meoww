@@ -223,6 +223,11 @@ else:
 _behind_https_host = bool(
     config_audit.is_set("RENDER") or config_audit.is_set("RAILWAY_ENVIRONMENT")
 )
+# Spaces serve HTTPS through their own proxy just like Render does, so the
+# session cookie gets its Secure flag there too. Proxy-*header* trust stays
+# limited to the hosts whose header behavior is verified: the flag below only
+# answers "is this host HTTPS", never "may headers be believed".
+_https_served_host = _behind_https_host or config_audit.is_set("SPACE_ID")
 # Only trust proxy headers when we are actually behind a known reverse proxy.
 # Otherwise a client could spoof X-Forwarded-For and bypass login rate limiting.
 _trust_proxy_headers = _behind_https_host or config_audit.flag("TRUST_PROXY_HEADERS")
@@ -243,7 +248,7 @@ UPLOAD_BODY_LIMIT = 2 * identity.MAX_IMAGE_BYTES + 64 * 1024
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=_behind_https_host or _https_only_override,
+    SESSION_COOKIE_SECURE=_https_served_host or _https_only_override,
     SESSION_COOKIE_NAME="meow_session",
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=8),
     MAX_CONTENT_LENGTH=UPLOAD_BODY_LIMIT,
@@ -339,7 +344,7 @@ def _passkey_denied():
 
 
 _SECRETISH = __import__("re").compile(
-    r"(?i)(token|passkey|password|authorization|bearer|api[_-]?key|secret)\s*[:=]\s*\S+"
+    r"(?i)(token|passkey|password|authorization|bearer|api[_-]?key|secret)\s*[:=]\s*(?:Bearer\s+)?\S+"
     r"|[\w-]{24,}\.[\w-]{6}\.[\w-]{25,}"  # Discord bot token shape
     r"|Bearer\s+[A-Za-z0-9._-]{20,}"
 )
@@ -12542,8 +12547,8 @@ def start_site_guard(bot):
 #: between Hugging Face and Render every 3 minutes (Render sleeps at 15m idle).
 CROSS_KEEPALIVE_INTERVAL_SECONDS = 180
 CROSS_KEEPALIVE_TARGETS = (
-    "https://meoww-premium.onrender.com/health",
     "https://1tsrajowo-meow.hf.space/health",
+    "https://1tsrajowo-meow-premium.hf.space/health",
 )
 
 
@@ -12574,12 +12579,20 @@ async def cross_keepalive_loop():
     )
     await asyncio.sleep(20)
     while True:
-        for url in CROSS_KEEPALIVE_TARGETS:
-            try:
-                await asyncio.to_thread(_ping_cloud_target, url)
-            except Exception as e:
-                print(f"[KEEPALIVE] Ping failed: {e}", flush=True)
-        await asyncio.sleep(CROSS_KEEPALIVE_INTERVAL_SECONDS)
+        try:
+            for url in CROSS_KEEPALIVE_TARGETS:
+                try:
+                    await asyncio.to_thread(_ping_cloud_target, url)
+                except Exception as e:
+                    print(f"[KEEPALIVE] Ping failed: {e}", flush=True)
+            await asyncio.sleep(CROSS_KEEPALIVE_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # Every sibling loop survives its own exceptions; a dead keepalive
+            # is two sleeping hosts, so this one does too and says so loudly.
+            print(f"[KEEPALIVE] cross-keepalive loop error: {e} — continuing.", flush=True)
+            await asyncio.sleep(CROSS_KEEPALIVE_INTERVAL_SECONDS)
 
 
 def start_cross_keepalive(bot):

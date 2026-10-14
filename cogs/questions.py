@@ -31,6 +31,21 @@ from utils.style import send_panel as _style_send_panel
 logger = logging.getLogger(__name__)
 
 
+def _log_task_error(task: asyncio.Task) -> None:
+    """Never let a fire-and-forget task die silently.
+
+    Attached to every ``asyncio.create_task`` in this file whose result
+    nobody awaits: without it an exception inside the task is only a
+    "never retrieved" warning nobody reads.
+    """
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        logger.error("background task failed: %r", exc)
+
+
 def _extract_button_view(panel: Panel) -> discord.ui.View | None:
     """Extract interactive action row buttons from panel into a standard discord.ui.View."""
     view = getattr(panel, "button_view", None)
@@ -469,9 +484,10 @@ class QuestionAnswerModal(discord.ui.Modal):
 
         # Early completion check: if all role members answered, resolve immediately
         if should_resolve_early and self.session.cog:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self.session.cog.resolve_session(self.session, reason="all_answered")
             )
+            task.add_done_callback(_log_task_error)
 
 
 class Questions(commands.Cog):

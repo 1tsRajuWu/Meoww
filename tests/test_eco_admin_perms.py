@@ -186,6 +186,50 @@ class EcoAdminRequiresAdmin(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase)
         self.assertEqual(_balances(26), (10, 0))
         self.assertTrue(self._public_denials(interaction))
 
+    async def test_bank_by_admin_over_gift_limit_is_refused(self):
+        """`/eco-admin bank` is a gift like `/eco-admin add`: same 50k cap."""
+        _put(27, 0, 0)
+        cog = economy_module.Economy(bot=None)
+        interaction = _interaction(7, admin=True, owner_id=999)
+
+        with mock.patch.object(economy_module, "send_card", new=_noop):
+            await economy_module.Economy.eco_admin_bank.callback(cog, interaction, _member(27), 50_001)
+
+        self.assertEqual(_balances(27), (0, 0))
+        self.assertTrue(self._public_denials(interaction))
+
+    async def test_bank_self_gift_by_non_owner_is_refused(self):
+        _put(28, 0, 0)
+        cog = economy_module.Economy(bot=None)
+        interaction = _interaction(28, admin=True, owner_id=999)
+
+        with mock.patch.object(economy_module, "send_card", new=_noop):
+            await economy_module.Economy.eco_admin_bank.callback(cog, interaction, _member(28), 1_000)
+
+        self.assertEqual(_balances(28), (0, 0))
+        self.assertTrue(self._public_denials(interaction))
+
+    async def test_bank_past_million_total_is_refused_for_non_owner(self):
+        _put(29, 600_000, 400_000)
+        cog = economy_module.Economy(bot=None)
+        interaction = _interaction(7, admin=True, owner_id=999)
+
+        with mock.patch.object(economy_module, "send_card", new=_noop):
+            await economy_module.Economy.eco_admin_bank.callback(cog, interaction, _member(29), 1_000)
+
+        self.assertEqual(_balances(29), (600_000, 400_000))
+        self.assertTrue(self._public_denials(interaction))
+
+    async def test_bank_by_owner_is_unlimited(self):
+        _put(30, 0, 0)
+        cog = economy_module.Economy(bot=None)
+        interaction = _interaction(9, admin=True, owner_id=9)
+
+        with mock.patch.object(economy_module, "send_card", new=_noop):
+            await economy_module.Economy.eco_admin_bank.callback(cog, interaction, _member(30), 5_000_000)
+
+        self.assertEqual(_balances(30), (0, 5_000_000))
+
     async def test_command_error_handler_posts_public_denial(self):
         cog = economy_module.Economy(bot=None)
         interaction = _interaction(7, admin=False, owner_id=999)
