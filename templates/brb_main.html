@@ -128,32 +128,6 @@
     pointer-events: none;
   }
 
-  /* Top Edge Telemetry HUD */
-  .telemetry-bar {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 14px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: var(--brb-text-muted);
-    margin-bottom: 16px;
-  }
-  .telemetry-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--mint);
-    box-shadow: 0 0 8px var(--mint);
-  }
-  .telemetry-sep {
-    color: rgba(255, 255, 255, 0.22);
-  }
-
   /* Status Pill with Radar Sonar Wave */
   .status-pill {
     display: inline-flex;
@@ -557,13 +531,6 @@
 
   <div class="stage-wrap">
     <main class="stage" id="stage-card">
-      <div class="telemetry-bar">
-        <span class="telemetry-dot" aria-hidden="true"></span>
-        <span id="pop-val">EDGE: GLOBAL</span>
-        <span class="telemetry-sep" aria-hidden="true">/</span>
-        <span id="ping-val">12ms</span>
-      </div>
-
       <div class="status-pill">
         <div class="pulse-dot-wrap" aria-hidden="true">
           <span class="pulse-ring"></span>
@@ -574,10 +541,6 @@
       </div>
 
       <h1 class="title">Building The Website.</h1>
-
-      <p class="subtitle">
-        One bot that runs the server — {{ bot_name or 'DeCat' }}, {{ system_count }} systems and {{ command_count }} commands, live market and telemetry.
-      </p>
 
       <div class="system-matrix">
         <div class="sys-chip">
@@ -655,9 +618,9 @@
     // -------------------------------------------------------------
     // A 5x7 bitmap font rendered as square LED blocks on a canvas that
     // auto-fits this box at any devicePixelRatio. Choreography is a state
-    // machine — BUILD (letters left to right, blocks falling from above on
-    // an elastic ease, glowing coral until they lock white), HOLD 2.5s with
-    // a breathing glow, DISSOLVE 0.8s in a left-to-right wave, WAIT 0.5s —
+    // machine — BUILD (letters left to right, blocks dropping from above
+    // with gravity and one settle bounce, glowing coral until they lock
+    // white), HOLD 2.5s with a breathing glow, DISSOLVE 0.8s in a left-to-right wave, WAIT 0.5s —
     // driven by requestAnimationFrame with delta time so 60Hz and 144Hz
     // panels run the same show. Zero dependencies. The h1 keeps its plain
     // text for readers without script, and reduced-motion readers keep it.
@@ -674,13 +637,13 @@
         'i': ['00100','00000','01100','00100','00100','00100','01110'],
         'l': ['01100','00100','00100','00100','00100','00100','01110'],
         'd': ['00001','00001','00111','00101','00101','00101','00111'],
-        'n': ['00000','00000','11110','10001','10001','10001','10001'],
-        'g': ['00000','00000','01110','10001','10001','01111','10000'],
+        'n': ['00000','00000','10110','11001','10001','10001','10001'],
+        'g': ['01110','10001','10001','00111','00001','10001','01110'],
         'T': ['11111','00100','00100','00100','00100','00100','00100'],
         'h': ['10000','10000','10110','11001','10001','10001','10001'],
         'e': ['00000','00000','01110','10001','11111','10000','01110'],
         'W': ['10001','10001','10001','10001','10101','11011','10001'],
-        'b': ['10000','10000','10110','11001','10001','10001','10001'],
+        'b': ['10000','10000','10111','11001','10001','10001','10111'],
         's': ['00000','00000','01111','10000','01110','00001','11110'],
         't': ['00100','00100','11110','00100','00100','00100','01100'],
         '.': ['00000','00000','00000','00000','00000','01100','01100'],
@@ -688,42 +651,22 @@
       };
       var MOVE_GLOW = '#FF6B4A';
       var LOCKED = '#FFFFFF';
-      var BLOCK_STAGGER = 0.018;
-      var BLOCK_DUR = 0.45;
-      var LETTER_GAP = 0.06;
+      var BLOCK_STAGGER = 0.03;
+      var BLOCK_DUR = 0.55;
+      var LETTER_GAP = 0.12;
       var HOLD_S = 2.5;
       var DISSOLVE_S = 0.8;
       var WAIT_S = 0.5;
-      function cubicBezierSolver(x1, y1, x2, y2) {
-        function sample(t) {
-          var u = 1 - t;
-          return 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t;
+      // Gravity drop with one settle bounce: blocks accelerate downward,
+      // dip a hair past their cell, then rest. Reads as falling, not floating.
+      function easeDrop(p) {
+        if (p < 0.75) {
+          var q = p / 0.75;
+          return 0.88 * q * q;
         }
-        function sampleY(t) {
-          var u = 1 - t;
-          return 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t;
-        }
-        return function(x) {
-          var t = x;
-          for (var i = 0; i < 5; i++) {
-            var err = sample(t) - x;
-            if (Math.abs(err) < 0.0001) break;
-            var d = 3 * (1 - t) * (1 - t) * x1 + 6 * (1 - t) * t * (x2 - x1) + 3 * t * t * (1 - x2);
-            if (Math.abs(d) < 0.0001) break;
-            t -= err / d;
-          }
-          var lo = 0, hi = 1;
-          t = Math.max(0, Math.min(1, t));
-          for (var j = 0; j < 12; j++) {
-            var v = sample(t);
-            if (Math.abs(v - x) < 0.0001) break;
-            if (v < x) lo = t; else hi = t;
-            t = (lo + hi) / 2;
-          }
-          return sampleY(t);
-        };
+        var r = (p - 0.75) / 0.25;
+        return 0.88 + 0.12 * (2 * r - r * r) + 0.08 * Math.sin(r * Math.PI) * (1 - r);
       }
-      var easeBlock = cubicBezierSolver(0.22, 1, 0.36, 1);
       var titleCanvas = null, titleCtx = null, titleBlocks = [];
       var titlePitch = 4, titleW = 0, titleH = 0;
       var titlePhase = 'build', titlePhaseT = 0, titleBuildEnd = 1;
@@ -748,7 +691,7 @@
         titleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         var cursorX = 0;
         titleBlocks = [];
-        var t = 0.25;
+        var t = 0.4;
         for (var li = 0; li < titleText.length; li++) {
           var ch = titleText.charAt(li);
           var glyph = PIXEL_FONT_5X7[ch] || PIXEL_FONT_5X7[' '];
@@ -823,7 +766,7 @@
             titleCtx.shadowBlur = 0;
             titleCtx.fillRect(blk.tx, blk.ty, blk.size, blk.size);
           } else {
-            var e = easeBlock(bt);
+            var e = easeDrop(bt);
             var px = blk.sx + (blk.tx - blk.sx) * e;
             var py = blk.sy + (blk.ty - blk.sy) * e;
             titleCtx.fillStyle = MOVE_GLOW;
@@ -930,29 +873,9 @@
     // -------------------------------------------------------------
     // R3: LIVE EDGE TELEMETRY & REAL-TIME DEPLOYMENT TERMINAL
     // -------------------------------------------------------------
-    // 1. Timezone POP Geographic Resolution
-    var popEl = document.getElementById('pop-val');
-    try {
-      var tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
-      var pop = 'GLOBAL (EDGE-01)';
-      if (/^America\/(New_York|Detroit|Toronto|Montreal|Indiana)/i.test(tz)) pop = 'US-EAST (IAD-01)';
-      else if (/^America\/(Chicago|Denver|Phoenix)/i.test(tz)) pop = 'US-CENTRAL (ORD-01)';
-      else if (/^America\/(Los_Angeles|Vancouver|Seattle|San_Francisco)/i.test(tz)) pop = 'US-WEST (SJC-02)';
-      else if (/^America\//i.test(tz)) pop = 'US-EAST (IAD-01)';
-      else if (/^Europe\/(Berlin|Frankfurt|Paris|Amsterdam|Zurich|Rome|Madrid)/i.test(tz)) pop = 'EU-CENTRAL (FRA-01)';
-      else if (/^Europe\/(London|Dublin)/i.test(tz)) pop = 'EU-WEST (LHR-01)';
-      else if (/^Europe\//i.test(tz)) pop = 'EU-CENTRAL (FRA-01)';
-      else if (/^Asia\/(Kolkata|Calcutta|Colombo)/i.test(tz)) pop = 'AP-SOUTH (BOM-01)';
-      else if (/^Asia\/(Tokyo|Seoul)/i.test(tz)) pop = 'AP-EAST (TYO-01)';
-      else if (/^Asia\/(Singapore|Hong_Kong|Bangkok)/i.test(tz)) pop = 'AP-SE (SIN-01)';
-      else if (/^Australia\//i.test(tz)) pop = 'OC-EAST (SYD-01)';
-      if (popEl) popEl.textContent = 'EDGE: ' + pop;
-    } catch (err) {
-      if (popEl) popEl.textContent = 'EDGE: GLOBAL (EDGE-01)';
-    }
-
-    // 2. Exponentially Smoothed Ping Latency Ticker
-    var pingEl = document.getElementById('ping-val');
+    // 1. Exponentially Smoothed Ping Latency Ticker (headless: no readout
+    // element — the measurement feeds the terminal's live tail)
+    var pingEl = null;
     var pingSmooth = 12.0;
     function samplePing() {
       var start = performance.now();
@@ -986,7 +909,7 @@
     setInterval(samplePing, 3200);
     samplePing();
 
-    // 3. Collapsible Deployment Terminal Drawer
+    // 2. Collapsible Deployment Terminal Drawer
     var toggleBtn = document.getElementById('term-toggle');
     var drawer = document.getElementById('term-drawer');
     var termBody = document.getElementById('term-body');
@@ -999,7 +922,7 @@
       });
     }
 
-    // 4. Live readings, streamed: server-verified milestones first, then the
+    // 3. Live readings, streamed: server-verified milestones first, then the
     // measured edge round-trip on every tick. Nothing here is invented — the
     // milestones were rendered with this page, the rtt is sampled live.
     var buildSteps = ({{ brb_steps | tojson }}) || [];
@@ -1056,7 +979,7 @@
         if (!AudioCtxClass) return;
         audioCtx = new AudioCtxClass();
         analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 32;
+        analyser.fftSize = 256;
         analyser.smoothingTimeConstant = 0.75;
         freqData = new Uint8Array(analyser.frequencyBinCount);
 
@@ -1067,14 +990,33 @@
         ambGain.gain.setValueAtTime(0.012, audioCtx.currentTime);
         ambOsc.connect(ambGain);
         ambGain.connect(analyser);
+        var harmOsc = audioCtx.createOscillator();
+        var harmGain = audioCtx.createGain();
+        harmOsc.type = 'triangle';
+        harmOsc.frequency.setValueAtTime(220, audioCtx.currentTime);
+        harmGain.gain.setValueAtTime(0.006, audioCtx.currentTime);
+        harmOsc.connect(harmGain);
+        harmGain.connect(analyser);
+        var wobble = audioCtx.createOscillator();
+        var wobbleGain = audioCtx.createGain();
+        wobble.type = 'sine';
+        wobble.frequency.setValueAtTime(0.4, audioCtx.currentTime);
+        wobbleGain.gain.setValueAtTime(0.004, audioCtx.currentTime);
+        wobble.connect(wobbleGain);
+        wobbleGain.connect(harmGain.gain);
         analyser.connect(audioCtx.destination);
         ambOsc.start();
+        harmOsc.start();
+        wobble.start();
 
         if (eqStrip) eqStrip.classList.remove('anim-fallback');
       } catch (e) {
         if (eqStrip) eqStrip.classList.add('anim-fallback');
       }
     }
+    var eqLevels = [6, 6, 6, 6, 6];
+    var eqBins = [1, 2, 3, 5, 8];
+    var eqBoost = [1.4, 1.8, 2.4, 3.0, 3.6];
 
     function playShockwaveAudio() {
       if (!audioCtx) initAudio();
@@ -1354,14 +1296,16 @@
         mouse.vy = mouse.y - mouse.prevY;
       }
 
-      // Audio Reactive Equalizer Update
-      if (analyser && freqData) {
+      // Audio Reactive Equalizer Update (skipped for reduced-motion readers,
+      // whose bars rest — the CSS fallback is silenced for them too)
+      if (analyser && freqData && !prefersReducedMotion) {
         analyser.getByteFrequencyData(freqData);
         for (var b = 0; b < 5; b++) {
-          var fVal = freqData[b * 2] || 0;
-          var bH = 4 + (fVal / 255) * 14;
+          var fVal = Math.min(255, (freqData[eqBins[b]] || 0) * eqBoost[b]);
+          var bTarget = 4 + (fVal / 255) * 14;
+          eqLevels[b] += (bTarget - eqLevels[b]) * 0.35;
           if (eqBars[b]) {
-            eqBars[b].style.height = bH.toFixed(1) + 'px';
+            eqBars[b].style.height = eqLevels[b].toFixed(1) + 'px';
           }
         }
       }

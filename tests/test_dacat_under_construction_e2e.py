@@ -242,18 +242,17 @@ class TestR3EdgeTelemetryAndDeploymentTerminal(unittest.TestCase):
         self.raw = read_template()
         self.rendered = render_page()
 
-    def test_telemetry_hud_bar_and_edge_indicators(self):
-        """Verifies telemetry bar contains edge region indicator and ping placeholder."""
-        self.assertIn("telemetry-bar", self.rendered)
-        self.assertIn("telemetry-dot", self.rendered)
-        self.assertIn('id="pop-val"', self.rendered)
-        self.assertIn('id="ping-val"', self.rendered)
+    def test_telemetry_hud_removed_from_stage(self):
+        """The telemetry bar is gone — no edge/ping readout on the card."""
+        self.assertNotIn("telemetry-bar", self.rendered)
+        self.assertNotIn('id="pop-val"', self.rendered)
+        self.assertNotIn('id="ping-val"', self.rendered)
 
-    def test_ping_counter_ticker_element_and_interval(self):
-        """Verifies ping ticker interval updates #ping-val dynamically with exponential smoothing."""
-        self.assertIn("ping-val", self.rendered)
+    def test_ping_sampler_feeds_terminal_tail(self):
+        """Ping is still sampled headlessly and streamed as the terminal's live tail."""
         self.assertIn("samplePing", self.raw)
         self.assertIn("pingSmooth", self.raw)
+        self.assertIn("edge rtt", self.raw)
         self.assertRegex(
             self.raw,
             r"setInterval\(\s*samplePing\s*,\s*\d+\)",
@@ -706,12 +705,12 @@ class TestTier3CrossFeaturePairwise(unittest.TestCase):
         self.raw = read_template()
         self.rendered = render_page()
 
-    def test_telemetry_hud_and_deployment_terminal_coexistence(self):
-        """Verifies telemetry bar and deployment terminal reside together in stage card."""
+    def test_deployment_terminal_stands_alone_in_stage(self):
+        """The deployment terminal is the stage card's live readout — no telemetry bar beside it."""
         main_match = re.search(r"<main\b[^>]*>(.*?)</main>", self.rendered, re.DOTALL)
         self.assertIsNotNone(main_match)
         content = main_match.group(1)
-        self.assertIn("telemetry-bar", content)
+        self.assertNotIn("telemetry-bar", content)
         self.assertIn("terminal-wrap", content)
 
     def test_terminal_toggle_does_not_interfere_with_telemetry_flow(self):
@@ -721,9 +720,10 @@ class TestTier3CrossFeaturePairwise(unittest.TestCase):
         # Ensure term toggle only mutates drawer
         self.assertIn("drawer.hidden = expanded", self.raw)
 
-    def test_ping_ticker_updates_independently_of_terminal_drawer(self):
-        """Verifies ping metric interval updates pingEl independently of terminal drawer state."""
-        self.assertIn("ping-val", self.raw)
+    def test_ping_sampler_runs_headless_beside_terminal_drawer(self):
+        """Ping sampling has no readout element — it runs headless beside the drawer."""
+        self.assertNotIn("ping-val", self.raw)
+        self.assertIn("samplePing", self.raw)
         self.assertIn("term-drawer", self.raw)
         self.assertIn("setInterval", self.raw)
 
