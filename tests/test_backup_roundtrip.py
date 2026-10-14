@@ -782,6 +782,14 @@ OTHER_HOST = "srv-aaaaaaaaaaaaaaaaaaaa-one-1-abc"
 DEAD_HOST = "r-1tsrajowo-meow-zxho7yru-d2319-tph82"
 SIBLING_POD = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-qwrf4"
 NEW_POD = "srv-daiqibp594qs739qebc0-hibernate-7999965fd6-newpod"
+#: The two live Hugging Face containers this rule was verified against on
+#: 2026-10-14: the old main-Space container a push replaced (named in the
+#: duplicate card), the new main-Space container that reported it, and the
+#: premium Space's container — a different slug, so never "previous".
+HF_OLD_POD = "r-1tsrajowo-meow-ajdohjy2-b570d-jv86t"
+HF_NEW_POD = "r-1tsrajowo-meow-qw31xz77-90bc4-de55f"
+HF_PREMIUM_POD = "r-1tsrajowo-meow-premium-qlprmw84-55cd2-nws5w"
+HF_DEV_POD = "r-1tsrajowo-meow-dev-aaaa1111-bb22-cc33"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -945,6 +953,29 @@ class WhoElseIsRunning(unittest.TestCase):
                 self.PREVIOUS,
                 instance=NEW_POD,
             ),
+            Case(
+                "this space's previous container after a push",
+                self._lease(HF_OLD_POD),
+                None,
+                self.PREVIOUS,
+                instance=HF_NEW_POD,
+            ),
+            Case(
+                "the premium space is not this space's previous container",
+                self._lease(HF_OLD_POD),
+                HF_OLD_POD,
+                self.FOUND,
+                instance=HF_PREMIUM_POD,
+                renew=self._lease(HF_OLD_POD),
+            ),
+            Case(
+                "a similarly named space is not this space either",
+                self._lease(HF_OLD_POD),
+                HF_OLD_POD,
+                self.FOUND,
+                instance=HF_DEV_POD,
+                renew=self._lease(HF_OLD_POD),
+            ),
         ]
 
     def test_every_reading_gets_its_answer_and_the_line_that_says_which(self):
@@ -1004,6 +1035,36 @@ class WhoElseIsRunning(unittest.TestCase):
                 "owns the bucket", cs._lease_problem() or "",
                 "but the upload still refuses while that container writes",
             )
+
+    def test_a_push_does_not_page_about_its_own_previous_container(self):
+        """A Hugging Face rebuild replaces the Space's container: the new one
+        boots while the old one is still renewing, which is exactly what the
+        duplicate watch looks for — and on 2026-10-14 that overlap paged the
+        operator with a card telling them to stop the copy they had just
+        deployed. Same rule as the Render sibling above: quiet on the gateway,
+        still guarded on the bucket."""
+        cs._INSTANCE_ID = HF_NEW_POD
+        cs._cloud_has_data = True
+        previous = self._lease(HF_OLD_POD)
+        with mock.patch.object(cs, "_storage_download", return_value=previous):
+            self.assertIsNone(
+                cs.other_copy_verdict(sleep=lambda _seconds: None), "not a second *copy*"
+            )
+            self.assertIn(
+                "owns the bucket", cs._lease_problem() or "",
+                "but the upload still refuses while that container writes",
+            )
+
+    def test_nearby_space_names_stay_distinct(self):
+        """``meow``, ``meow-premium`` and ``meow-dev`` share a prefix and must
+        never read as one deployment: suppressing across them would silence the
+        misconfigured-premium-token case the warning exists for."""
+        self.assertEqual(cs._service_of(HF_OLD_POD), "hf:1tsrajowo-meow")
+        self.assertEqual(cs._service_of(HF_NEW_POD), "hf:1tsrajowo-meow")
+        self.assertEqual(cs._service_of(HF_PREMIUM_POD), "hf:1tsrajowo-meow-premium")
+        self.assertEqual(cs._service_of(HF_DEV_POD), "hf:1tsrajowo-meow-dev")
+        self.assertIsNone(cs._service_of("Himanshus-MacBook-Air.local"))
+        self.assertIsNone(cs._service_of("r-short"))
 
 
 

@@ -78,7 +78,7 @@ class Pass:
                 "unchecked": len(self.unchecked),
                 "targets": [
                     {"name": name, "reason": reason, "url": self.places.get(name, "")}
-                    for name in self.dead
+                    for name, reason in self.dead.items()
                 ],
                 "not_checked": [
                     {"name": name, "reason": reason} for name, reason in self.unchecked.items()

@@ -682,18 +682,21 @@ class EverySheetIsSatisfiedByItsPage(unittest.TestCase):
         """
         home = os.path.join(TEMPLATES, "home.html")
         lineage = [os.path.basename(path) for path in self._lineage(home)]
-        # The front door inherits the rebuilt frame — and this law is precisely the
-        # one that makes that checkable rather than assumed, because it walks the
-        # lineage instead of naming a file. The old frame it used to name is still
-        # the frame for the sign-in doors, the market and the owner console.
-        self.assertEqual(lineage[0], "base.html", lineage)
+        # The front door inherits the marketing frame — and this law is precisely
+        # the one that makes that checkable rather than assumed, because it walks
+        # the lineage instead of naming a file. The frame every signed-in page of
+        # this site wore before the rebuild is gone; what extends it now is the
+        # six pages that were never rebuilt (`login`, `error`, `servers`,
+        # `agree`, `owner`, `owner_login`), all of which kept their own markup.
+        self.assertEqual(lineage[0], "site_base.html", lineage)
         self.assertEqual(lineage[-1], "home.html", lineage)
         self.assertEqual(self._gaps(home), [])
         # And a child's own sheet is still checked after the base's, which is what
         # makes the pair legal rather than merely unreported.
         base = self._lineage(home)[0]
         base_events = [payload for _at, _kind, payload in self._events(read(base))]
-        self.assertIn("/static/meoww.css", base_events)
+        self.assertIn("/static/meow.css", base_events)
+        self.assertIn("/static/site.css", base_events)
 
     def test_the_walk_finds_the_pair_this_law_was_written_for(self):
         """A walk that looks at nothing passes for the wrong reason."""
@@ -1238,12 +1241,12 @@ class HiddenMeansHidden(unittest.TestCase):
         """``[hidden]`` anywhere else is that list growing again.
 
         The one in ``static/meow.css`` is the general rule; a second one in
-        ``pages.css`` or ``landing.css`` would mean an element whose own selector
-        was written out by hand, which is exactly how the six-selector patch list
-        came to exist — and why the seventh element was broken.
+        ``pages.css`` or the marketing layer would mean an element whose own
+        selector was written out by hand, which is exactly how the six-selector
+        patch list came to exist — and why the seventh element was broken.
         """
         general = read(PUBLIC_SHEET)
-        for name in ("pages.css", "landing.css"):
+        for name in ("pages.css", "site.css"):
             source = read(os.path.join(ROOT, "static", name))
             with self.subTest(sheet=name):
                 self.assertNotIn(
@@ -1268,7 +1271,7 @@ class NoSheetDrawsItsOwnPointer(unittest.TestCase):
     """
 
     def test_no_public_sheet_names_a_cursor_image(self):
-        for name in ("meow.css", "landing.css", "pages.css"):
+        for name in ("meow.css", "site.css", "pages.css"):
             source = _without_comments(read(os.path.join(ROOT, "static", name)))
             with self.subTest(sheet=name):
                 self.assertNotIn(
@@ -1279,7 +1282,7 @@ class NoSheetDrawsItsOwnPointer(unittest.TestCase):
 
     def test_the_other_public_sheets_leave_the_pointer_alone(self):
         """A page sheet is the easiest place to add one by accident."""
-        for name in ("landing.css", "pages.css"):
+        for name in ("site.css", "pages.css"):
             source = _without_comments(read(os.path.join(ROOT, "static", name)))
             with self.subTest(sheet=name):
                 self.assertNotIn(
@@ -1882,22 +1885,22 @@ class ALabelColumnKeepsItsRoom(unittest.TestCase):
         exists, failing for a year of commits about the *absence* of a thing
         rather than about the defect it was written for, which is that a line
         breaker treats a hyphen as an invitation: ``ad-`` on one line and
-        ``free`` on the next. The class is ``.mw-tag`` now and it lives in the
-        shared sheet, and the tag itself is written by the home page — where one
-        of them carries a two-word label, which is exactly the shape the rule
-        exists to hold together.
+        ``free`` on the next. The class is ``.tag`` — declared once in the shared
+        sheet — and the tag is written by the home page's system cards, where one
+        of them carries a two-word label ("always on"), which is exactly the shape
+        the rule exists to hold together.
         """
-        css = read(os.path.join(os.path.dirname(TEMPLATES), "static", "meoww.css"))
+        css = read(PUBLIC_SHEET)
         self.assertEqual(
-            self._declarations(css, ".mw-tag").get("white-space"), "nowrap",
-            ".mw-tag is what holds a two-word label together: a hyphen is a "
+            self._declarations(css, ".tag").get("white-space"), "nowrap",
+            ".tag is what holds a two-word label together: a hyphen is a "
             "break opportunity to a line breaker",
         )
         # Asserted as a search rather than with ``assertIn``: a failure here
         # would print a whole page rather than the one line that matters.
         template = read(os.path.join(TEMPLATES, "home.html"))
         self.assertTrue(
-            re.search(r'<span class="mw-tag">', template),
+            re.search(r'<span class="tag">', template),
             "the page writes no tag, so the rule above guards nothing and a "
             "label that needs holding together breaks at its own hyphen",
         )
@@ -2173,8 +2176,11 @@ class TheBackgroundIsBelowThePage(unittest.TestCase):
     instead of being missed because a list in here went stale.
     """
 
-    #: The layer, by class, as the templates draw it.
-    LAYER = "aurora"
+    #: The layer, by class, as the templates draw it. Two layers exist: the
+    #: marketing frame's (`site-bg`, declared in `static/site.css`) and the older
+    #: `aurora` (`static/meow.css`) that the pages which were not rebuilt still
+    #: extend. This reads the live one; the premise test below checks both.
+    LAYER = "site-bg"
 
     def _templates_with_the_layer(self) -> list[str]:
         found = []
@@ -2215,22 +2221,30 @@ class TheBackgroundIsBelowThePage(unittest.TestCase):
 
         If the background ever stops being a positioned layer with an opaque
         gradient, the law below is asking the wrong question — and asking it
-        forever without noticing would be worse than not asking it.
+        forever without noticing would be worse than not asking it. Both layers
+        are read: the marketing frame's own, and the older wash the pages that
+        were not rebuilt still draw.
         """
-        rule = None
-        for selector, body in blocks(read(PUBLIC_SHEET)):
-            if re.search(r"\.aurora\b", selector) and wrapper_is_plain(selector):
-                rule = body
-                break
-        self.assertIsNotNone(rule, "`static/meow.css` has no `.aurora` rule")
-        self.assertIn("position: fixed", rule, "the background layer is no longer fixed")
-        self.assertIn("z-index: 0", rule, "the background layer no longer claims the base layer")
-        self.assertIn(
-            "linear-gradient",
-            rule,
-            "the layer's own background is no longer opaque, so it may no longer be "
-            "painting over the pages at all — re-measure before trusting this law",
-        )
+        for sheet, class_name in (
+            (os.path.join(ROOT, "static", "site.css"), "site-bg"),
+            (PUBLIC_SHEET, "aurora"),
+        ):
+            rule = None
+            for selector, body in blocks(read(sheet)):
+                parts = [part.strip().rstrip(",") for part in selector.split(",")]
+                if f".{class_name}" in parts:
+                    rule = body
+                    break
+            with self.subTest(sheet=os.path.basename(sheet), layer=class_name):
+                self.assertIsNotNone(rule, f"{sheet} has no .{class_name} rule")
+                self.assertIn("position: fixed", rule, "the background layer is no longer fixed")
+                self.assertIn("z-index: 0", rule, "the background layer no longer claims the base layer")
+                self.assertIn(
+                    "linear-gradient",
+                    rule,
+                    "the layer's own background is no longer opaque, so it may no longer be "
+                    "painting over the pages at all — re-measure before trusting this law",
+                )
 
     def test_every_page_that_draws_the_layer_lifts_its_wrapper(self):
         pages = self._templates_with_the_layer()
@@ -2267,13 +2281,6 @@ class TheBackgroundIsBelowThePage(unittest.TestCase):
                     ("auto", "0"),
                     f".{wrapper} must sit above the background layer's own `z-index: 0`",
                 )
-
-
-def wrapper_is_plain(selector: str) -> bool:
-    """Whether a selector list names the layer itself rather than its children."""
-    return any(
-        part.strip().rstrip(",") == ".aurora" for part in selector.split(",")
-    )
 
 
 if __name__ == "__main__":  # pragma: no cover

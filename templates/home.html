@@ -1,0 +1,214 @@
+{# ==========================================================================
+   home.html — the front door, and the one job it has.
+
+   This page answers *why this bot exists* and nothing else: one screen of
+   claim, the deployment's own live numbers, a four-card taste of what is in
+   it, one strip of the commands that prove it is real, and the way in. The
+   lists live where they belong — every system and command on `/systems`,
+   the steps and the questions on `/start`, the plans on `/pricing` — because
+   a front door that carries everything is a front door nobody reads to the
+   end.
+
+   Three rules hold it together:
+
+     1. **Every count is read, never written.** The systems, the switchable
+        count and every command in the marquee come from `utils.features`, so
+        the page cannot advertise a system the bot does not have.
+     2. **The page is complete without its script.** The headline lines rise
+        out of their own clip masks from a CSS animation that starts at parse
+        time; the figures carry their server-rendered values; the marquee is
+        markup. With JavaScript blocked the page still reads, top to bottom.
+     3. **The figures are the deployment's, or an em dash.** A built copy has
+        no process behind it, so it ships the dash and asks its host once,
+        through the same `/api/figures` endpoint every other surface uses.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+
+{% block title %}{{ bot_name }} — moderation, tickets, leveling, an economy and a live market, all switchable per server{% endblock %}
+
+{% block page %}
+{# The commands, flattened once: one list, drawn twice so the marquee loops
+   without a seam. Capped — the full registry is `/systems`'s job. #}
+{% set ns = namespace(commands=[]) %}
+{% for system in systems %}
+  {% for command in system.commands %}
+    {% if ns.commands | length < 72 %}{% set _ = ns.commands.append(command) %}{% endif %}
+  {% endfor %}
+{% endfor %}
+
+{# ------------------------------------------------------------------ #}
+{# Hero                                                               #}
+{# ------------------------------------------------------------------ #}
+<section class="site-hero">
+  <div class="wrap site-hero__grid">
+    <div class="site-hero__copy">
+      <p class="site-hero__eyebrow">
+        <span class="pill {{ status.class }}">
+          <span class="dot {{ status.dot }}" aria-hidden="true"></span>{{ status.label }}
+        </span>
+      </p>
+
+      <h1 class="site-hero__title">
+        <span class="site-line"><span class="site-line__in">Own your server</span></span>
+        <span class="site-line site-line--accent"><span class="site-line__in">Command everything</span></span>
+      </h1>
+
+      <p class="site-hero__lede">
+        {{ system_count }} systems and {{ entry_count }} commands — moderation,
+        tickets, leveling, an economy, a live market — every one switched on or
+        off per server, from one dashboard.
+      </p>
+
+      <div class="site-hero__cta">
+        {% if invite_url %}
+        <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }} to Discord</a>
+        {% else %}
+        <a class="btn btn--primary" href="/start" data-magnetic>How to add it</a>
+        {% endif %}
+        <a class="btn" href="#in-it">See what is in it</a>
+      </div>
+
+      <p class="site-hero__note">
+        Discord sign-in, and it shows only the servers you already administer.
+        {% if retention_days %}Messages are kept {{ retention_days }} days.{% endif %}
+      </p>
+    </div>
+
+    <div class="site-hero__panel" data-tilt>
+      <div class="site-status">
+        <div class="site-status__row">
+          <span class="pill {{ status.class }}">
+            <span class="dot {{ status.dot }}" aria-hidden="true"></span>{{ status.label }}
+          </span>
+          <span class="micro">This deployment</span>
+        </div>
+        <p>{{ status.detail }}</p>
+
+        <div class="site-figures">
+          {% for tile in hero_figures %}
+          <div class="site-figure">
+            <b data-figure="{{ tile.key }}"{% if not tile.waiting %} data-count="{{ tile.value }}"{% endif %}>{{ tile.value }}</b>
+            <span>{{ tile.label }}</span>
+          </div>
+          {% endfor %}
+        </div>
+
+        <p class="hint">{{ panel_note }}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Every command, as a strip                                           #}
+{# ------------------------------------------------------------------ #}
+<section class="site-marquee" aria-label="Commands this bot answers">
+  <div class="site-marquee__track">
+    {% for run in range(2) %}
+    <div class="site-marquee__run"{{ ' aria-hidden="true"' | safe if run else '' }}>
+      {% for command in ns.commands %}
+      <span class="site-marquee__item">{{ command }}</span>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# What is in it — four cards, and the door to the other eleven        #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band" id="in-it">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">What is in it</p>
+      <h2>{{ system_count }} systems, {{ switchable_count }} of them switchable</h2>
+      <p class="site-head__lede">
+        Filter the list, open a system, switch one off and watch exactly what
+        leaves a server's command picker. Four of them, to give you the shape
+        of it — the whole registry lives on its own page.
+      </p>
+      {% if always_on %}
+      <p class="site-head__meta hint">
+        Plus <b>{{ always_on | join(", ") }}</b> — always on, with no switch to turn it off.
+      </p>
+      {% endif %}
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards">
+      {% for system in systems[:4] %}
+      <a class="site-card" href="/systems#system-{{ system.id }}" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">{{ system.icon }}</span>
+        <span class="site-card__title">{{ system.name }}</span>
+        <p class="site-card__desc">{{ system.desc }}</p>
+        <span class="site-card__foot">
+          <span>{{ system.command_count }} command{{ '' if system.command_count == 1 else 's' }}</span>
+          <span class="tag">{{ 'switchable' if system.toggleable else 'always on' }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+
+    <p class="site-more">
+      <a class="arrow-link" href="/systems">Every system, and every command in it</a>
+    </p>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# The dashboard, page by page — from DASHBOARD_PAGES itself           #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">The dashboard</p>
+      <h2>One panel per job, not one page for everything</h2>
+      <p class="site-head__lede">
+        Every server gets the same dashboard, and a sign-in reaches only the
+        servers you administer. These are its real pages — the list is read
+        from the same registry the dashboard renders from.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards site-cards--wide">
+      {% for page in tour[:6] %}
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">{{ page.icon }}</span>
+        <span class="site-card__title">{{ page.label }}</span>
+        <p class="site-card__desc">{{ page.blurb }}</p>
+        <span class="site-card__foot"><span class="mono">{{ page.note }}</span></span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="site-more">
+      <a class="arrow-link" href="{{ enter_url }}">{{ enter_label }} to a server's dashboard</a>
+    </p>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# The way in                                                          #}
+{# ------------------------------------------------------------------ #}
+<section class="site-cta">
+  <div class="wrap">
+    <p class="micro">Two minutes, one invite</p>
+    <h2>Put it in your server</h2>
+    <p>
+      The invite asks for Administrator — one bit, and the reason no feature
+      ever answers “Missing Permissions”. There is a smaller grant beside it if
+      you would rather hand over less.
+    </p>
+    <div class="site-cta__row">
+      {% if invite_url %}
+      <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+      {% endif %}
+      {% if invite_limited_url %}
+      <a class="btn" href="{{ invite_limited_url }}">Add with fewer permissions</a>
+      {% endif %}
+      <a class="btn btn--ghost" href="/start">The three steps</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,218 @@
+{# ==========================================================================
+   pricing.html — the plans, and nothing anybody cannot buy.
+
+   Every price, every limit and every system named here is read from the model
+   the bot itself enforces (`utils/plans`), so the page cannot advertise a tier
+   or a number the code does not know about. The page is written for every
+   combination of the deployment's two switches rather than the happy one:
+
+     * **the tiers are real here** (`PLAN_CHECKOUT` on, or `PLAN_ENFORCEMENT`
+       on) — the three cards are drawn, and a buy button appears only where a
+       checkout URL actually exists, so no card ever offers a button that goes
+       nowhere;
+     * **nothing is real yet** — one card, because a free product's page that
+       keeps advertising tiers reads as a shop whose door was left open. The
+       card quotes **no price**: `₹0` beside a period is a price tag on a
+       product nobody can buy, which is a different claim from "there is
+       nothing to buy";
+     * **enforcement off** — the limits line says so, because "5 servers" on a
+       deployment that enforces nothing is a claim about a product that does
+       not exist yet;
+     * **and the page has to be able to say a price may come back** without
+       promising it never will, which is the one sentence a free page owes the
+       person deciding whether to build on it.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+
+{% block title %}Pricing — {{ bot_name }}{% endblock %}
+
+{% block page %}
+{# The tiers are "real" when the deployment sells (any checkout state) or
+   enforces (the limits exist even with the shop shut). Only when *neither* is
+   true is the page a free product's page — the one case where drawing three
+   priced cards would advertise a shop nobody opened. #}
+{% set tiers_are_real = selling or plans_enforced %}
+<section class="site-band site-band--flush">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">Pricing</p>
+      {% if tiers_are_real %}
+      <h2>Free where it can be, paid where it costs money to run</h2>
+      <p class="site-head__lede">
+        Moderation, automod, leveling, fun, games and social are free and always
+        will be. The four systems that cost real money to operate —
+        <b>{{ pro_systems | join(", ") }}</b> — are what a licence pays for.
+      </p>
+      {% else %}
+      <h2>One plan: everything, free</h2>
+      <p class="site-head__lede">
+        Nothing is for sale on this deployment. Every system the bot has —
+        including <b>{{ pro_systems | join(", ") }}</b> — is available to every
+        server it is in, and there is no licence to activate.
+      </p>
+      {% endif %}
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    {% if tiers_are_real %}
+    <div class="site-plans">
+      <div class="site-plan" data-reveal>
+        <span class="site-plan__name">{{ plans_free_label }}</span>
+        <span class="site-plan__price">{{ price_free }}<span>forever</span></span>
+        <p class="hint">{{ plans_free_blurb }}</p>
+        <ul class="site-plan__list">
+          <li>{{ free_servers }} server{{ '' if free_servers == 1 else 's' }} per licence</li>
+          <li>Every system except {{ pro_systems | join(", ") }}</li>
+          <li>No scheduled messages</li>
+        </ul>
+      </div>
+
+      <div class="site-plan site-plan--featured" data-reveal>
+        <span class="site-plan__badge">Most servers pick this</span>
+        <span class="site-plan__name">{{ plans_pro_label }}</span>
+        <span class="site-plan__price">{{ price_pro }}<span>per licence</span></span>
+        <p class="hint">{{ plans_pro_blurb }}</p>
+        <ul class="site-plan__list">
+          <li>{{ pro_servers }} servers per licence</li>
+          <li>Every system — nothing withheld</li>
+          <li>{{ pro_scheduled }} scheduled messages per server</li>
+        </ul>
+        {% if checkout_pro %}
+        <a class="btn btn--primary" href="{{ checkout_pro }}" rel="noopener">Buy {{ plans_pro_label }}</a>
+        {% else %}
+        <span class="btn" aria-disabled="true">Not for sale here yet</span>
+        {% endif %}
+      </div>
+
+      <div class="site-plan" data-reveal>
+        <span class="site-plan__name">{{ plans_enterprise_label }}</span>
+        <span class="site-plan__price">{{ price_enterprise }}<span>per licence</span></span>
+        <p class="hint">{{ plans_enterprise_blurb }}</p>
+        <ul class="site-plan__list">
+          <li>Servers this bot is in — no count to keep under</li>
+          <li>Every system — nothing withheld</li>
+          <li>No limit on scheduled messages</li>
+        </ul>
+        {% if checkout_enterprise %}
+        <a class="btn" href="{{ checkout_enterprise }}" rel="noopener">Buy {{ plans_enterprise_label }}</a>
+        {% else %}
+        <span class="btn" aria-disabled="true">Not for sale here yet</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if checkout_ready %}
+    <p class="site-note">
+      Checkout by Lemon Squeezy — the store takes the payment and hands back the
+      licence key, which is activated on a server in Discord.
+    </p>
+    {% else %}
+    <p class="site-note site-note--accent">
+      Checkout is not open on this deployment yet, so no card above has a buy
+      button — the prices and limits are the model the bot already knows, not a
+      store that has gone quiet.
+    </p>
+    {% endif %}
+
+    {% else %}
+    <div class="site-plans">
+      <div class="site-plan site-plan--featured" data-reveal>
+        <span class="site-plan__name">Everything</span>
+        <span class="site-plan__price">Free<span>for every server</span></span>
+        <ul class="site-plan__list">
+          <li>Every system, including {{ pro_systems | join(", ") }}</li>
+          <li>Every server this bot is in</li>
+          <li>No licence to activate, nothing to renew</li>
+        </ul>
+        {% if invite_url %}
+        <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <p class="site-note">
+      There is no paid tier on this deployment: every system is available to
+      every server it is in, and there is nothing to buy. If paid plans come
+      back, this page will say so first.
+    </p>
+    {% endif %}
+
+    <p class="site-note">
+      {% if plans_enforced %}
+      These limits are enforced by the bot today: a server without a licence
+      keeps every free system, and the Pro-only ones are its only thing behind
+      the licence.
+      {% else %}
+      Limits are not switched on yet — nothing above turns a system off,
+      whatever a server's plan says.
+      {% endif %}
+    </p>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# How a licence works                                                 #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">Licences</p>
+      <h2>One key, activated per server</h2>
+      <p class="site-head__lede">
+        A licence is bought once and activated on the servers it covers, in
+        Discord — where the bot can already tell who is an Administrator.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards">
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">◆</span>
+        <span class="site-card__title">Activate where it runs</span>
+        <p class="site-card__desc">
+          Run <code>/bot plan</code> in the server and paste the key from your
+          receipt. Each server keeps its own activation, so a reinstall or a
+          rename never needs a support ticket.
+        </p>
+      </div>
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">⇄</span>
+        <span class="site-card__title">Move it when you move</span>
+        <p class="site-card__desc">
+          <code>/bot plan remove:true</code> hands this server's activation back,
+          freeing it for another — useful when an old server is retired and a new
+          one starts.
+        </p>
+      </div>
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">◈</span>
+        <span class="site-card__title">See what is on</span>
+        <p class="site-card__desc">
+          The same command with no options shows this server's plan, its licence
+          state and the limits it carries — the same model this page is drawn
+          from, not a second copy of it.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="site-cta">
+  <div class="wrap">
+    <h2>Try it free first</h2>
+    <p>
+      The free plan is a real product: moderation, leveling, fun and social work
+      on every server, and a licence is only ever needed for the four systems
+      that cost money to run.
+    </p>
+    <div class="site-cta__row">
+      {% if invite_url %}
+      <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+      {% endif %}
+      <a class="btn" href="/systems">See every system</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

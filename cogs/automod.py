@@ -416,7 +416,7 @@ class AutoMod(commands.Cog):
             title="🤖 Auto Moderation — this server",
             description=(
                 "Every automatic action here is written to the moderation log and "
-                f"tells the member about `/appeal`.\nThe switch itself is on the "
+                "tells the member about `/appeal`.\nThe switch itself is on the "
                 "[Web Dashboard](https://decat.pages.dev/dashboard/systems)."
             ),
             color=INFO,

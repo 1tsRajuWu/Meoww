@@ -33,6 +33,28 @@ from utils import market as market_module
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+#: The template every law here is written against.
+MARKET_TEMPLATE = os.path.join(ROOT, "templates", "market.html")
+
+
+def setUpModule():
+    """The market page is retired with the maintenance screen.
+
+    ``/market`` and ``/market/<symbol>`` are answered by the BRB hook with
+    ``brb_market.html``, and this page's own template is not in the tree — so
+    every law here is about a page that cannot be rendered until the market
+    comes back. Skipped rather than deleted for the reason ``tests/test_shell.py``
+    was: these are the laws that made a dead chart loud instead of silent, and
+    the day the template returns they have to be run again, not rewritten from
+    memory. The module's one test that reads only ``static/market.js`` goes
+    with them, because a module whose subject is gone is a module that is
+    skipped, not one that reports a partial answer.
+    """
+    if not os.path.isfile(MARKET_TEMPLATE):
+        raise unittest.SkipTest(
+            "templates/market.html is retired with the maintenance screen"
+        )
+
 
 def render_page(symbol="BTC"):
     """Render the shipped template exactly as the ``/market/<symbol>`` route does.

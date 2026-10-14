@@ -20,7 +20,7 @@ from cogs.questions import (
     member_has_role,
     parse_duration,
 )
-from utils.style import VIP_CROWN_GIF, VIP_GEM_GIF, VIP_GOLD
+from utils.style import VIP_CROWN_GIF, VIP_GEM_GIF
 
 
 def _mock_role(role_id: int = 100, name: str = "VIP Staff", members=None):

@@ -7,7 +7,6 @@ This test verifies that:
 """
 import unittest
 from unittest.mock import Mock
-import discord
 from discord.ext import commands
 from cogs import tracker
 

@@ -1,0 +1,235 @@
+{# ==========================================================================
+   start.html — how to add it, and how to get in afterwards.
+
+   The FAQ moved here from the front door, and that is a decision about what
+   each page is for: the questions are about *using* the thing, so they belong
+   on the page about using the thing. They are authored in
+   `keep_alive.LANDING_QUESTIONS` rather than here because several of them are
+   claims about *the deployment* — the retention window, whether Discord
+   sign-in is on — and a template that hard-coded those would keep saying them
+   after the deployment changed.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+
+{% block title %}Add it in three steps — {{ bot_name }}{% endblock %}
+
+{% block page %}
+{# ------------------------------------------------------------------ #}
+{# Three steps                                                         #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band site-band--flush">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">Get started</p>
+      <h2>Add it in three steps</h2>
+      <p class="site-head__lede">
+        There is no account to create, no card and no configuration file. Two of
+        the three steps are pressing a button.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-steps">
+      <div class="site-step" data-reveal>
+        <h3>Invite it to your server</h3>
+        <p>
+          A server owner or an Administrator presses the button. The invite asks
+          for Administrator — one bit, and the reason no feature ever answers
+          “Missing Permissions”.
+        </p>
+        <div class="row">
+          {% if invite_url %}
+          <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+          {% endif %}
+          {% if invite_limited_url %}
+          <a class="btn" href="{{ invite_limited_url }}">With fewer permissions</a>
+          {% endif %}
+        </div>
+        <p class="site-step__note">
+          The smaller grant is there if you would rather hand over less — every
+          system that needs more will say which permission it is missing rather
+          than failing silently.
+        </p>
+      </div>
+
+      <div class="site-step" data-reveal>
+        <h3>Nothing to configure</h3>
+        <p>
+          It answers the moment it joins. The systems a server has never touched
+          arrive with sensible defaults{% if ships_off %}, and
+          <b>{{ ships_off | join(", ") }}</b> arrive switched off until somebody
+          asks for {% if ships_off | length == 1 %}it{% else %}them{% endif %}{% endif %}.
+        </p>
+        <p class="site-step__note">
+          Every switch is per server and reversible: turning a system off takes
+          its commands out of this server's picker, and turning it back on puts
+          them back.
+        </p>
+      </div>
+
+      <div class="site-step" data-reveal>
+        <h3>Open the dashboard</h3>
+        <p>
+          In Discord, run <code>/help</code> and press <b>⚡ Open Dashboard</b> for
+          a one-time link scoped to that server{% if oauth_enabled %}, or sign in
+          with Discord from the {% if invite_url %}front page{% else %}sign-in
+          page{% endif %} to see every server you administer{% endif %}.
+        </p>
+        <p class="site-step__note">
+          A sign-in reaches only the servers you already run, and it is re-checked
+          on every request — so losing the permission loses the access.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# The two invites, side by side                                       #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">Permissions</p>
+      <h2>Two invites, and what each one gives away</h2>
+      <p class="site-head__lede">
+        This is the part every bot page skips, so here it is in full. Both links
+        add the same bot; they differ in one bit.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards">
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">⚙</span>
+        <span class="site-card__title">Administrator</span>
+        <p class="site-card__desc">
+          The normal invite. One permission bit that includes every permission
+          Discord has, which is why no feature ever fails with “Missing
+          Permissions” and why a system added next month works without a second
+          invite.
+        </p>
+        <span class="site-card__foot">
+          <span>The button you will have pressed</span>
+          {% if invite_url %}<a class="arrow-link" href="{{ invite_url }}">Add</a>{% endif %}
+        </span>
+      </div>
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">⚖</span>
+        <span class="site-card__title">The smaller grant</span>
+        <p class="site-card__desc">
+          Every permission the systems use — moderation, messages, level roles,
+          voice — and nothing else. The cost is real and worth saying: a system
+          that later needs a permission this grant does not carry will ask you
+          for it by name.
+        </p>
+        <span class="site-card__foot">
+          <span>For careful owners</span>
+          {% if invite_limited_url %}<a class="arrow-link" href="{{ invite_limited_url }}">Add</a>{% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Ways in                                                             #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">Sign-in</p>
+      <h2>The dashboard, and who it lets in</h2>
+      <p class="site-head__lede">
+        One dashboard serves every server that has the bot. What a sign-in sees
+        is decided per request, from Discord's own answer.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards">
+      {% if oauth_enabled %}
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">◎</span>
+        <span class="site-card__title">Sign in with Discord</span>
+        <p class="site-card__desc">
+          Asks for your name and your server list, and keeps only the servers
+          where you are the owner or an Administrator and the bot is present.
+        </p>
+        <span class="site-card__foot">
+          <span>For everyday use</span>
+          <a class="arrow-link" href="{{ enter_url }}">{{ enter_label }}</a>
+        </span>
+      </div>
+      {% endif %}
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">✉</span>
+        <span class="site-card__title">A one-time link</span>
+        <p class="site-card__desc">
+          Run <code>/help</code> in the server you want and press
+          <b>⚡ Open Dashboard</b>. The link works once, expires quickly, and is
+          scoped to that one server — which is exactly what you want on a
+          borrowed machine.
+        </p>
+        <span class="site-card__foot"><span>For one server, once</span></span>
+      </div>
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">◐</span>
+        <span class="site-card__title">No account exists</span>
+        <p class="site-card__desc">
+          This site stores no passwords: there is nothing to register and
+          nothing to reset. A sign-in is Discord's answer, re-read on every
+          request.
+        </p>
+        <span class="site-card__foot"><span>Nothing to remember</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# Questions                                                           #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band" id="questions">
+  <div class="wrap wrap--narrow">
+    <div class="site-head">
+      <p class="micro">Questions</p>
+      <h2>What people ask before adding it</h2>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="stack">
+      {% for item in questions %}
+      <details class="site-details" data-reveal>
+        <summary>{{ item.question }}</summary>
+        <div class="site-details__body">
+          <p>{{ item.answer }}</p>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# The way in                                                          #}
+{# ------------------------------------------------------------------ #}
+<section class="site-cta">
+  <div class="wrap">
+    <h2>That is the whole setup</h2>
+    <p>
+      Invite, wait for it to answer, sign in. Everything after that is switches
+      you can flip back.
+    </p>
+    <div class="site-cta__row">
+      {% if invite_url %}
+      <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+      {% endif %}
+      <a class="btn" href="/systems">See every system first</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

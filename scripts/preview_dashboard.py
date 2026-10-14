@@ -27,7 +27,6 @@ import html
 import os
 import re
 import shutil
-import asyncio
 import sys
 import tempfile
 import threading

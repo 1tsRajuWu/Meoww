@@ -205,6 +205,12 @@ class TheAuditFixesAreInTheShippedPages(unittest.TestCase):
         write text *and* not write markup, and a guard that only checked the
         second would pass on a page that had stopped rendering prices at all.
         """
+        if not (ROOT / "templates" / "market.html").is_file():
+            self.skipTest(
+                "the market page is retired with the maintenance screen — its "
+                "template comes back with it, and this law comes back with the "
+                "template"
+            )
         html = _read("templates/market.html")
         self.assertIn('role="status"', html)
         self.assertIn('aria-live="polite"', html)
@@ -278,16 +284,20 @@ class ThePagesStayReadable(unittest.TestCase):
     #: gone on passing while checking almost nothing.
     PAGES = (
         "templates/dashboard.html",
-        "templates/market.html",
         "templates/login.html",
         "static/meow.css",
         # The frame the rebuilt pages are drawn in, and the sheet that now holds
         # most of the site's colour — the front door, `/systems`, `/start`, the
-        # radio page and the policies hold no palette of their own at all, so a
-        # guard that read only their templates would go on passing while
+        # policies and the sign-in doors hold no palette of their own at all, so
+        # a guard that read only their templates would go on passing while
         # checking almost nothing. This is `static/dashboard.css`'s slot, one
         # rebuild later.
         "static/meoww.css",
+        # The marketing layer, where the rebuilt pages' own colour lives: a
+        # literal put in `site.css` beside the shared tokens is the second
+        # palette this class exists to catch, and it is the sheet the new pages
+        # actually paint with.
+        "static/site.css",
         # The interiors' rules moved out of the dashboard's template into this
         # sheet, which is the second half of the same pair: `meoww.css` for the
         # frame, `pages.css` for what sits inside it.

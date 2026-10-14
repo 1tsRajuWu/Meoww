@@ -24,7 +24,6 @@ Three things are checked here and they are deliberately different kinds of claim
   old dashboard tests learned when a hard-coded "2 / 3" outlived its registry.
 """
 
-import asyncio
 import hashlib
 import io
 import json

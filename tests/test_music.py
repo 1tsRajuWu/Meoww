@@ -8,7 +8,6 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-import discord
 from discord import app_commands
 
 from cogs import music as music_module

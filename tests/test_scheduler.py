@@ -14,12 +14,6 @@ The gateway stand-ins come from ``tests.test_composer``; this module drives the
 same Flask app with a throwaway database behind it.
 """
 import asyncio
-import json
-import os
-import re
-import shutil
-import subprocess
-import tempfile
 import time
 import unittest
 from unittest import mock
@@ -29,7 +23,6 @@ from types import SimpleNamespace
 from tests.support import TempDatabaseMixin
 from tests.test_composer import (
     CHANNEL_ID,
-    CSRF,
     GUILD_ID,
     MEMBER_ID,
     OTHER_CHANNEL_ID,
@@ -40,7 +33,6 @@ from tests.test_composer import (
     _Guild,
     _Member,
     _VoiceChannel,
-    render_dashboard,
 )
 from utils import db, digest, scheduled
 

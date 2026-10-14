@@ -27,7 +27,6 @@ import os
 import subprocess
 import sys
 import unittest
-import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:

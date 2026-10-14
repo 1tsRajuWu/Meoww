@@ -328,7 +328,7 @@ def avatar_url(user: dict, size: int = 64) -> str:
     """A person's picture, or empty when they have none."""
     user = user or {}
     avatar = user.get("avatar") or ""
-    uid, discriminator = user.get("id"), user.get("discriminator")
+    uid = user.get("id")
     if not avatar:
         return ""
     if avatar.startswith("a_"):

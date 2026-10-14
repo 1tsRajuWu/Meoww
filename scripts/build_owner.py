@@ -235,14 +235,23 @@ STATIC_ASSETS = [
     # 404 on this host is not, which is what the rest of this list is about.
     "spine.js",
     "pages.css",
-    "landing.css",
-    "landing.js",
+    # The marketing frame the console's two sign-in pages and the clickwrap
+    # wear — `templates/site_base.html` extends onto `/agree`, `/owner/login`
+    # and `/owner`, all of which *this* host serves, and `/static/` is the one
+    # path the worker answers from the CDN. The pair is here for the same
+    # reason every other name in this list is: a page that links a stylesheet
+    # this build does not copy renders unstyled on one host, and only on that
+    # host.
+    "site.css",
+    "site.js",
+    # The old front door's two files are gone with the front door itself
+    # (`landing.css`, `landing.js`) — this list named them while nothing on any
+    # host this build serves could ask for them.
     "anim.js",
     "market.css",
     "market.js",
     "theme.js",
     "motion.js",
-    "premium.js",
     # One family, one author. `utils/brand.py` names every drawing the site and
     # the two static hosts ship, so a mark added to the brand cannot be forgotten
     # here — which is how the console once asked for five logos nobody had drawn.

@@ -33,7 +33,6 @@ from unittest import mock
 import discord
 from discord.ext import commands
 
-import cogs.meetings as meetings_cog
 from utils import db, features, meetings, permissions, style
 
 # A guild id used nowhere else, so these rows cannot be mistaken for another

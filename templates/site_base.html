@@ -1,0 +1,206 @@
+{# ==========================================================================
+   site_base.html — the frame every public page of this site is drawn inside.
+
+   Its own document, its own chrome, its own two sheets. A page fills
+   `{% block page %}` and may add to `{% block head %}`, `{% block page_css %}`
+   and `{% block page_js %}`; nothing else about the frame is a page's business,
+   because the alternative is eight pages that each remember to link the
+   stylesheet — which is how a page goes a whole round wearing a class its sheet
+   does not define.
+
+   The order in the head is load-bearing and each line is a decision:
+
+     * `theme.js` is **not** deferred. It applies the stored palette before the
+       first paint; deferred, a visitor who chose light would watch the dark one
+       arrive and then be replaced.
+     * `meow.css` first, because it owns the tokens and the shared vocabulary
+       (`.wrap`, `.btn`, `.card`, `.prose`, …) that both this site's sheets and
+       `pages.css` — which the sign-in, server and error pages bring with them —
+       read their variables from.
+     * `site.css` second: the marketing layer, so it can restyle shared pieces
+       rather than fight them.
+     * `site.js` is deferred and last. Everything is readable without it: the
+       sheets state the resting values, the hero animates from parse time, and
+       the drawers are native `<details>` elements.
+
+   The chrome is the three laws it has to keep:
+
+     * **Three destinations at most, and the call to action last.** Everything
+       the cap pushes out lives in the footer's conventional groups, so nothing
+       became unreachable — the only version of a nav cap that is not a page
+       quietly deleting itself.
+     * **The theme control and the action are top right**, where a visitor looks
+       for both.
+     * **The narrow screen gets the same action in the thumb zone.** The
+       destination list is a panel below the header under 900px, opened by the
+       one control in the corner, and the call to action travels with it.
+
+   The frame also carries the two things every page's footer owes a visitor:
+   the anti-crawler decoys (`_trap.html`, linked from nowhere a person can see)
+   and the retention line, read from the module that enforces it.
+   ========================================================================== #}
+{% from "_theme.html" import theme_button, theme_menu %}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ bot_name }}{% endblock %}</title>
+{% if meta_description %}<meta name="description" content="{{ meta_description }}">{% endif %}
+<meta name="theme-color" content="{{ brand.BG_HEX }}">
+<meta name="color-scheme" content="dark light">
+{# The AI-crawler directive, in the convention crawlers look for. #}
+<meta name="robots" content="noai, noimageai">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/theme.js?v={{ asset_version('theme.js') }}"></script>
+<link rel="stylesheet" href="/static/meow.css?v={{ asset_version('meow.css') }}">
+<link rel="stylesheet" href="/static/site.css?v={{ asset_version('site.css') }}">
+{% block page_css %}{% endblock %}
+{% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="skip-link" href="#main">Skip to content</a>
+
+{# The room the page stands in. Three inert layers: a drifting mesh, a grid
+   that fades with distance, and the pointer's own faint glow. #}
+<div class="site-bg" aria-hidden="true">
+  <span class="site-bg__mesh"></span>
+  <span class="site-bg__grid"></span>
+  <span class="site-bg__glow"></span>
+</div>
+
+<div class="site-shell">
+  {# The reading-progress bar is fixed, so where it sits in the document is
+     nobody's business — inside the shell, on purpose, so the shell is the first
+     element after the background layer. The law that reads this frame
+     (`test_design_laws.TheBackgroundIsBelowThePage`) takes the first element
+     after the layer for the wrapper that must be lifted above it, and a
+     decoration in between would be answered for instead of the wrapper. #}
+  <div class="site-progress" aria-hidden="true"></div>
+
+  <header class="site-top" data-site-top>
+    <div class="wrap site-top__inner">
+      <a class="site-brand" href="/">
+        <span class="site-brand__mark" aria-hidden="true">{{ bot_initial }}</span>
+        <span class="site-brand__name">{{ bot_name }}<span class="site-brand__dot">.</span></span>
+      </a>
+
+      <button class="site-menu" type="button" data-menu-toggle aria-expanded="false" aria-controls="site-nav">
+        <span class="site-menu__bars" aria-hidden="true"></span>
+        <span class="visually-hidden">Menu</span>
+      </button>
+
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        {# The public site's own list, in a block so the two pages that are *not*
+           the public site can say so. `owner.html`, `owner_login.html` and the
+           clickwrap replace it with the console's own navigation: those pages
+           are served on the console's host, and a console wearing this site's
+           marketing nav (Home, Systems, "Add to Discord") reads as the same
+           address. Everything else in the frame stays. #}
+        {% block nav %}
+        {# The member dashboard's own address merges the app's two destinations
+           in (`_frame_nav`); the keys are the same shape either way, so one
+           `current` marks the same word in both lists or in neither. #}
+        {% set destinations = nav_items if nav_items is defined else [
+          ('home', 'Home', '/'),
+          ('systems', 'Systems', '/systems'),
+          ('start', 'Get started', '/start'),
+        ] + ([('pricing', 'Pricing', '/pricing')] if selling else []) %}
+        {% for item in destinations %}
+        <a class="site-nav__link" href="{{ item[2] }}"{% if current == item[0] %} aria-current="page"{% endif %}>{{ item[1] }}</a>
+        {% endfor %}
+
+        <div class="site-top__actions">
+          {{ theme_button() }}
+          {% if invite_url %}
+          <a class="btn btn--primary" href="{{ invite_url }}">Add to Discord</a>
+          {% else %}
+          <a class="btn btn--primary" href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+          {% endif %}
+        </div>
+        {% endblock %}
+      </nav>
+    </div>
+
+    {# The theme menu sits outside the flex row on purpose: a panel that is a
+       flex item is a panel that reserves its width while it is closed. #}
+    {{ theme_menu() }}
+  </header>
+
+  {# The one request a *published* copy makes. It is a file with no process
+     behind it, so a page that counts something the bot knows — the servers it
+     is in, the people it reaches — has nothing to draw and would ship an em
+     dash nobody could resolve. The page says where to ask (`figures_url`) and
+     which cells are waiting (`data-figure`); the host that already has the
+     answer passes no URL at all, because re-asking a question you answered
+     server-side is a request per reader for numbers that are on the page. #}
+  <main id="main" class="site-main"{% if figures_url %} data-figures-url="{{ figures_url }}"{% endif %}>
+    {% block page %}{% endblock %}
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="site-foot__grid">
+        <div>
+          <div class="site-foot__title">{{ bot_name }}</div>
+          <p class="small">
+            {% if system_count %}
+            {{ system_count }} systems and {{ entry_count }} commands, each one
+            switched per server from one dashboard.
+            {% else %}
+            A Discord bot with a dashboard for every server that has it.
+            {% endif %}
+          </p>
+        </div>
+        <div>
+          <div class="site-foot__title">The product</div>
+          <div class="site-foot__list">
+            <a href="/systems">Every system</a>
+            <a href="/start">Getting started</a>
+            <a href="/premium">Premium</a>
+            {% if selling %}<a href="/pricing">Pricing</a>{% endif %}
+          </div>
+        </div>
+        <div>
+          <div class="site-foot__title">Reading</div>
+          <div class="site-foot__list">
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="/ai">AI &amp; crawling</a>
+          </div>
+        </div>
+        <div>
+          <div class="site-foot__title">Elsewhere</div>
+          <div class="site-foot__list">
+            {% if invite_url %}<a href="{{ invite_url }}">Add to a server</a>{% endif %}
+            <a href="{{ enter_url | default('/login') }}">{{ enter_label | default('Sign in') }}</a>
+            {% if kofi_url %}<a href="{{ kofi_url }}" rel="noopener">Support the bot</a>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="site-foot__base">
+        <span>
+          {% if source_repository %}
+          <a href="{{ source_repository }}" rel="noopener">Source code</a> ·
+          {% else %}
+          The source is not published ·
+          {% endif %}
+          {% if retention_days %}Messages are kept {{ retention_days }} days{% else %}Nothing is kept longer than it is needed{% endif %}
+        </span>
+        <span>Not affiliated with Discord Inc.</span>
+        {# The holder and the year come from `utils/brand`, which names the same
+           holder as the licence at the root of the tree — so a footer on any of
+           the builds cannot disagree with the file they all ship under. #}
+        <span>© {{ copyright_year }} {{ copyright_holder }}</span>
+      </div>
+
+      {% include "_trap.html" %}
+    </div>
+  </footer>
+</div>
+
+<script src="/static/site.js?v={{ asset_version('site.js') }}" defer></script>
+{% block page_js %}{% endblock %}
+</body>
+</html>

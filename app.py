@@ -126,7 +126,7 @@ there is one, and it answers. Nothing else on this page needs a GPU.
         btn = gr.Button(f"Ask the {brand.NAME} gateway", variant="primary", scale=1)
     out = gr.Textbox(label="Answer", interactive=False)
     btn.click(fn=_zero_gpu_worker, inputs=inp, outputs=out)
-    gr.Markdown(f"`/health` and `/api/status` are answered by this process too.")
+    gr.Markdown("`/health` and `/api/status` are answered by this process too.")
 
 # 3. Mount Flask app to handle all API & Dashboard routes
 import keep_alive

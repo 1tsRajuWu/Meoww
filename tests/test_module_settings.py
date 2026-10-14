@@ -25,7 +25,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import keep_alive
-from tests.support import TempDatabaseMixin
 from tests.test_composer import CHANNEL_ID, GUILD_ID, MEMBER_ID, ROLE_ID
 from tests.test_dashboard import _DashboardFixture
 from utils import db, features, modules

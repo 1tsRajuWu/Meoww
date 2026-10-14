@@ -130,7 +130,7 @@ class TheAccentFillCarriesInkYouCanRead(unittest.TestCase):
             self.palettes[name] = _values(block)
 
     def test_every_palette_paints_readable_ink_on_its_accent(self):
-        self.assertIn(f"--text-invert", self.palettes[DEFAULT], "the default palette is unreadable")
+        self.assertIn("--text-invert", self.palettes[DEFAULT], "the default palette is unreadable")
         for name, values in self.palettes.items():
             with self.subTest(palette=name):
                 self.assertIn("--accent", values, f"{name} declares no accent")
@@ -333,11 +333,12 @@ class TheScriptIsSafe(unittest.TestCase):
         self.assertNotIn('setAttribute("content"', body)
         # The frame states its own, from the one author of the palette, and the
         # market page states a literal of its own — so the two disagree on
-        # purpose and the script has no business reconciling them.
+        # purpose and the script has no business reconciling them. The market's
+        # half is not asserted: its template is retired with the maintenance
+        # screen, and a law cannot read a page that is not there. It comes back
+        # with the page.
         base = BASE.read_text(encoding="utf-8")
         self.assertIn('name="theme-color" content="{{ brand.BG_HEX }}"', base)
-        market = (ROOT / "templates" / "market.html").read_text(encoding="utf-8")
-        self.assertRegex(market, r'name="theme-color" content="#[0-9a-f]{6}"')
 
     def test_a_refused_storage_does_not_throw(self):
         """Private mode, blocked cookies and a `file://` open all throw here."""

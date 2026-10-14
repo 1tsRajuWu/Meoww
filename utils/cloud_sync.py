@@ -1053,20 +1053,29 @@ def _service_of(instance: str) -> str | None:
     the service id, the service's own name, the deployment hash, then the pod. Two
     containers of one deployment share the ``srv-<id>`` head and differ after it.
 
-    Hugging Face names a container after its Space as well —
-    ``r-1tsrajowo-meow-zxho7yru-d2319-tph82`` is the ``r-`` prefix, then the owner
-    and the space, then a build hash, a replica hash and the pod — and it
-    deliberately gets **no rule here**: there is nothing between the owner and
-    the space name, and nothing in the name says where the space name ends, so
-    ``meow`` and ``meow-dev`` are two Spaces whose containers read as one
-    deployment. Suppressing the warning for the second of those is suppressing it
-    in the case it exists for — one token answering from two places — so a Space's
-    own rebuilds are answered by :func:`other_copy_verdict` instead, which asks
-    whether the claim is still *moving* rather than what it is called.
+    Hugging Face names a container ``r-1tsrajowo-meow-ajdohjy2-b570d-jv86t``: the
+    ``r-`` prefix, then the owner and the space name, then a build hash, a
+    replica hash and the pod. The space slug is everything between the owner
+    and those last three segments — verified against live containers on
+    2026-10-14, where the duplicate card named exactly such a name. Two
+    containers of one Space share that slug and differ after it, so a push that
+    replaces the Space reads as the previous container rather than a second
+    copy, the same way a Render rolling deploy does.
+
+    The comparison is on the *whole* derived slug, which is what keeps nearby
+    names apart: ``1tsrajowo-meow`` and ``1tsrajowo-meow-premium`` (and a
+    hypothetical ``1tsrajowo-meow-dev``) are three different answers, so the
+    main bot never mistakes the premium Space for its own previous container —
+    and a premium Space misconfigured with the main token still alerts, which
+    is the case this warning exists for.
     """
     parts = (instance or "").split("-")
     if len(parts) >= 3 and parts[0] == "srv":
         return "-".join(parts[:2])
+    if len(parts) >= 5 and parts[0] == "r":
+        slug = "-".join(parts[1:-3])
+        if slug:
+            return "hf:" + slug
     return None
 
 

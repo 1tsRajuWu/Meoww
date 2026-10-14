@@ -1,0 +1,43 @@
+{# ==========================================================================
+   legal.html — one policy document, and only the document.
+
+   The body is not written here: `cogs.legal` reads the same file the Discord
+   command reads, `utils.webdocs` renders it once, and the page prints what it
+   is handed. That is the whole rule for a policy page — the version somebody
+   reads in a browser and the version they accept in Discord must be one file,
+   because the day they disagree is the day neither can be quoted.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+
+{% block title %}{{ title }} — {{ bot_name }}{% endblock %}
+
+{% block page %}
+<section class="site-legal">
+  <div class="wrap wrap--narrow">
+    <p class="micro">{{ eyebrow }}</p>
+    <h1>{{ title }}</h1>
+
+    <div class="site-legal__meta">
+      <span>Effective <span class="mono">{{ effective }}</span></span>
+      <span>
+        In Discord, <span class="mono">{{ command }}</span> reads this same
+        document.
+      </span>
+      <span>Readable on every host this bot publishes.</span>
+    </div>
+
+    <article class="prose">
+      {{ body | safe }}
+    </article>
+
+    <div class="site-note site-more">
+      The other two documents, on the same terms:
+      {% if current != 'privacy' %}<a href="/privacy">Privacy</a>{% endif %}
+      {% if current != 'terms' %}<a href="/terms">Terms</a>{% endif %}
+      {% if current != 'ai' %}<a href="/ai">AI &amp; crawling</a>{% endif %}
+      — and every one of them is readable inside Discord too, where the same
+      file answers a command.
+    </div>
+  </div>
+</section>
+{% endblock %}

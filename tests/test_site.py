@@ -19,6 +19,24 @@ import keep_alive
 from tests.test_dashboard import _DashboardFixture, make_bot
 from utils import brand, figures, webdocs
 
+
+def _step_around_maintenance(test):
+    """Let this test's requests reach the pages under the maintenance screen.
+
+    The "Be Right Back" hook is a property of a *deployment*: in a process that
+    is not a test it answers the marketing routes with the BRB page, which is
+    the behaviour its own suite pins (`test_dacat_under_construction_e2e`). The
+    tests here are about the pages *underneath* it, so the hook is stepped
+    around with `MEOW_SITE_PREVIEW` — the same flag `scripts/preview_site.py`
+    sets for a laptop — scoped to the test rather than left in the environment,
+    because the BRB suite removes `pytest` from `sys.modules` and then expects
+    the hook to answer.
+    """
+    preview = mock.patch.dict(os.environ, {"MEOW_SITE_PREVIEW": "1"})
+    preview.start()
+    test.addCleanup(preview.stop)
+
+
 ROOT = Path(__file__).resolve().parent.parent
 PAGES = ("home.html", "systems.html", "start.html", "legal.html", "login.html", "servers.html", "dashboard.html", "market.html", "pricing.html")
 
@@ -108,6 +126,7 @@ class TheLandingPage(unittest.TestCase):
     """/ answers a monitor with one line and a person with a page."""
 
     def setUp(self):
+        _step_around_maintenance(self)
         self.bot, _guild, _other = make_bot()
         self._patched = mock.patch.object(keep_alive, "BOT_INSTANCE", self.bot)
         self._patched.start()
@@ -138,8 +157,9 @@ class TheLandingPage(unittest.TestCase):
             "systems",                  # how many there are
             'href="/login"',            # a way in
             "/privacy", "/terms",       # the policies
-            'class="mw-page-home"',      # which surface this page is
-            "/static/meoww.css",        # the shared design system
+            'class="site-hero"',        # which surface this page is
+            "/static/meow.css",         # the shared design system
+            "/static/site.css",         # the marketing layer on top of it
         ):
             self.assertIn(fragment, body, fragment)
 
@@ -189,27 +209,38 @@ class TheLandingPage(unittest.TestCase):
         from utils import features
 
         body = self.client.get("/systems").get_data(as_text=True)
-        self.assertIn('id="all"', body, "the band that lists the systems went")
+        self.assertIn('id="systems-list"', body, "the band that lists the systems went")
         self.assertNotIn(
             'id="commands"',
             body,
             "/systems grew a second band listing the same systems again",
         )
-        # One disclosure per system, in the registry's own order, so a lost row
-        # and an extra row are different failures and both are caught. The old
-        # page spelled this row `cmdx__group` and drove it with a script; it is
-        # the same one-row-per-system list in the rebuild, spelled in the frame's
-        # own vocabulary and opened by the browser rather than by `motion.js`.
-        groups = re.split(r'<details class="mw-faq"', body)[1:]
+        # One card per system, so a lost row and an extra row are different
+        # failures and both are caught. Each card is anchored by the registry's
+        # id (`system-<id>`, which is also what the front door's four cards link
+        # to) and opens one native disclosure with that system's commands — the
+        # same one-row-per-system list, drawn from the registry rather than
+        # typed. Read as a map rather than zipped in document order: the page
+        # groups its cards by category, which sorts, and a law that assumed
+        # registry order would be pinning a layout accident.
+        cards = re.split(r'<article class="site-system"', body)[1:]
         self.assertEqual(
-            len(groups),
+            len(cards),
             len(features.FEATURES),
             "the page lists a different number of systems than the registry declares",
         )
-        for module, group in zip(features.FEATURES, groups):
-            self.assertIn(f'id="cmd-{module.id}"', group, module.id)
-            # Rendered, so "&" arrives as the entity.
-            self.assertIn(module.name.replace("&", "&amp;"), group, module.id)
+        by_id = {}
+        for card in cards:
+            anchor = re.search(r'id="system-([\w-]+)"', card)
+            self.assertIsNotNone(anchor, "a card carries no registry anchor")
+            by_id[anchor.group(1)] = card
+        for module in features.FEATURES:
+            with self.subTest(module=module.id):
+                card = by_id.get(module.id)
+                self.assertIsNotNone(card, f"{module.id} is missing from the page")
+                # Rendered, so "&" arrives as the entity.
+                self.assertIn(module.name.replace("&", "&amp;"), card, module.id)
+                self.assertIn('<details class="site-details">', card, module.id)
 
     def test_the_front_door_carries_no_list_it_would_have_to_keep_in_step(self):
         """What left the page, asserted as *absence* rather than by length.
@@ -271,11 +302,11 @@ class TheLandingPage(unittest.TestCase):
         import re
 
         self.assertIn("Starting up", front)
-        for label in ("servers", "members reached"):
+        for key, label in (("servers", "servers"), ("members", "members reached")):
             with self.subTest(label=label):
                 tile = re.search(
-                    rf'<span class="mw-stat__value"[^>]*>([^<]*)</span>\s*'
-                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
+                    rf'<b data-figure="{key}"[^>]*>([^<]*)</b>\s*'
+                    rf'<span>{re.escape(label)}</span>',
                     body,
                 )
                 self.assertIsNotNone(tile, f"the {label} tile left the page")
@@ -293,29 +324,29 @@ class TheLandingPage(unittest.TestCase):
         # `/systems` opens with, from the same reader, which is a stronger claim
         # to hold: the two live ones are **present and dashed**, which is what a
         # visitor of a sleeping host reads, and it would catch a zero here where
-        # the old wording could not.
-        # The rebuilt front door states these two as plain text rather than
-        # counting them up: the count-up was a second entrance on a page allowed
-        # exactly one, and a number that is already true does not need to arrive.
-        for label in ("systems", "commands"):
+        # the old wording could not. The cells carry their key (`data-figure`,
+        # which `/api/figures` answers for a built copy) and the value the server
+        # drew; a cell with no reading carries no `data-count`, so the page's own
+        # counter can never animate an em dash into a number.
+        for key, label in (("systems", "systems"), ("commands", "commands")):
             with self.subTest(label=label):
                 self.assertRegex(
                     front,
-                    rf'<span class="mw-stat__value">\d+</span>\s*'
-                    rf'<span class="mw-stat__label">{label}</span>',
+                    rf'<b data-figure="{key}"[^>]*>\d+</b>\s*'
+                    rf'<span>{label}</span>',
                 )
-        for label in ("servers", "members reached"):
+        for key, label in (("servers", "servers"), ("members", "members reached")):
             with self.subTest(label=label):
                 self.assertRegex(
                     front,
-                    rf'<span class="mw-stat__value"[^>]*>—</span>\s*'
-                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
+                    rf'<b data-figure="{key}"[^>]*>—</b>\s*'
+                    rf'<span>{re.escape(label)}</span>',
                     f"the front door did not say it had no reading for {label}",
                 )
         self.assertRegex(
             body,
-            r'<span class="mw-stat__value"[^>]*>\d+</span>\s*'
-            r'<span class="mw-stat__label">commands</span>',
+            r'<b data-figure="commands"[^>]*>\d+</b>\s*'
+            r'<span>commands</span>',
         )
 
     def test_the_panels_four_cards_state_their_phone_shape(self):
@@ -326,13 +357,15 @@ class TheLandingPage(unittest.TestCase):
         a line of its own and `1,284` overflowed its cell by 7px — which took
         the page's own `.wrap` over the viewport with it. The row is *stated* at
         both sizes now: four cards on a desktop, two on a phone, and a value
-        that may shrink for the widest figure the card can hold.
+        that may shrink for the widest figure the card can hold. The law moved
+        with the live figures into the marketing layer (`site.css`), which is
+        the sheet that draws them now.
         """
-        sheet = (ROOT / "static" / "landing.css").read_text(encoding="utf-8")
+        sheet = (ROOT / "static" / "site.css").read_text(encoding="utf-8")
         self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr))", sheet)
         phone = sheet.split("@media (max-width: 560px)")[1]
-        self.assertIn(".figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }", phone)
-        self.assertIn("font-size: clamp(1.25rem, 5vw, 1.5rem)", sheet)
+        self.assertIn(".site-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }", phone)
+        self.assertIn("font-size: clamp(1.15rem, 1vw + 1rem, 1.5rem)", sheet)
 
     def test_the_front_door_asks_for_one_permission_and_says_so_twice(self):
         """The step and the first question disagreed about the same button.
@@ -377,6 +410,7 @@ class TheLandingPage(unittest.TestCase):
 
 class ThePolicyPages(unittest.TestCase):
     def setUp(self):
+        _step_around_maintenance(self)
         self.client = keep_alive.app.test_client()
 
     def test_both_documents_are_served_in_full(self):
@@ -427,25 +461,28 @@ class ThePolicyPages(unittest.TestCase):
 
 class ThePricingPage(unittest.TestCase):
     def setUp(self):
+        _step_around_maintenance(self)
         self.client = keep_alive.app.test_client()
 
     def test_pricing_page_renders_the_product_that_exists(self):
-        """One plan, every system, and the stylesheet.
+        """One plan, every system, and the stylesheets.
 
         This asserted the three tier names while the page was listing Pro and
         Enterprise at prices nobody could pay — a test that passes on a page
         advertising a shop that is not open. What the route owes a visitor with
-        nothing on sale is the product: the free plan, the systems it includes,
-        and a stylesheet to read it with.
+        nothing on sale is the product: the free answer, the systems it
+        includes — by the registry's own names — and the sheets to read it with.
         """
         response = self.client.get("/pricing")
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Free", body)
         self.assertIn("There is no paid tier", body)
-        self.assertIn("the whole bot is in it", body)
+        self.assertIn("Every system", body)
         self.assertIn("Support Tickets", body)
-        self.assertIn("/static/meoww.css", body)
+        self.assertIn("Activity Tracker", body)
+        self.assertIn("/static/meow.css", body)
+        self.assertIn("/static/site.css", body)
 
     def test_the_tiers_come_back_only_when_the_store_is_really_open(self):
         """The switch, through the live route rather than the template.
@@ -634,6 +671,7 @@ class EveryPublicPageSharesOneFrame(unittest.TestCase):
     def setUp(self):
         import re  # noqa: PLC0415 — this file imports it where it is used
 
+        _step_around_maintenance(self)
         self.re = re
         self.client = keep_alive.app.test_client()
 

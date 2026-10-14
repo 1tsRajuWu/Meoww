@@ -130,10 +130,6 @@ class TestCloudSyncStatus(unittest.TestCase):
             SUPABASE_URL,
             SUPABASE_KEY,
             BUCKET,
-            _last_sync_hash,
-            _restore_blocked_reason,
-            _remote_checked,
-            _storage_list,
         )
         # These should be importable without error
         self.assertIsInstance(SUPABASE_URL, str)

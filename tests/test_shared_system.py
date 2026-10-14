@@ -30,6 +30,13 @@ SHARED = {
     "radius-md", "radius-sm", "font-sans", "font-mono", "ease",
 }
 
+#: Templates that deliberately carry a palette of their own instead of reading
+#: the shared one. The two BRB screens are self-contained by design — they are
+#: the pages served *over* the site, their own headers say they load no shared
+#: sheet, and a maintenance screen that needs the marketing stylesheet to look
+#: right is a screen that fails along with the thing it is covering.
+STANDALONE = {"brb_main.html", "brb_market.html"}
+
 
 class OnePalette(unittest.TestCase):
     def setUp(self):
@@ -47,6 +54,8 @@ class OnePalette(unittest.TestCase):
 
     def test_no_page_gives_a_shared_token_its_own_value(self):
         for page in TEMPLATES:
+            if page.name in STANDALONE:
+                continue  # the BRB screens are self-contained on purpose
             text = page.read_text(encoding="utf-8")
             for token in sorted(SHARED):
                 for match in re.finditer(
@@ -163,13 +172,22 @@ class AssetsAreVersionedByTheirOwnContents(unittest.TestCase):
                 )
 
     def test_every_versioned_asset_asks_for_a_token(self):
+        """Both frames, one walk: the marketing site's and the dashboard's.
+
+        The walk used to look only at the top level, which was the whole
+        answer while one frame lived there — and became a passing law that
+        checked nothing when the dashboard's frame moved into
+        `templates/meoww/` and its two scripts went with it. `rglob` is the
+        fix rather than a longer list: a frame added in a subdirectory is
+        covered by the law the day it exists.
+        """
         seen = set()
-        for page in TEMPLATES:
+        for page in sorted((ROOT / "templates").rglob("*.html")):
             text = page.read_text(encoding="utf-8")
             for match in re.finditer(r"asset_version\('([^']+)'\)", text):
                 seen.add(match.group(1))
-        self.assertIn("meow.css", seen)
-        self.assertIn("motion.js", seen)
+        for name in ("meow.css", "site.css", "site.js", "motion.js", "theme.js"):
+            self.assertIn(name, seen, f"no template versions {name}")
 
     def test_the_named_assets_really_exist(self):
         """A token for a file that is not there is a 404 with a cache-buster."""

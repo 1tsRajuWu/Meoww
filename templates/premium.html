@@ -1,0 +1,147 @@
+{# ==========================================================================
+   premium.html — the VIP edition, described from the same list Discord shows.
+
+   The three perks are not written here: they are `cogs.premium.PREMIUM_PERKS`,
+   the identical tuples `/premium perks` renders as a card — so this page and
+   the command cannot describe different products. The page also says what the
+   code says and not more: the VIP bot is a *second application* running the
+   same tree with its own picker (the commands that only exist there are
+   reserved in `utils.permissions.VIP_ONLY_COMMANDS`), and the edition is free
+   while it is in early access — the same sentence the Discord card's footer
+   carries.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+
+{% block title %}The VIP edition — {{ bot_name }}{% endblock %}
+
+{% block page %}
+<section class="site-band site-band--flush">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">Premium</p>
+      <h2>The VIP edition, free while it is an early-access preview</h2>
+      <p class="site-head__lede">
+        A second bot application runs this same codebase with a picker of its
+        own. The commands below exist only on that instance — the main bot
+        leaves them out of every scope it publishes — and adding it is one
+        click, no card, no licence.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards site-cards--wide">
+      {% for perk in perks %}
+      <div class="site-card" data-reveal data-tilt>
+        <span class="site-card__title">{{ perk.name }}</span>
+        <p class="site-card__desc">{{ perk.desc }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# What a VIP card looks like, drawn in CSS                            #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">In chat</p>
+      <h2>Gold where the VIP bot answers</h2>
+      <p class="site-head__lede">
+        The same commands answer on both instances; the VIP one wears the
+        motion set — crown, gem and sparkle — and the main bot answers with the
+        same words, minus the show.
+      </p>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-mock" data-reveal>
+      <div class="site-mock__bar">
+        <span># music</span>
+        <span>·</span>
+        <span>VIP instance</span>
+      </div>
+      <div class="site-mock__msg">
+        <span class="site-mock__avatar" aria-hidden="true">{{ bot_initial }}</span>
+        <div class="site-mock__body">
+          <span class="site-mock__name">{{ bot_name }} <span class="tag">VIP</span></span>
+          <div class="site-mock__embed">
+            <strong>🎵 Now playing</strong>
+            <span>Rich Spotify track cards, a server song library, listen counters
+            and collaborative Jam sessions — from <code>/music</code>.</span>
+          </div>
+          <p class="site-mock__text">
+            Buttons, a queue and the listen leaderboard live in the card the
+            command answers with.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# How it works                                                        #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">How it works</p>
+      <h2>A second bot, one click, nothing to configure</h2>
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    <div class="site-cards">
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">◆</span>
+        <span class="site-card__title">Its own application</span>
+        <p class="site-card__desc">
+          The VIP bot is a separate Discord application running the same tree.
+          Adding it never touches the main bot — a server can run both, and
+          `/premium status` in either reports what is active.
+        </p>
+      </div>
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">◷</span>
+        <span class="site-card__title">Free in early access</span>
+        <p class="site-card__desc">
+          While the edition is a preview it is complimentary: no purchase, no
+          licence key, and no expiry date to watch. What it costs afterwards is
+          a decision that will be said out loud before it happens.
+        </p>
+      </div>
+
+      <div class="site-card" data-reveal>
+        <span class="site-card__icon" aria-hidden="true">✧</span>
+        <span class="site-card__title">One command to check</span>
+        <p class="site-card__desc">
+          <code>/premium perks</code> prints this same list in Discord,
+          <code>/premium status</code> says what is active, and
+          <code>/premium invite</code> hands back the one-click invite link.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="site-cta">
+  <div class="wrap">
+    <h2>Add the VIP edition</h2>
+    <p>
+      One click, and the VIP commands appear in that server's picker beside
+      everything the main bot already does.
+    </p>
+    <div class="site-cta__row">
+      {% if vip_invite_url %}
+      <a class="btn btn--primary" href="{{ vip_invite_url }}" data-magnetic>Add the VIP bot</a>
+      {% elif invite_url %}
+      <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+      {% endif %}
+      {% if selling %}<a class="btn" href="/pricing">See the plans</a>{% endif %}
+      <a class="btn btn--ghost" href="/systems">Every system first</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

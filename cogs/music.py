@@ -39,7 +39,15 @@ SPOTIFY_LINK_RE = re.compile(
 JAM_LINK_RE = re.compile(r"https?://(?:open\.spotify\.com|spotify\.link)/\S+", re.IGNORECASE)
 OEMBED_URL = "https://open.spotify.com/oembed?url={url}"
 REQUEST_TIMEOUT = 8.0
-MUSIC_ICON_GIF = "https://1tsrajowo-meow.hf.space/static/music_visualizer.gif"
+#: Discord embed icons must be absolute https URLs, so a relative ``/static/``
+#: path cannot be used here. This used to point at the Hugging Face Space's own
+#: ``/static/music_visualizer.gif`` — the file exists in ``static/`` but the
+#: Space answers 404 for it (Gradio's server shadows Flask's ``/static``), so
+#: every music card drew a broken icon. It now points at a Noto emoji GIF on
+#: ``fonts.gstatic.com``, the same stable CDN the VIP motion set uses
+#: (``utils/style.py``) and verified live — a musical-notes glyph for a music
+#: card. The custom visualizer stays in ``static/`` for the website.
+MUSIC_ICON_GIF = "https://fonts.gstatic.com/s/e/notoemoji/latest/1f3b6/512.gif"
 
 #: How often the jam watcher re-checks every server's active jam, how many
 #: consecutive dead reads end it, and the session cap after which it ends

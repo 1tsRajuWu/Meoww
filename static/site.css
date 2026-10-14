@@ -1,0 +1,1181 @@
+/* ==========================================================================
+   site.css — the marketing layer.
+
+   The public site's own look, laid on top of `meow.css`: that sheet owns the
+   palette, the type scale and the shared vocabulary every page already speaks
+   (`.wrap`, `.btn`, `.pill`, `.card`, `.prose`, …), and this one is what makes
+   a page of *this* site look like itself — cinematic dark, glass and one
+   accent, structure drawn with hairlines rather than boxes, and motion that is
+   opt-in and off when less motion is asked for.
+
+   Rules this sheet keeps, so a reader can hold them:
+
+     * **Nothing here is hidden without a script.** Every entrance either starts
+       from a keyframe that runs at parse time (the hero) or waits for
+       `site.js` to mark it (the scroll reveals). With JavaScript blocked the
+       page is fully visible and fully readable.
+     * **The resting state is the final state.** Keyframes end where the element
+       is meant to live, so the global reduced-motion block in `meow.css`
+       (which collapses every animation to its last frame) lands on the right
+       picture rather than on a blank one.
+     * **No remote references.** The faces are declared in `meow.css`; nothing
+       here pulls a face, an image or a font of its own, so nothing here needs a
+       rewrite pass to survive the static build.
+     * **One accent, spent on what can be acted on.** Coral draws a fill, a
+       focus ring and the single glow on the page. Green is only ever "on".
+     * **Chrome has its own names.** `site-top`, `site-foot`, `site-bg` — so the
+       header and footer built here never fight a rule written for a frame that
+       no longer exists.
+
+   Sections:
+     1. Tokens          6. Sections        11. Periods
+     2. Backdrop        7. Cards           12. Steps
+     3. Progress        8. Figures         13. Plans
+     4. Chrome          9. Marquee         14. Closing band
+     5. Hero           10. Systems         15. Premium mock
+                                           16. Legal
+                                           17. Motion, transitions, print
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens
+   -------------------------------------------------------------------------- */
+
+:root {
+  /* Glass, in three strengths. The panel is barely lighter than the page and
+     it is the *hairline* that makes it legible — the same rule `meow.css`
+     states for a card, one step further. */
+  --site-glass: rgb(255 255 255 / 3.5%);
+  --site-glass-strong: rgb(255 255 255 / 6%);
+  --site-edge: rgb(255 255 255 / 8%);
+  --site-edge-strong: rgb(255 255 255 / 16%);
+  /* The one glow. Spent on hovered cards, the hero panel and the pointer. */
+  --site-glow: 0 24px 70px rgb(var(--accent-rgb) / 14%);
+  --site-halo: 0 0 0 1px rgb(var(--accent-rgb) / 22%),
+    0 18px 60px rgb(var(--accent-rgb) / 16%);
+  /* The cinematic display, one notch past the shared `--text-display`. */
+  --site-display: clamp(3rem, 7.5vw + 1rem, 6.5rem);
+  --site-display-tight: clamp(2rem, 3.5vw + 0.75rem, 3.25rem);
+  --site-track-display: -0.05em;
+  --site-band-y: clamp(var(--space-8), 9vw, var(--space-9));
+  --site-column: min(1180px, 100% - var(--space-6));
+}
+
+[data-theme="light"] {
+  --site-glass: rgb(255 255 255 / 62%);
+  --site-glass-strong: rgb(255 255 255 / 82%);
+  --site-edge: rgb(18 19 22 / 10%);
+  --site-edge-strong: rgb(18 19 22 / 22%);
+  --site-glow: 0 24px 60px rgb(18 19 22 / 10%);
+  --site-halo: 0 0 0 1px rgb(var(--accent-rgb) / 26%),
+    0 18px 50px rgb(18 19 22 / 12%);
+}
+
+[data-theme="contrast"] {
+  --site-glass: #0a0a0a;
+  --site-glass-strong: #141414;
+  --site-edge: #5a5a5a;
+  --site-edge-strong: #9a9a9a;
+  --site-glow: none;
+  --site-halo: 0 0 0 2px #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   2. Backdrop — the room the page stands in
+   --------------------------------------------------------------------------
+   Three layers, none of them interactive: a mesh that drifts (two slow radial
+   washes), a grid that fades with distance, and the pointer's own glow, read
+   from the `--meow-x/--meow-y` tokens `meow.css` keeps current. The whole
+   thing is `position: fixed`, `pointer-events: none`, and z-index 0 — the same
+   shape the old aurora had, moved below a shell that carries its own depth. */
+
+.site-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(80rem 42rem at 82% -12%, rgb(var(--accent-rgb) / 7%), transparent 62%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+}
+
+.site-bg__mesh {
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(46rem 30rem at 18% 8%, rgb(var(--accent-rgb) / 6%), transparent 66%),
+    radial-gradient(54rem 34rem at 88% 34%, rgb(var(--accent-rgb) / 4%), transparent 68%);
+  animation: site-drift 44s var(--ease) infinite alternate;
+}
+
+.site-bg__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--site-edge) 1px, transparent 1px),
+    linear-gradient(90deg, var(--site-edge) 1px, transparent 1px);
+  background-size: 84px 84px;
+  opacity: 0.5;
+  mask-image: radial-gradient(78% 55% at 50% 0%, #000 6%, transparent 74%);
+}
+
+.site-bg__glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    34rem 22rem at var(--meow-x) var(--meow-y),
+    rgb(var(--accent-rgb) / 8%),
+    transparent 70%
+  );
+}
+
+@keyframes site-drift {
+  from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+  to { transform: translate3d(1.5%, 1.5%, 0) scale(1.04); }
+}
+
+/* The shell carries the page above the room it is drawn in. */
+.site-shell {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.site-main { flex: 1 0 auto; }
+
+/* --------------------------------------------------------------------------
+   3. Progress — how far down a long page the reader is
+   -------------------------------------------------------------------------- */
+
+.site-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 2px;
+  z-index: 60;
+  transform: scaleX(var(--site-p, 0));
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-text));
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   4. Chrome — the header and the footer
+   -------------------------------------------------------------------------- */
+
+.site-top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(140%);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--slow) var(--ease), background var(--slow) var(--ease);
+}
+
+.site-top[data-scrolled="true"] {
+  border-bottom-color: var(--site-edge);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+
+.site-top__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--top-h);
+}
+
+.site-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.site-brand:hover { text-decoration: none; }
+
+.site-brand__mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background:
+    linear-gradient(140deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 55%, var(--accent-text)) 100%);
+  color: var(--text-invert);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  box-shadow: 0 6px 18px rgb(var(--accent-rgb) / 26%);
+}
+
+.site-brand__name { font-size: 1.0625rem; }
+.site-brand__dot { color: var(--accent); }
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.site-nav__link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  transition: color var(--fast) var(--ease);
+}
+
+.site-nav__link::after {
+  content: "";
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: 12px;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform var(--slow) var(--ease);
+}
+
+.site-nav__link:hover { color: var(--text-primary); text-decoration: none; }
+.site-nav__link:hover::after { transform: scaleX(1); }
+
+.site-nav__link[aria-current="page"] { color: var(--text-primary); }
+.site-nav__link[aria-current="page"]::after { transform: scaleX(1); }
+
+.site-top__actions { display: flex; align-items: center; gap: var(--space-2); }
+
+.site-menu {
+  display: none;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.site-menu:hover { border-color: var(--site-edge-strong); }
+
+.site-menu__bars {
+  display: block;
+  width: 18px;
+  height: 1px;
+  background: currentcolor;
+  position: relative;
+}
+
+.site-menu__bars::before,
+.site-menu__bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 18px;
+  height: 1px;
+  background: currentcolor;
+  transition: transform var(--fast) var(--ease);
+}
+
+.site-menu__bars::before { top: -5px; }
+.site-menu__bars::after { top: 5px; }
+
+.site-top[data-menu-open="true"] .site-menu__bars { background: transparent; }
+.site-top[data-menu-open="true"] .site-menu__bars::before { transform: translateY(5px) rotate(45deg); }
+.site-top[data-menu-open="true"] .site-menu__bars::after { transform: translateY(-5px) rotate(-45deg); }
+
+.site-top .theme-pop { right: var(--space-4); }
+
+@media (max-width: 900px) {
+  .site-menu { display: inline-flex; margin-left: auto; }
+
+  .site-nav {
+    position: fixed;
+    inset: var(--top-h) 0 auto 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: var(--space-5) var(--space-4) var(--space-6);
+    margin: 0;
+    background: var(--bg-deep);
+    border-bottom: 1px solid var(--site-edge);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease),
+      visibility var(--fast) step-end;
+  }
+
+  .site-top[data-menu-open="true"] .site-nav {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: opacity var(--slow) var(--ease), transform var(--slow) var(--ease), visibility 0s;
+  }
+
+  .site-nav__link {
+    border-radius: var(--radius-sm);
+    font-size: 1.125rem;
+    padding-inline: var(--space-2);
+  }
+
+  .site-nav__link::after { bottom: 8px; }
+  .site-nav__link[aria-current="page"] { background: var(--surface-hover); }
+  .site-nav__link[aria-current="page"]::after { transform: scaleX(1); }
+  .site-top__actions { flex-direction: column; align-items: stretch; margin-top: var(--space-4); }
+}
+
+.site-foot {
+  border-top: 1px solid var(--site-edge);
+  padding-block: var(--space-8) var(--space-5);
+  margin-top: var(--space-9);
+  color: var(--text-muted);
+}
+
+.site-foot__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: var(--space-7) var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .site-foot__grid { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
+}
+
+.site-foot__title {
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
+}
+
+.site-foot__list { display: flex; flex-direction: column; gap: var(--space-2); }
+.site-foot__list a { color: var(--text-muted); display: block; }
+.site-foot__list a:hover { color: var(--text-primary); }
+
+.site-foot__base {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--site-edge);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  justify-content: space-between;
+  font-size: var(--text-small);
+}
+
+@media (pointer: coarse) {
+  .site-foot__list a { display: flex; align-items: center; min-height: var(--tap-min); }
+}
+
+/* --------------------------------------------------------------------------
+   5. Hero — the first screen, and the one entrance that runs without a script
+   --------------------------------------------------------------------------
+   The headline's lines are authored in the markup, one `<span>` per line, and
+   each line's inner span rises out of its own clip mask by a CSS animation
+   that starts at parse time. Nothing is hidden by a class a script adds, so
+   there is no flash of a visible title being re-hidden, and with the script
+   blocked or the stylesheet missing the sentence is simply there. */
+
+.site-hero {
+  position: relative;
+  padding-block: clamp(var(--space-7), 9vh, var(--space-9)) var(--space-8);
+}
+
+.site-hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: var(--space-7) var(--space-8);
+  align-items: center;
+}
+
+@media (max-width: 980px) {
+  .site-hero__grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.site-hero__eyebrow { margin-bottom: var(--space-5); }
+
+.site-hero__title {
+  font-size: var(--site-display);
+  line-height: 0.98;
+  letter-spacing: var(--site-track-display);
+  font-weight: 600;
+  margin: 0 0 var(--space-5);
+}
+
+.site-line { display: block; overflow: hidden; }
+
+.site-line__in {
+  display: block;
+  transform: translateY(108%);
+  animation: site-rise 900ms var(--ease) both;
+}
+
+.site-line:nth-child(2) .site-line__in { animation-delay: 110ms; }
+.site-line:nth-child(3) .site-line__in { animation-delay: 220ms; }
+
+.site-line--accent .site-line__in {
+  background: linear-gradient(100deg, var(--accent) 10%, var(--accent-text) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes site-rise {
+  from { transform: translateY(108%); }
+  to { transform: translateY(0); }
+}
+
+.site-hero__lede {
+  max-width: 54ch;
+  font-size: 1.125rem;
+  color: var(--text-secondary);
+  animation: site-fade 800ms var(--ease) 260ms both;
+}
+
+.site-hero__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 var(--space-4);
+  animation: site-fade 800ms var(--ease) 380ms both;
+}
+
+.site-hero__note {
+  font-size: var(--text-small);
+  color: var(--text-muted);
+  animation: site-fade 800ms var(--ease) 480ms both;
+}
+
+@keyframes site-fade {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes site-fade-soft {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* The panel beside the words: the live status line and the four figures.
+   Opacity-only on purpose — this element is also `[data-tilt]`, and a keyframe
+   that filled `transform` with `both` would own the property for good and the
+   tilt could never write to it. */
+.site-hero__panel {
+  position: relative;
+  background: var(--site-glass);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--site-glow);
+  animation: site-fade-soft 900ms var(--ease) 300ms both;
+}
+
+.site-hero__panel::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgb(var(--accent-rgb) / 34%), transparent 42%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.site-status { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.site-status p { margin: 0; color: var(--text-secondary); font-size: var(--text-small); }
+
+.site-status__row { display: flex; align-items: center; gap: var(--space-2); }
+
+/* --------------------------------------------------------------------------
+   6. Sections
+   -------------------------------------------------------------------------- */
+
+.site-band {
+  padding-block: var(--site-band-y);
+  border-top: 1px solid var(--site-edge);
+}
+
+.site-band--flush { border-top: 0; }
+
+.site-head { margin-bottom: var(--space-7); }
+
+.site-head h2 {
+  font-size: var(--site-display-tight);
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+.site-head__lede {
+  max-width: 62ch;
+  color: var(--text-secondary);
+}
+
+.site-head__meta { margin-top: var(--space-3); }
+
+.site-divider {
+  height: 1px;
+  background: linear-gradient(90deg, var(--accent), transparent 55%);
+  opacity: 0.5;
+  margin-top: var(--space-6);
+  max-width: 220px;
+}
+
+/* A page's quiet way onward, under a grid of cards. */
+.site-more { margin-top: var(--space-6); }
+
+/* --------------------------------------------------------------------------
+   7. Cards — glass, hairline, one lift
+   -------------------------------------------------------------------------- */
+
+.site-cards {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.site-cards--wide { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+.site-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--site-glass);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  transition: transform var(--slow) var(--ease), border-color var(--slow) var(--ease),
+    box-shadow var(--slow) var(--ease), background var(--slow) var(--ease);
+}
+
+.site-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--site-edge-strong);
+  background: var(--site-glass-strong);
+  box-shadow: var(--site-glow);
+}
+
+.site-card__icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: rgb(var(--accent-rgb) / 12%);
+  border: 1px solid rgb(var(--accent-rgb) / 24%);
+  color: var(--accent-text);
+  font-size: 1.05rem;
+}
+
+.site-card__title {
+  font-size: var(--text-h3);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.site-card__desc { margin: 0; color: var(--text-secondary); font-size: 0.9375rem; }
+
+.site-card__foot {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-small);
+  color: var(--text-muted);
+}
+
+.site-card__badges { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+a.site-card { color: inherit; }
+a.site-card:hover { text-decoration: none; }
+
+/* --------------------------------------------------------------------------
+   8. Figures — the live numbers
+   -------------------------------------------------------------------------- */
+
+/* The row is *stated* at both sizes rather than left to `auto-fit`: four cards
+   on a desktop, two on a phone, and a value that may shrink for the widest
+   figure a card can hold. `auto-fit` once arrived at three columns of 81px in
+   a 346px panel, which took the page's own wrapper over the viewport with it —
+   a layout nobody chose is a layout nobody checked. */
+.site-figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+@media (max-width: 560px) {
+  .site-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.site-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--site-edge);
+  min-width: 0;
+}
+
+.site-figure b {
+  font-family: var(--font-mono);
+  font-size: clamp(1.15rem, 1vw + 1rem, 1.5rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.site-figure span {
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The wider band the systems page draws its two live cards in. */
+.site-live {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.site-live__card {
+  background: var(--site-glass);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+.site-live__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.site-live__head h3 { font-size: var(--text-h3); }
+
+/* --------------------------------------------------------------------------
+   9. Marquee — every command, in one strip
+   --------------------------------------------------------------------------
+   One track with two identical runs, so the loop has no seam. The second run
+   is `aria-hidden` in the markup (a screen reader has already been read the
+   first one), the edges fade with a mask, and the pointer pauses it. */
+
+.site-marquee {
+  position: relative;
+  overflow: hidden;
+  border-block: 1px solid var(--site-edge);
+  padding-block: var(--space-4);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.site-marquee__track {
+  display: flex;
+  width: max-content;
+  animation: site-marquee 52s linear infinite;
+}
+
+.site-marquee:hover .site-marquee__track { animation-play-state: paused; }
+
+.site-marquee__run { display: flex; align-items: center; }
+
+.site-marquee__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding-inline: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.site-marquee__item::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb) / 55%);
+}
+
+@keyframes site-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* --------------------------------------------------------------------------
+   10. Systems — the filter, the cards, the command drawers
+   -------------------------------------------------------------------------- */
+
+.site-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-small);
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+
+.site-chip:hover { border-color: var(--site-edge-strong); color: var(--text-primary); }
+
+.site-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 12%);
+  color: var(--text-primary);
+}
+
+.site-chip__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.site-systems {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  align-items: start;
+}
+
+.site-system {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--site-glass);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--slow) var(--ease), background var(--slow) var(--ease);
+}
+
+.site-system:hover { border-color: var(--site-edge-strong); background: var(--site-glass-strong); }
+
+.site-system__head { display: flex; align-items: center; gap: var(--space-3); }
+
+.site-system__name { font-size: var(--text-h3); font-weight: 600; }
+
+.site-system__desc { margin: 0; color: var(--text-secondary); font-size: 0.9375rem; }
+
+.site-system__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+  color: var(--text-muted);
+}
+
+/* A native `<details>` — so the drawer works with no script at all — whose
+   opened body fades up as it lands. The height is not animated on purpose:
+   animating `[open]` means hiding the content from the UA, and the one thing
+   this drawer must never do is hold commands somewhere a keyboard cannot
+   reach. */
+.site-details { margin-top: auto; }
+
+.site-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  color: var(--accent-text);
+  font-size: var(--text-small);
+  font-weight: 550;
+  list-style: none;
+}
+
+.site-details > summary::-webkit-details-marker { display: none; }
+
+.site-details > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform var(--fast) var(--ease);
+}
+
+.site-details[open] > summary::after { transform: rotate(225deg) translateY(-2px); }
+
+.site-details__body {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--site-edge);
+  animation: site-fade 260ms var(--ease) both;
+}
+
+.site-cmds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+
+.site-cmds li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--site-edge);
+  font-size: var(--text-small);
+}
+
+.site-cmds li:last-child { border-bottom: 0; }
+
+.site-cmds code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--text-primary);
+}
+
+.site-cmds span { color: var(--text-muted); }
+
+/* --------------------------------------------------------------------------
+   11. Periods — the activity card's window switcher
+   -------------------------------------------------------------------------- */
+
+.site-periods { display: inline-flex; gap: 2px; border: 1px solid var(--site-edge); border-radius: var(--radius-pill); padding: 2px; }
+
+.site-period {
+  min-height: 32px;
+  padding: 2px var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-micro);
+  letter-spacing: 0.02em;
+}
+
+.site-period[aria-pressed="true"] { background: rgb(var(--accent-rgb) / 14%); color: var(--text-primary); }
+
+@media (pointer: coarse) {
+  .site-period { min-height: var(--tap-min); }
+}
+
+/* --------------------------------------------------------------------------
+   12. Steps — how to add it, in three moves
+   -------------------------------------------------------------------------- */
+
+.site-steps {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  counter-reset: site-step;
+}
+
+.site-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--site-glass);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  counter-increment: site-step;
+}
+
+.site-step::before {
+  content: counter(site-step, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  color: var(--accent-text);
+}
+
+.site-step h3 { font-size: var(--text-h3); }
+.site-step p { margin: 0; color: var(--text-secondary); font-size: 0.9375rem; }
+.site-step .row { margin-top: var(--space-2); }
+
+.site-step__note { font-size: var(--text-small); color: var(--text-muted); }
+
+/* --------------------------------------------------------------------------
+   13. Plans — pricing and the licence list
+   -------------------------------------------------------------------------- */
+
+.site-plans {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  align-items: stretch;
+}
+
+.site-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  background: var(--site-glass);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  transition: transform var(--slow) var(--ease), border-color var(--slow) var(--ease),
+    box-shadow var(--slow) var(--ease);
+}
+
+.site-plan:hover { transform: translateY(-3px); border-color: var(--site-edge-strong); }
+
+.site-plan--featured {
+  border-color: rgb(var(--accent-rgb) / 44%);
+  box-shadow: var(--site-halo);
+}
+
+.site-plan__badge {
+  position: absolute;
+  top: calc(-1 * var(--space-3));
+  left: var(--space-6);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-invert);
+}
+
+.site-plan__name { font-size: var(--text-h3); font-weight: 600; }
+
+.site-plan__price {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.site-plan__price span { font-size: var(--text-small); color: var(--text-muted); }
+
+.site-plan__list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+}
+
+.site-plan__list li { display: flex; gap: var(--space-3); align-items: baseline; }
+
+.site-plan__list li::before { content: "—"; color: var(--accent-text); }
+
+.site-plan .btn { margin-top: auto; }
+
+.site-note {
+  margin-top: var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius);
+  background: var(--site-glass);
+  color: var(--text-secondary);
+  font-size: var(--text-small);
+}
+
+.site-note--accent { border-color: rgb(var(--accent-rgb) / 34%); }
+
+/* --------------------------------------------------------------------------
+   14. Closing band
+   -------------------------------------------------------------------------- */
+
+.site-cta {
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid var(--site-edge);
+  padding-block: var(--site-band-y);
+  text-align: center;
+}
+
+.site-cta::before {
+  content: "";
+  position: absolute;
+  inset: -40% 10% auto;
+  height: 70%;
+  background: radial-gradient(closest-side, rgb(var(--accent-rgb) / 12%), transparent);
+  pointer-events: none;
+}
+
+.site-cta h2 {
+  font-size: var(--site-display-tight);
+  letter-spacing: -0.035em;
+  margin: 0 0 var(--space-4);
+}
+
+.site-cta p { color: var(--text-secondary); max-width: 52ch; margin-inline: auto; }
+
+.site-cta__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+  margin-top: var(--space-6);
+}
+
+/* --------------------------------------------------------------------------
+   15. Premium mock — the chat card, drawn in CSS
+   -------------------------------------------------------------------------- */
+
+.site-mock {
+  max-width: 460px;
+  background: var(--bg-deep);
+  border: 1px solid var(--site-edge);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: var(--site-glow);
+}
+
+.site-mock__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--site-edge);
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+
+.site-mock__msg { display: flex; gap: var(--space-3); }
+
+.site-mock__avatar {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--accent-text)));
+  color: var(--text-invert);
+  font-weight: 700;
+  font-size: 0.8125rem;
+}
+
+.site-mock__body { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+
+.site-mock__name { font-weight: 600; color: var(--text-primary); font-size: 0.9375rem; }
+
+.site-mock__text { margin: 0; color: var(--text-secondary); font-size: 0.9375rem; }
+
+.site-mock__embed {
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--site-glass);
+  padding: var(--space-3) var(--space-4);
+}
+
+.site-mock__embed strong { display: block; color: var(--text-primary); margin-bottom: 2px; }
+
+.site-mock__embed span { color: var(--text-muted); font-size: var(--text-small); }
+
+/* --------------------------------------------------------------------------
+   16. Legal — the policy pages
+   -------------------------------------------------------------------------- */
+
+.site-legal { padding-block: var(--space-7) var(--space-8); }
+
+.site-legal__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  margin: var(--space-5) 0;
+  padding-block: var(--space-4);
+  border-block: 1px solid var(--site-edge);
+  color: var(--text-muted);
+  font-size: var(--text-small);
+}
+
+.site-legal__meta .mono { color: var(--text-secondary); }
+
+/* --------------------------------------------------------------------------
+   17. Motion, transitions, print
+   -------------------------------------------------------------------------- */
+
+/* The scroll reveals reuse the resting-state contract `meow.css` already
+   states: `[data-reveal]` is visible, `.is-pending` is the script's own
+   bookmark, and only a script that has checked `prefers-reduced-motion` ever
+   writes it. The delay token is how a grid staggers. */
+[data-reveal] { transition-delay: var(--site-rd, 0ms); }
+
+/* A tilted card: the script writes two angles and this is what reads them. */
+[data-tilt] {
+  transform: perspective(900px) rotateX(var(--site-tx, 0deg)) rotateY(var(--site-ty, 0deg));
+  transition: transform 120ms linear;
+}
+
+[data-tilt]:hover { will-change: transform; }
+
+/* Cross-document fades, where the browser has view transitions. Unsupported
+   browsers ignore every line of this, which is the point. */
+@view-transition { navigation: auto; }
+
+::view-transition-old(root) { animation: site-vt-out 180ms var(--ease) both; }
+::view-transition-new(root) { animation: site-vt-in 240ms var(--ease) both; }
+
+@keyframes site-vt-out { to { opacity: 0; } }
+@keyframes site-vt-in { from { opacity: 0; } }
+
+/* The global block in `meow.css` already collapses every duration; these are
+   the pieces whose *end state* still matters, so they are named here. */
+@media (prefers-reduced-motion: reduce) {
+  .site-bg__mesh,
+  .site-marquee__track { animation: none; }
+  .site-line__in { transform: none; }
+  .site-progress { display: none; }
+}
+
+@media print {
+  .site-top,
+  .site-foot,
+  .site-bg,
+  .site-progress,
+  .site-marquee { display: none; }
+
+  body { background: #fff; color: #000; }
+}

@@ -792,7 +792,6 @@ def card(
 
 
 VIP_GOLD = 0xFFD700
-VIP_BOT_ID = 1558691012975534222
 VIP_INVITE_URL = f"https://discord.com/oauth2/authorize?client_id={VIP_BOT_ID}&scope=bot+applications.commands&permissions=8"
 MAIN_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1548380269776605324&scope=bot+applications.commands&permissions=8"
 VIP_FOOTER = f"💎 DaCat VIP • 100x Enhanced Visuals • ID: {VIP_BOT_ID}"

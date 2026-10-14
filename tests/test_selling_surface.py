@@ -23,6 +23,7 @@ these tests drive the flag the way the routes do — through
 template that production never passes.
 """
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -267,6 +268,14 @@ class TheRealRoutesAgreeWithTheTemplates(unittest.TestCase):
 
     def test_the_pages_a_visitor_can_reach_follow_the_switch(self):
         import keep_alive
+
+        # The BRB hook answers a non-test process with the maintenance screen;
+        # these are the pages *under* it, so the hook is stepped around for this
+        # test (`MEOW_SITE_PREVIEW`, the flag `scripts/preview_site.py` sets for
+        # a laptop), scoped rather than left in the environment.
+        preview = mock.patch.dict(os.environ, {"MEOW_SITE_PREVIEW": "1"})
+        preview.start()
+        self.addCleanup(preview.stop)
 
         for path in ("/", "/pricing", "/privacy", "/terms"):
             for selling in (False, True):

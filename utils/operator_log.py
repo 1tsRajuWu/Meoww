@@ -978,7 +978,8 @@ def _reason(error) -> str:
     name = type(cause).__name__
     if not isinstance(cause, discord.DiscordException):
         return f"`{name}`"
-    detail = " ".join(str(cause).split())
+    from keep_alive import _SECRETISH as _scrub_secrets  # deferred: this log must never import the web app at module load
+    detail = _scrub_secrets.sub(r"\1=[redacted]", " ".join(str(cause).split()))
     said = f"`{name}` — {detail[:_REASON_LIMIT]}" if detail else f"`{name}`"
     refused = discord_field_errors(cause)
     return f"{said} — refused: {refused}" if refused else said

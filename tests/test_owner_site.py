@@ -305,10 +305,12 @@ class TheFourSitesLeaveThePhoneItsOwnHeight(unittest.TestCase):
     with no `dvh` after it is a box that fits the screen nobody is looking at, and
     nothing in a desktop window shows it.
 
-    The four sheets below are the four published sites': the public site and the
-    hub it serves (`meoww.css`, `hub/static/hub.css`), the console and the
-    member dashboard, which share one frame (`meow.css`), and the market
-    (`market.css`). `pages.css` is missing from the list on purpose — it draws no
+    The five sheets below are the published sites' viewport-height boxes: the
+    public site and the hub it serves (`meoww.css`, `hub/static/hub.css`), the
+    console and the member dashboard, which share one frame (`meow.css`), the
+    market (`market.css`), and the marketing frame's own shell
+    (`site.css` — the `site-shell` that keeps a footer at the bottom of a short
+    page). `pages.css` is missing from the list on purpose — it draws no
     viewport-height box at all, which the class above already asserts.
     """
 
@@ -316,6 +318,7 @@ class TheFourSitesLeaveThePhoneItsOwnHeight(unittest.TestCase):
         ROOT / "static" / "meow.css",
         ROOT / "static" / "meoww.css",
         ROOT / "static" / "market.css",
+        ROOT / "static" / "site.css",
         ROOT / "hub" / "static" / "hub.css",
     )
 
@@ -356,9 +359,11 @@ class TheFourSitesLeaveThePhoneItsOwnHeight(unittest.TestCase):
         A viewport height is right for a *shell* — a page whose footer waits at
         the bottom — and wrong for any box a person is expected to reach, which
         is what the sign-in card was: 507px tall, centred in a height a phone
-        does not have with its keyboard up.
+        does not have with its keyboard up. The marketing layer is in the list
+        above now (`site-shell` is a shell, with its `vh`/`dvh` pair), so what
+        is left here is the one sheet that draws no viewport box at all.
         """
-        for sheet in (ROOT / "static" / "pages.css", ROOT / "static" / "landing.css"):
+        for sheet in (ROOT / "static" / "pages.css",):
             with self.subTest(sheet=sheet.name):
                 self.assertNotIn(
                     "vh;",

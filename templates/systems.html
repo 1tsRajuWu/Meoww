@@ -1,0 +1,178 @@
+{# ==========================================================================
+   systems.html — everything the bot contains, and nothing else.
+
+   This page has one job: the registry. Every system, the commands each one
+   declares, what switching one off does, and the deployment's own live
+   readings in one band at the top. The front door names four systems and
+   links here; this page is the whole answer.
+
+   What is read rather than written:
+
+     * the systems, their categories, their command lists and the sentence
+       about each command all come from `utils.features` (through
+       `command_groups`), so the page cannot invent a system or forget one;
+     * the four figures in each live card come from the same cached snapshot
+       `/api/figures` serves, so the page and the endpoint cannot disagree
+       about the same minute;
+     * the system anchors (`system-<id>`) are the ones the front door's cards
+       link to, so a fragment someone pasted keeps working.
+
+   Everything hides nothing: the command drawers are native `<details>`
+   elements and work with no script at all.
+   ========================================================================== #}
+{% extends "site_base.html" %}
+
+{% block title %}Every system — {{ bot_name }}{% endblock %}
+
+{% block page %}
+{# ------------------------------------------------------------------ #}
+{# What this is                                                        #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band site-band--flush">
+  <div class="wrap">
+    <div class="site-head">
+      <p class="micro">What is in it</p>
+      <h2>{{ system_count }} systems. {{ entry_count }} commands.</h2>
+      <p class="site-head__lede">
+        Each system is switched on or off for one server at a time, and switching
+        one off takes its commands out of that server's picker — nothing is
+        deleted, and switching it back on puts them back. The list below is the
+        bot's own registry: the same one the dashboard reads and the same one
+        Discord's picker is published from.
+      </p>
+      {% if always_on %}
+      <p class="site-head__meta hint">
+        <b>{{ always_on | join(", ") }}</b> — always on, with no switch to turn
+        {% if always_on | length == 1 %}it{% else %}them{% endif %} off.
+      </p>
+      {% endif %}
+      <div class="site-divider" aria-hidden="true"></div>
+    </div>
+
+    {# The deployment's own two readings. The reason they live here rather
+       than on the front door is written down in `keep_alive._systems_page`:
+       one writer per node, and this is the page that owns these. #}
+    <div class="site-live">
+      <div class="site-live__card" data-reveal>
+        <div class="site-live__head">
+          <h3>This deployment</h3>
+          <span class="micro">live</span>
+        </div>
+        <div class="site-figures">
+          {% for tile in control_tiles %}
+          <div class="site-figure">
+            <b data-figure="{{ tile.key }}"{% if not tile.waiting %} data-count="{{ tile.value }}"{% endif %}>{{ tile.value }}</b>
+            <span>{{ tile.label }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <p class="hint">Read from the deployment itself; a dash means it has not answered yet.</p>
+      </div>
+
+      <div class="site-live__card" data-reveal>
+        <div class="site-live__head">
+          <h3>Activity</h3>
+          <div class="site-periods" role="group" aria-label="Activity window">
+            {% for window in activity_windows %}
+            <button class="site-period" type="button" data-window="{{ window.id }}"
+                    aria-pressed="{{ 'true' if window.selected else 'false' }}">
+              {{ window.label }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        {% for window in activity_windows %}
+        <div data-window-panel="{{ window.id }}"{% if not window.selected %} hidden{% endif %}>
+          <div class="site-figures">
+            {% for tile in window.tiles %}
+            <div class="site-figure">
+              <b data-figure="activity:{{ window.id }}:{{ tile.key }}"{% if not tile.waiting %} data-count="{{ tile.value }}"{% endif %}>{{ tile.value }}</b>
+              <span>{{ tile.label }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+        <p class="hint">People seen and channels used are counted across every server this bot is in.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# The registry, grouped by category                                   #}
+{# ------------------------------------------------------------------ #}
+<section class="site-band" id="systems-list">
+  <div class="wrap">
+    {% set grouped = command_groups | groupby('category') %}
+
+    <div class="site-chips" role="navigation" aria-label="Jump to a category">
+      {% for category, rows in grouped %}
+      <a class="site-chip" href="#cat-{{ category | lower | replace(' ', '-') }}">
+        {{ category }} <span class="site-chip__count">{{ rows | length }}</span>
+      </a>
+      {% endfor %}
+    </div>
+
+    {% for category, rows in grouped %}
+    <div class="site-head" id="cat-{{ category | lower | replace(' ', '-') }}">
+      <p class="micro">{{ category }}</p>
+    </div>
+
+    <div class="site-systems">
+      {% for group in rows %}
+      <article class="site-system" id="system-{{ group.id }}" data-reveal>
+        <div class="site-system__head">
+          <span class="site-card__icon" aria-hidden="true">{{ group.icon }}</span>
+          <span class="site-system__name">{{ group.name }}</span>
+        </div>
+        <p class="site-system__desc">{{ group.desc }}</p>
+        <div class="site-system__meta">
+          <span class="tag">{{ 'switchable' if group.toggleable else 'always on' }}</span>
+          <span>{{ group.rows | length }} command{{ '' if group.rows | length == 1 else 's' }}</span>
+        </div>
+
+        <details class="site-details">
+          <summary>Every command this system declares</summary>
+          <div class="site-details__body">
+            <ul class="site-cmds">
+              {% for row in group.rows %}
+              <li>
+                <code>{{ row.name }}</code>
+                {% if row.note %}<span>{{ row.note }}</span>{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </details>
+      </article>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <p class="site-more">
+      <a class="arrow-link" href="/start">Add it to a server — three steps</a>
+    </p>
+  </div>
+</section>
+
+{# ------------------------------------------------------------------ #}
+{# The way in                                                          #}
+{# ------------------------------------------------------------------ #}
+<section class="site-cta">
+  <div class="wrap">
+    <h2>Which of them does your server keep?</h2>
+    <p>
+      Every switch is per server, and every one of them is reversible. Nothing
+      here deletes anything — it takes commands out of a picker and puts them
+      back.
+    </p>
+    <div class="site-cta__row">
+      {% if invite_url %}
+      <a class="btn btn--primary" href="{{ invite_url }}" data-magnetic>Add {{ bot_name }}</a>
+      {% endif %}
+      <a class="btn" href="{{ enter_url }}">{{ enter_label }} to the dashboard</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

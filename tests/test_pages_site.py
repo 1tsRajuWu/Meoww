@@ -143,7 +143,11 @@ class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         with mock.patch.dict(
             os.environ,
-            {"MEOW_STATIC_SITE": "1", "DISCORD_CLIENT_ID": "1548380269776605324"},
+            {
+                "MEOW_STATIC_SITE": "1",
+                "MEOW_SITE_PREVIEW": "1",
+                "DISCORD_CLIENT_ID": "1548380269776605324",
+            },
         ):
             build_site.build(out, LIVE, SITE)
         self.assertTrue((Path(out) / "index.html").is_file())
@@ -168,7 +172,11 @@ class TheBuildRefusesToPublishTheRepository(unittest.TestCase):
 
         with mock.patch.dict(
             os.environ,
-            {"MEOW_STATIC_SITE": "1", "DISCORD_CLIENT_ID": "1548380269776605324"},
+            {
+                "MEOW_STATIC_SITE": "1",
+                "MEOW_SITE_PREVIEW": "1",
+                "DISCORD_CLIENT_ID": "1548380269776605324",
+            },
         ):
             build_site.build(out, LIVE, SITE)
 
@@ -190,6 +198,13 @@ class BuiltSiteCase(unittest.TestCase):
                 # build is driven directly rather than through ``main``.
                 "MEOW_STATIC_SITE": "1",
                 "DISCORD_CLIENT_ID": "1548380269776605324",
+                # The maintenance screen is what a *deployment* publishes; these
+                # laws are about the pages underneath it, so the build under
+                # test steps around the BRB hook for the duration of the render
+                # (`MEOW_SITE_PREVIEW`, the flag `scripts/preview_site.py` sets
+                # for a laptop). Scoped, never left in the environment: the BRB
+                # suite removes `pytest` from `sys.modules` and expects the hook
+                # to answer.
             },
         )
         cls._env.start()
@@ -343,17 +358,14 @@ class BuiltSiteCase(unittest.TestCase):
         different claims, and only one of them is true here.
         """
         # On `/systems`, which is where the deployment's own readings live: the
-        # front door kept the live *counts* and the cards went with the rest of
-        # the detail. The tiles are identified by their labels now — the
-        # `data-figure` hook went to the archive with the script that read it —
-        # and the tag is read with its attributes, because a cell that is
-        # *waiting* for a reading carries the key it is waiting on. The value is
-        # what this law is about; whether the cell is marked as waiting is the
-        # next paragraph's business.
+        # front door kept the live *counts* and the activity cards went with the
+        # rest of the detail. The tiles are identified by the key they carry
+        # (`data-figure`, which `/api/figures` answers for a built copy) and the
+        # label beside them; the value is what this law is about.
         systems = self.pages["systems.html"]
         tiles = re.findall(
-            r'mw-stat__value"[^>]*>([^<]*)</span>\s*<span class="mw-stat__label">'
-            r'(?:messages|voice hours|people seen|channels used)</span>',
+            r'<b data-figure="activity:[^"]*"[^>]*>([^<]*)</b>\s*'
+            r'<span>(?:messages|voice hours|people seen|channels used)</span>',
             systems,
         )
         self.assertTrue(tiles, "the activity tiles left the site")
@@ -363,18 +375,19 @@ class BuiltSiteCase(unittest.TestCase):
         # they are present and counted from the registry rather than blanked.
         self.assertRegex(
             systems,
-            rf'mw-stat__value">{features.system_count()}</span>\s*'
-            rf'<span class="mw-stat__label">systems</span>',
+            rf'<b data-figure="systems"[^>]*>{features.system_count()}</b>\s*'
+            rf'<span>systems</span>',
         )
         self.assertRegex(
             systems,
-            rf'mw-stat__value">{features.entry_count()}</span>\s*'
-            rf'<span class="mw-stat__label">commands</span>',
+            rf'<b data-figure="commands"[^>]*>{features.entry_count()}</b>\s*'
+            rf'<span>commands</span>',
         )
         # The front door must not have grown a second, unfiltered copy of them.
-        self.assertNotRegex(
+        self.assertNotIn(
+            'data-figure="activity:',
             self.pages["index.html"],
-            r'mw-stat__label">(?:messages|voice hours|people seen|channels used)</span>',
+            "the front door carries activity windows of its own",
         )
 
     def test_the_front_page_and_the_reference_agree_on_how_many_of_each(self):
@@ -392,30 +405,26 @@ class BuiltSiteCase(unittest.TestCase):
         switchable = len(features.dashboard_modules())
         self.assertLess(switchable, systems, "the split this page explains has gone")
         # The counts the front door states, and the *split* stated rather than
-        # left to be discovered. This used to read the heading of the band that
-        # listed all fifteen ("15 systems, 14 switchable"); that band is gone and
-        # the same three figures are in the hero's meta line, in the panel's own
-        # figure cards and in the third step — so the claim is re-anchored rather
-        # than dropped, because two pages disagreeing about one word is the defect
-        # this test exists for.
+        # left to be discovered — in the hero's own lede, in the "what is in it"
+        # band's heading and in the panel's figure cards, so two pages
+        # disagreeing about one word is what this catches.
         self.assertIn(f"{systems} systems", index)
         self.assertIn(f"{commands} commands", index)
-        self.assertIn(f"{switchable} with a switch", index)
+        self.assertIn(f"{switchable} of them switchable", index)
         # The hero's figure card is the *total*, not the switchable subset — which
         # is how this page came to advertise eleven of twelve systems. The split it
         # may not blur is asserted on the line above; this is that the card itself
-        # carries the registry's own number, drawn rather than counted up (the
-        # count-up was a second entrance on a page allowed exactly one).
+        # carries the registry's own number, with the key the live refresh reads.
         self.assertRegex(
             index,
-            rf'<span class="mw-stat__value">{systems}</span>\s*'
-            rf'<span class="mw-stat__label">systems</span>',
+            rf'<b data-figure="systems"[^>]*>{systems}</b>\s*'
+            rf'<span>systems</span>',
         )
         # ...and the reference page agrees with it, from the same registry —
-        # stated in its own lede ("15 systems and 110 commands").
+        # stated in its own heading ("16 systems. 139 commands.").
         self.assertIn(f"{systems} systems", self.pages["systems.html"])
         self.assertIn(f"{commands} commands", self.pages["systems.html"])
-        self.assertNotIn(f'data-figure="control:commands">{commands + 10}<', index)
+        self.assertNotIn(f'data-figure="commands">{commands + 10}<', index)
 
     def test_no_page_links_to_the_private_repository(self):
         """A footer link that 404s is how a project reads as abandoned.
@@ -449,7 +458,7 @@ class BuiltSiteCase(unittest.TestCase):
         """
         out = tempfile.mkdtemp(prefix="meow-site-")
         self.addCleanup(shutil.rmtree, out, ignore_errors=True)
-        with mock.patch.dict(os.environ, env):
+        with mock.patch.dict(os.environ, {"MEOW_SITE_PREVIEW": "1", **env}):
             build_site.build(out, LIVE, SITE)
         return {
             name: (Path(out) / name).read_text(encoding="utf-8")
@@ -579,6 +588,7 @@ class BuiltSiteWithCheckout(unittest.TestCase):
         out = tempfile.mkdtemp(prefix="meow-site-paid-")
         env = {
             "MEOW_STATIC_SITE": "1",
+            "MEOW_SITE_PREVIEW": "1",
             "DISCORD_CLIENT_ID": "1548380269776605324",
             "LEMONSQUEEZY_CHECKOUT_PRO": cls.CHECKOUT_PRO,
             "LEMONSQUEEZY_CHECKOUT_ENTERPRISE": cls.CHECKOUT_ENTERPRISE,

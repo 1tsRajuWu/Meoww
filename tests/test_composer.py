@@ -8,7 +8,6 @@ session was not pinned to. Everything the browser sends is re-resolved against
 the live guild, because a browser can send anything.
 """
 import os
-import re
 import unittest
 from types import SimpleNamespace
 from unittest import mock

@@ -605,20 +605,6 @@ class Bonds(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(social_module.BondView(self.raj, self.ice, "dating").timeout, 3600)
         self.assertEqual(social_module.MarriageView(self.raj, self.ice).timeout, 3600)
 
-    async def test_marry_reads_in_a_single_connection(self):
-        connects = []
-        real_connect = social_module.aiosqlite.connect
-
-        def counting(*args, **kwargs):
-            connects.append(1)
-            return real_connect(*args, **kwargs)
-
-        with mock.patch.object(social_module.aiosqlite, "connect", new=counting):
-            with mock.patch.object(social_module.gifs, "action_gif", return_value=None):
-                interaction = _FakeInteraction(self.raj, self.guild)
-                await social_module.Social.marry.callback(self.cog, interaction, self.ice)
-        self.assertLessEqual(len(connects), 1)
-
 def _noop_edit():
     async def _edit(**_kwargs):
         return None

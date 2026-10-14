@@ -22,6 +22,7 @@ copy on the CDN:
 import asyncio
 import datetime
 import json
+import os
 import re
 import sqlite3
 import unittest
@@ -233,6 +234,14 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
     """
 
     def setUp(self):
+        # The BRB hook answers any process that is not a test with the
+        # maintenance screen; these laws are about the page *under* it, so the
+        # hook is stepped around for this test (`MEOW_SITE_PREVIEW` is the same
+        # flag `scripts/preview_site.py` sets for a laptop, scoped rather than
+        # left in the environment).
+        preview = mock.patch.dict(os.environ, {"MEOW_SITE_PREVIEW": "1"})
+        preview.start()
+        self.addCleanup(preview.stop)
         # The path exists as a name and nothing else: no `db.setup()`, so no
         # schema — which is exactly what a fresh clone of this repository has.
         self.use_temp_database("never-set-up.db")
@@ -266,14 +275,13 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
         it prints for a reading it never took is not a zero.
 
         `/systems` rather than `/`, because that is where the two preview cards
-        live — the front door draws the same four control cards into a `<dl>` and
-        counts the two of them the registry answers for with `motion.js`, and the
-        activity cards went with the rest of the detail when the landing page
-        became three pages.
+        live — the front door draws the same four control cards into its hero
+        panel. The activity cards went with the rest of the detail when the
+        landing page became three pages.
 
-        The tag is read with its attributes because a cell that is *waiting* for
-        a reading carries the key it waits on (`data-figure`, which `/api/figures`
-        answers); the value is what this law is about.
+        The cell is read with its attributes because a cell that is *waiting*
+        for a reading carries the key it waits on (`data-figure`, which
+        `/api/figures` answers); the value is what this law is about.
         """
         response = keep_alive.app.test_client().get("/systems")
         self.assertEqual(response.status_code, 200)
@@ -282,8 +290,8 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
             with self.subTest(label=label):
                 self.assertRegex(
                     body,
-                    rf'mw-stat__value"[^>]*>{re.escape(keep_alive.NOT_READ)}</span>\s*'
-                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
+                    rf'<b data-figure="activity:[^"]*"[^>]*>{re.escape(keep_alive.NOT_READ)}</b>\s*'
+                    rf'<span>{re.escape(label)}</span>',
                     f"the {label} tile claims a reading the database could not give",
                 )
 
@@ -292,11 +300,11 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
 
         The card used to be painted twice — by the server and by a refresh
         script whose fallback was `"0"`, so an unread window was spelled as a
-        measurement by whichever renderer ran last. The refresh script went to
-        the archive with the live figures it drove; what repaints now is the
-        shared counter, and it only reaches elements carrying `data-count`.
-        The rule therefore holds in two places: an unread tile must be outside
-        the counter's reach, and the counter's own fallback must not be a zero.
+        measurement by whichever renderer ran last. What repaints now is the
+        page's own counter (`site.js`), and it only reaches elements carrying
+        `data-count`. The rule therefore holds in two places: an unread tile must
+        be outside the counter's reach, and the counter's own fallback must not
+        be a zero.
         """
         response = keep_alive.app.test_client().get("/systems")
         self.assertEqual(response.status_code, 200)
@@ -304,8 +312,8 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
         for label in ("messages", "voice hours", "people seen", "channels used"):
             with self.subTest(label=label):
                 tile = re.search(
-                    rf'<span class="mw-stat__value"[^>]*>[^<]*</span>\s*'
-                    rf'<span class="mw-stat__label">{re.escape(label)}</span>',
+                    rf'<b data-figure="activity:[^"]*"[^>]*>[^<]*</b>\s*'
+                    rf'<span>{re.escape(label)}</span>',
                     body,
                 )
                 self.assertIsNotNone(tile, f"the {label} tile left the page")
@@ -313,13 +321,15 @@ class WithoutTheTrackersTables(TempDatabaseMixin, unittest.TestCase):
                     "data-count", tile.group(0),
                     f"the {label} tile is inside the counter's reach without a reading",
                 )
-        source = (ROOT / "static" / "motion.js").read_text(encoding="utf-8")
+        source = (ROOT / "static" / "site.js").read_text(encoding="utf-8")
         counter = re.search(
-            r'querySelectorAll\("\[data-count\]"\).*?node\.textContent = final;',
-            source,
-            re.S,
+            r'function animateCount\(el\).*?\n  \}', source, re.S,
         )
         self.assertIsNotNone(counter, "the counter moved; re-point this test")
+        self.assertIn(
+            "if (!raw) return;", counter.group(0),
+            "a cell with no reading must be left exactly as the server wrote it",
+        )
         self.assertNotIn(
             '"0"', counter.group(0),
             "an absent figure would be spelled as a zero by the page's own script",

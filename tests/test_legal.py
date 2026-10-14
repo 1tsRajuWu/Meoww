@@ -167,7 +167,6 @@ class TestLegalDocuments(unittest.TestCase):
         self.assertEqual(permissions.COMMAND_ACCESS["legal tos"], permissions.EVERYONE)
         self.assertIn("cogs.legal", features.cog_paths())
 
-        import discord
 
         legal_cog = legal.Legal(bot=None)
         self.assertEqual(

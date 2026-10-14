@@ -131,6 +131,19 @@ def _is_media_url(url: str) -> bool:
     """Whether a URL is something this bot would send as media."""
     if any(marker in url for marker in TEMPLATE_MARKERS):
         return False
+    # Documentation placeholders are not media the bot sends. ``example.com``
+    # (and its RFC 2606 siblings) is reserved for examples — a form's
+    # ``placeholder="https://example.com/image.png"`` is help text, not a
+    # picture — and probing it reports a dead link that was never a link.
+    # The old premium customizer did exactly this, and the weekly card named
+    # a file to change that had nothing to change.
+    try:
+        _after = url.split("//", 1)[-1]
+        _host = _after.split("/", 1)[0].split("@")[-1].split(":")[0].lower()
+        if _host in ("example.com", "example.org", "example.net", "example.edu") or _host.endswith((".example", ".invalid", ".localhost", ".test")):
+            return False
+    except Exception:
+        pass
     path = url.split("?", 1)[0].split("#", 1)[0]
     lowered = path.lower()
     if lowered.endswith(MEDIA_EXTENSIONS):
