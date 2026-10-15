@@ -32,6 +32,23 @@ slash command in one server, so the toy appears nowhere until it is switched on
 in a server of the operator's own. And :func:`utils.devtoy.in_dev_server` refuses
 every guild but those two — the ids hardcoded on purpose, in one place, with a
 scan test — so a switch flipped in the wrong server is refused rather than obeyed.
+
+**A pet costs coins, and it can be lost.** Which animal it is, what a bowl costs
+and what care pays back are all rules (``utils/devtoy``); what this file owns is
+the **wallet** — one place that reads a balance (:meth:`DevToy.wallet`), one that
+debits conditionally (:meth:`DevToy.spend`, which is the economy's own
+``take_stake``, because an unconditional debit clamps at zero and would serve a
+bowl nobody paid for) and one that pays a member what their pet earned
+(:meth:`DevToy.credit`). The coin is the same coin ``/work`` and ``/daily`` fill:
+the toy is part of the server's economy rather than a private currency, which is
+what makes a hungry pet an expense somebody can actually meet by petting it.
+
+The tick grew two more jobs beside the cat's quiet card, and both are the pet's
+rather than the server's: a **hungry** pet asks its own owner (own gap, own daily
+ceiling, own switch, at most two a tick) and a pet that has starved is reported
+to its owner **once**, whether or not the room's chatter is switched on. That
+second card is not the cat talking — it is the one fact a member cannot discover
+any other way, since nothing else in this system answers for a pet that is dead.
 """
 from __future__ import annotations
 
@@ -44,6 +61,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from cogs.economy import get_eco, take_stake, update_wallet
 from utils import bot_channels, catfeed, db, devtoy, features
 from utils.permissions import deny_admin, has_admin
 from utils.style import NO_PINGS, VIP_GOLD, display_name, pings, send_card
@@ -488,6 +506,52 @@ class DevToy(commands.Cog):
     async def _save(self, guild_id: int, user_id: int, cat: devtoy.Cat) -> None:
         await db.save_devcat_pet(guild_id, user_id, row_from_cat(cat))
 
+    # -- the purse ------------------------------------------------------------ #
+    #
+    # Three methods, and the whole of this system's contact with the economy. The
+    # rules own the *prices* (``utils/devtoy``); these own the money, which is the
+    # split that keeps a card and a debit from disagreeing — and it is the same
+    # ``economy`` table and the same two functions ``/work``, ``/daily`` and the
+    # casino use, so a coin earned by a pet spends exactly like any other.
+    async def wallet(self, guild_id: int, user_id: int) -> int:
+        """What is spendable right now, in coins. ``0`` when the read fails.
+
+        Read through the economy's own door rather than from SQL: the wallet is
+        *that* system's row, and a second reader of it would be a second answer to
+        "how much money do I have" the first time somebody moves coins to the bank.
+        """
+        try:
+            eco = await get_eco(user_id, guild_id)
+        except Exception as exc:  # noqa: BLE001 — a card may not fall over a purse
+            print(f"[DEVCAT] could not read a wallet: {exc!r}", flush=True)
+            return 0
+        return max(0, int(eco.get("wallet") or 0))
+
+    async def spend(self, guild_id: int, user_id: int, amount: int) -> bool:
+        """Take ``amount`` coins **if they are really there**, and say whether they were.
+
+        The conditional debit is the economy's own, and using it rather than a
+        plain negative delta is the difference between a refusal and a free meal:
+        an unconditional debit clamps at zero, so a member holding nine coins would
+        be served a bowl that costs twenty-five.
+        """
+        if amount <= 0:
+            return True
+        try:
+            return bool(await take_stake(user_id, guild_id, int(amount)))
+        except Exception as exc:  # noqa: BLE001 — refused, not crashed
+            print(f"[DEVCAT] a debit failed: {exc!r}", flush=True)
+            return False
+
+    async def credit(self, guild_id: int, user_id: int, amount: int) -> None:
+        """Pay a member what their pet earned them. Never raises at a card."""
+        if amount <= 0:
+            return
+        try:
+            await update_wallet(user_id, guild_id, int(amount))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[DEVCAT] a credit failed: {exc!r}", flush=True)
+
     async def setting(self, guild_id: int, setting_id: str, default=None):
         if guild_id is None:
             return default
@@ -539,8 +603,19 @@ class DevToy(commands.Cog):
         return embed
 
     # -- care ---------------------------------------------------------------- #
-    async def care(self, interaction: discord.Interaction, action_id: str) -> None:
-        """One care action from a command, worked through the shared rules."""
+    async def care(
+        self, interaction: discord.Interaction, action_id: str, *, food_id: str = ""
+    ) -> None:
+        """One care action from a command, worked through the shared rules.
+
+        The order is the whole of the money's half: the **rules** decide whether
+        the action happens and what it costs, the **debit** happens only if they
+        said yes, and nothing is written unless the coins were really taken. A
+        member who cannot afford the bowl is told the price and the balance and
+        loses neither their cooldown nor a row — which is why the refusal is here
+        rather than inside ``devtoy.care``: this module owns the wallet and that
+        one owns the price.
+        """
         guild_id, user_id = interaction.guild_id, interaction.user.id
         cat = await self._load(guild_id, user_id)
         if cat is None:
@@ -552,21 +627,60 @@ class DevToy(commands.Cog):
                 ),
                 ephemeral=True,
             )
-        result = devtoy.care(cat, action_id, time.time(), rng=self.rng)
+        item = devtoy.choose_food(food_id) if action_id == "feed" else None
+        result = devtoy.care(cat, action_id, time.time(), food=item, rng=self.rng)
+        if result.ok and result.cost and not await self.spend(guild_id, user_id, result.cost):
+            balance = await self.wallet(guild_id, user_id)
+            name = result.cat.name or devtoy.DEFAULT_NAME
+            return await send_card(
+                interaction,
+                embed=self.embed(
+                    "🪙 Not enough coins",
+                    f"{item.label} costs **{result.cost}** coins and you have "
+                    f"**{balance:,}**.\n\n-# `/work` and `/daily` fill the purse — "
+                    f"or pet and play with {name} while it is still hungry, which "
+                    "pays a few coins back.",
+                ),
+                ephemeral=True,
+            )
         if result.ok:
             await self._save(guild_id, user_id, result.cat)
+            await self.credit(guild_id, user_id, result.earn)
+        balance = await self.wallet(guild_id, user_id)
         await send_card(
             interaction,
-            embed=self._care_embed(result),
+            embed=self._care_embed(result, balance=balance, item=item),
             view=self.panel_view,
             ephemeral=True,
         )
 
-    def _care_embed(self, result: devtoy.CareResult) -> discord.Embed:
+    def _care_embed(
+        self,
+        result: devtoy.CareResult,
+        *,
+        balance: int = 0,
+        item: "devtoy.Food | None" = None,
+    ) -> discord.Embed:
+        """The card for one care action, with the money's half of it on the card.
+
+        A bowl that was paid for and a pet that paid its owner back are both facts
+        about the member's purse, and a pet feature that moved coins without saying
+        so would be the kind of economy a person stops trusting.
+        """
         title = f"{devtoy.face(result.cat)} {result.headline}"
         body = result.detail
         if result.ok:
             body = f"{body}\n\n{devtoy.panel_body(result.cat, time.time())}"
+            if result.cost and item is not None:
+                body += (
+                    f"\n-# {item.label} — **{result.cost}** coins paid · "
+                    f"**{balance:,}** left"
+                )
+            elif result.earn:
+                body += (
+                    f"\n-# {devtoy.species_of(result.cat).label} brought you "
+                    f"**{result.earn}** coins · **{balance:,}** in the purse"
+                )
         return self.embed(title, body)
 
     async def care_button(self, interaction: discord.Interaction, action_id: str) -> None:
@@ -608,8 +722,23 @@ class DevToy(commands.Cog):
                 ephemeral=True,
             )
         now = time.time()
+        if devtoy.is_dead(cat, now):
+            # The memorial, and it says what to do about it: a dead pet's status
+            # card that looked like any other would be a card that never explains
+            # why nothing on it can change.
+            title, body = devtoy.death_text(cat, now, rng=self.rng)
+            body += (
+                "\n\n-# Their cards, the panel and every care action stay shut until "
+                "an administrator runs `/cat revive`."
+            )
+            return await send_card(
+                interaction, embed=self.embed(title, body), ephemeral=True
+            )
         rows = "\n".join(f"**{name}** · {value}" for name, value in devtoy.status_fields(cat, now))
-        body = f"{rows}\n\n-# Care actions are rate-limited; the cat is a clock, not a job."
+        body = (
+            f"{rows}\n\n-# Care actions are rate-limited, food costs coins, and a "
+            "partnership nobody feeds is a partnership that ends."
+        )
         await send_card(
             interaction,
             embed=self.embed(f"{devtoy.face(cat)} {cat.name or devtoy.DEFAULT_NAME}", body),
@@ -619,7 +748,15 @@ class DevToy(commands.Cog):
 
     # -- the arcade ---------------------------------------------------------- #
     async def record_game(self, interaction: discord.Interaction, game_id: str, value: float) -> str:
-        """Store a finished game and say whether it beat the old record."""
+        """Store a finished game, pay for it, and say whether it beat the old record.
+
+        The arcade pays **coins** — a flat prize per finished game and a bonus for a
+        record — because the games and the pet are one economy rather than two toys
+        in one process: the pets pay for bowls and the arcade is one honest way to
+        earn one. The amounts are ``utils/devtoy``'s (small, and bounded by nothing
+        but a member's own time), and the payment is this file's, through the same
+        door ``/work`` uses.
+        """
         guild_id, user_id = interaction.guild_id, interaction.user.id
         existing = await db.devcat_record(guild_id, user_id, game_id)
         previous = existing["best"] if existing else None
@@ -630,11 +767,17 @@ class DevToy(commands.Cog):
         cat = await self._load(guild_id, user_id)
         if cat is not None:
             await self._save(guild_id, user_id, devtoy.Cat(**{**asdict(cat), "games": cat.games + 1}))
+        prize = devtoy.GAME_PRIZE + (devtoy.RECORD_BONUS if better else 0)
+        await self.credit(guild_id, user_id, prize)
+        purse = f"\n🪙 **{prize}** coins."
         if better and previous:
-            return f"🏅 New record — {devtoy.record_text(game_id, value)} (was {devtoy.record_text(game_id, previous)})."
+            return (
+                f"🏅 New record — {devtoy.record_text(game_id, value)} "
+                f"(was {devtoy.record_text(game_id, previous)}).{purse}"
+            )
         if better:
-            return f"🏅 First record — {devtoy.record_text(game_id, value)}."
-        return f"Record stands at {devtoy.record_text(game_id, previous)}."
+            return f"🏅 First record — {devtoy.record_text(game_id, value)}.{purse}"
+        return f"Record stands at {devtoy.record_text(game_id, previous)}.{purse}"
 
     async def start_game(self, interaction: discord.Interaction, game_id: str) -> None:
         if not await self.allow(interaction):
@@ -831,11 +974,30 @@ class DevToy(commands.Cog):
             print(f"[DEVCAT] ambient tick failed: {exc!r}", flush=True)
 
     async def _ambient_once(self) -> None:
+        """One pass of the pet's own voice: the quiet card, the asks, the obituary.
+
+        Three jobs in one tick, and they are deliberately separate rather than one
+        card with three reasons. The **quiet card** belongs to the server (capped
+        per server, switched per server); a **hungry pet** is one member's news and
+        has its own allowance, so a starving cat can neither spend the room's three
+        cards nor be silenced by them; and an **obituary** is posted whether or not
+        anybody's chatter is on, because it is the only thing in this system that
+        answers for a pet that is gone.
+        """
         guild = self.bot.get_guild(bot_channels.DEV_SERVER_GUILD_ID)
         if guild is None:
             return
         if not self.bot.is_module_enabled(guild.id, MODULE):
             return
+        rows = await db.devcat_pets_for_tick(guild.id)
+        if not rows:
+            return
+        await self._quiet_card(guild)
+        await self._hungry_pass(guild, rows)
+        await self._obituary_pass(guild, rows)
+
+    async def _quiet_card(self, guild) -> None:
+        """The cat's own card: one row, two clocks, and the server's switch."""
         if not await self.setting_bool(guild.id, "nudges", default=True):
             return
         row = await db.devcat_ambient(guild.id)
@@ -866,6 +1028,125 @@ class DevToy(commands.Cog):
             nudge_day=after.nudge_day,
             nudge_count=after.nudge_count,
         )
+
+    def _pet_card(self, cat: devtoy.Cat, kind: str, thought: str = "") -> discord.Embed:
+        """One card *from a pet to its owner*: the hungry ask, or the obituary."""
+        now = time.time()
+        if kind == "gone":
+            title, body = devtoy.death_text(cat, now, rng=self.rng)
+            footer = "🐈 the cat, gone"
+        else:
+            title, body = devtoy.hunger_text(cat, now, rng=self.rng, instead=thought or "")
+            footer = "🐈 the cat, hungry"
+        return self.embed(title, body, footer=footer)
+
+    async def _deliver_pet_card(
+        self, guild, channel, cat: devtoy.Cat, *, owner_id: int, kind: str
+    ) -> bool:
+        """Send one pet's own card to its owner, and say whether it landed.
+
+        The ping switch is what makes the card *about* somebody, and on these two
+        cards it is the pet's own person rather than the server's best-cared-for
+        cat: these are the cards whose whole job is to reach one member. With the
+        switch off — the default — the card goes out with :data:`NO_PINGS` and the
+        words alone are mention-free by construction.
+
+        A card that did **not** land is not said, exactly as it is not for the
+        quiet card: the ask is not marked as sent, and the pass gives up for this
+        tick rather than spending the others' turns on a room it cannot post in.
+        """
+        thought = ""
+        if kind != "gone":
+            # The pet is allowed to *think of* its own ask when the brain is on;
+            # the written line is what it says when that is off or unreachable, so
+            # the card's shape and its deadline never change.
+            thought = await self.think(guild.id, devtoy.hunger_messages(cat, time.time())) or ""
+        embed = self._pet_card(cat, kind, thought)
+        ping = await self.setting_bool(guild.id, "ping", default=False)
+        allowed = None
+        if ping and owner_id:
+            embed.description = f"<@{owner_id}>\n{embed.description}"
+            allowed = pings(owner_id)
+        try:
+            await send_card(
+                channel,
+                embed=embed,
+                view=self.panel_view if kind == "hungry" else None,
+                allowed_mentions=allowed,
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(
+                f"[DEVCAT] could not post a {kind} card in "
+                f"{getattr(channel, 'id', '?')}: {exc}",
+                flush=True,
+            )
+            return False
+        return True
+
+    async def _hungry_pass(self, guild, rows: list[dict]) -> None:
+        """Every pet below the hunger line, told to its own owner.
+
+        At most :data:`utils.devtoy.HUNGER_ASKS_PER_TICK` of them, and the rows
+        arrive sorted by the bowl — so a room where six pets are starving at the
+        same moment gets two cards now and the rest in the passes after, rather
+        than the same sentence six times in one breath.
+        """
+        if not await self.setting_bool(guild.id, "hunger", default=True):
+            return
+        now = time.time()
+        channel = None
+        sent = 0
+        for row in rows:
+            if sent >= devtoy.HUNGER_ASKS_PER_TICK:
+                return
+            cat = cat_from_row(row)
+            if cat is None:
+                continue
+            if not devtoy.hunger_due(cat, now).ok:
+                continue
+            if channel is None:
+                channel = await self.ambient_channel(guild)
+                if channel is None:
+                    return
+            owner_id = int(row.get("user_id") or 0)
+            if not await self._deliver_pet_card(
+                guild, channel, cat, owner_id=owner_id, kind="hungry"
+            ):
+                return
+            # Marked **after** the card landed, and with the drifted row: an ask
+            # nobody received must not count against the pet's allowance, and the
+            # row that is written is the state the card was drawn from.
+            await self._save(guild.id, owner_id, devtoy.mark_hunger(cat, now))
+            sent += 1
+
+    async def _obituary_pass(self, guild, rows: list[dict]) -> None:
+        """Tell each owner, **once**, that their pet is gone.
+
+        Posted whether or not the room's chatter is on, and whether or not the
+        pet's own asks are: this is not the cat talking, it is the only way a
+        member can learn the one fact that nothing else in this system will answer
+        for. ``death_notice`` on the row is what makes *once* true — without it the
+        tick would re-post the same obituary every two minutes for as long as the
+        pet stayed dead.
+        """
+        now = time.time()
+        channel = None
+        for row in rows:
+            if float(row.get("death_notice") or 0):
+                continue
+            cat = cat_from_row(row)
+            if cat is None or not devtoy.is_dead(cat, now):
+                continue
+            if channel is None:
+                channel = await self.ambient_channel(guild)
+                if channel is None:
+                    return
+            owner_id = int(row.get("user_id") or 0)
+            if not await self._deliver_pet_card(
+                guild, channel, cat, owner_id=owner_id, kind="gone"
+            ):
+                return
+            await db.devcat_mark_death_notice(guild.id, owner_id, now)
 
     # -- the cat's answers ---------------------------------------------------- #
     async def chat_gate(self, guild_id: int) -> str | None:
@@ -1053,23 +1334,123 @@ class DevToy(commands.Cog):
         description="🐈 The Dev Cat — a pet that lives in the bot's own servers (VIP).",
     )
 
-    @cat.command(name="adopt", description="Adopt your own cat (one each).")
-    @app_commands.describe(name="What to call it (anything rude is refused, not escaped).")
-    async def cat_adopt(self, interaction: discord.Interaction, name: str = ""):
+    @cat.command(name="adopt", description="Adopt your own pet (one each).")
+    @app_commands.describe(
+        name="What to call it (anything rude is refused, not escaped).",
+        species="Which animal: each one eats, costs and pays back differently.",
+    )
+    @app_commands.choices(
+        species=[
+            app_commands.Choice(
+                name=f"{spec.emoji} {spec.label} — "
+                + (f"{spec.adopt_cost:,} coins" if spec.adopt_cost else "free"),
+                value=spec.id,
+            )
+            for spec in devtoy.SPECIES
+        ]
+    )
+    async def cat_adopt(self, interaction: discord.Interaction, name: str = "", species: str = ""):
+        """One pet each, and the species is paid for before it moves in.
+
+        A member who already has one is shown it instead of getting a second — and a
+        member whose pet is **gone** is shown the memorial, because a lost pet is not
+        a chance to pick a different animal: that is exactly what the administrator's
+        `/cat revive` is for, and "adopt a new one" would quietly undo it.
+        """
         cat = await self._load(interaction.guild_id, interaction.user.id)
         if cat is not None:
             return await self.show_status(interaction, interaction.user)
+        chosen = devtoy.species_for(species)
+        guild_id, user_id = interaction.guild_id, interaction.user.id
+        if chosen.adopt_cost and not await self.spend(guild_id, user_id, chosen.adopt_cost):
+            balance = await self.wallet(guild_id, user_id)
+            return await send_card(
+                interaction,
+                embed=self.embed(
+                    "🪙 Not enough coins",
+                    f"A {chosen.label.lower()} costs **{chosen.adopt_cost:,}** coins and "
+                    f"you have **{balance:,}**.\n\n-# `/cat shop` has every animal's "
+                    "price and what each one eats; `/work` and `/daily` are how the "
+                    "purse gets filled.",
+                ),
+                ephemeral=True,
+            )
         now = time.time()
-        fresh = devtoy.adopt(now, name)
-        await self._save(interaction.guild_id, interaction.user.id, fresh)
+        fresh = devtoy.adopt(now, name, chosen.id)
+        await self._save(guild_id, user_id, fresh)
+        paid = (
+            f"\n-# {chosen.adopt_cost:,} coins paid · "
+            f"**{await self.wallet(guild_id, user_id):,}** left"
+            if chosen.adopt_cost
+            else ""
+        )
         body = (
-            f"**{fresh.name}** has moved in. 🐾\n\n{devtoy.panel_body(fresh, now)}\n\n"
-            "Feed them, pet them, play with them — or type `/bored` when there is nothing else."
+            f"**{fresh.name}** the {chosen.label.lower()} has moved in. "
+            f"{chosen.emoji}\n\n{devtoy.panel_body(fresh, now)}\n\n"
+            f"-# {chosen.blurb}\n"
+            f"-# One bowl of {devtoy.HOUSE_FOOD.label} is "
+            f"**{devtoy.feed_price(fresh)}** coins, and the bowl empties on its own."
+            f"{paid}"
         )
         await send_card(
             interaction,
-            embed=self.embed("🐈 A cat, adopted", body),
+            embed=self.embed(f"{chosen.emoji} A {chosen.label.lower()}, adopted", body),
             view=self.panel_view,
+        )
+
+    @cat.command(name="shop", description="What food costs for your pet, and what care pays back.")
+    async def cat_shop(self, interaction: discord.Interaction):
+        """The pet's side of the economy, on one card.
+
+        Both directions are on it on purpose. Prices alone read as a toll; the pet's
+        own payback is what makes the toy something a member with an empty purse can
+        still take part in, and the two numbers belong side by side so that "feeding
+        this animal costs more than it gives back" is something the card answers
+        rather than something the member has to work out.
+        """
+        if not await self.allow(interaction):
+            return
+        guild_id, user_id = interaction.guild_id, interaction.user.id
+        cat = await self._load(guild_id, user_id)
+        # A member with no pet yet is shown a *cat's* prices, because that is the
+        # animal they would get by default — this card is an answer, not a teaser.
+        priced_for = cat if cat is not None else devtoy.species_for("")
+        spec = devtoy.species_of(priced_for)
+        balance = await self.wallet(guild_id, user_id)
+        bowls = []
+        for item in devtoy.FOODS:
+            gains = f"+{int(item.fed)} food"
+            if item.mood:
+                gains += f" · +{int(item.mood)} mood"
+            if item.energy:
+                gains += f" · +{int(item.energy)} energy"
+            bowls.append(
+                f"{item.label} — **{devtoy.feed_price(priced_for, item)}** coins · "
+                f"{gains}\n-# {item.blurb}"
+            )
+        animals = " · ".join(
+            f"{s.emoji} {s.label} "
+            + (f"**{s.adopt_cost:,}**" if s.adopt_cost else "**free**")
+            for s in devtoy.SPECIES
+        )
+        whose = f"your {spec.label.lower()}" if cat is not None else "a cat"
+        pays = devtoy.care_coins(priced_for)
+        body = (
+            f"You have **{balance:,}** coins.\n\n"
+            f"**Bowls** — priced for {whose}\n"
+            + "\n".join(bowls)
+            + "\n\n**Care pays back**\n"
+            f"{spec.emoji} A {spec.label.lower()} pays **{pays}** coins every time you "
+            "pet or play with it, and more as its care level climbs.\n\n"
+            f"**Other animals**\n{animals}\n\n"
+            f"-# A bowl that is not eaten empties in about "
+            f"{devtoy.humanize(100 / (devtoy.FED_PER_HOUR * spec.appetite) * 3600)}, and "
+            "a pet left at an empty bowl for "
+            f"{devtoy.humanize(devtoy.DEATH_GRACE)} is **gone** until an "
+            "administrator runs `/cat revive`."
+        )
+        await send_card(
+            interaction, embed=self.embed("🐾 The pet shop", body), ephemeral=True
         )
 
     @cat.command(name="status", description="How your cat is doing (or somebody else's).")
@@ -1077,9 +1458,26 @@ class DevToy(commands.Cog):
     async def cat_status(self, interaction: discord.Interaction, member: discord.Member | None = None):
         await self.show_status(interaction, member or interaction.user)
 
-    @cat.command(name="feed", description="Feed your cat.")
-    async def cat_feed(self, interaction: discord.Interaction):
-        await self.care(interaction, "feed")
+    @cat.command(name="feed", description="Buy your pet a bowl — food costs coins.")
+    @app_commands.describe(food="What to put in the bowl. Prices depend on the animal.")
+    @app_commands.choices(
+        food=[
+            app_commands.Choice(
+                name=f"{item.label} — +{int(item.fed)} food"
+                + (f", +{int(item.mood)} mood" if item.mood else ""),
+                value=item.id,
+            )
+            for item in devtoy.FOODS
+        ]
+    )
+    async def cat_feed(self, interaction: discord.Interaction, food: str = ""):
+        """Feeding is a purchase, and the price is the pet's own.
+
+        The card names what was paid and what is left, because a bowl is the one
+        care action that costs money and a member should never have to guess which
+        of the two dials moved their purse.
+        """
+        await self.care(interaction, "feed", food_id=food)
 
     @cat.command(name="pet", description="Pet your cat.")
     async def cat_pet(self, interaction: discord.Interaction):
@@ -1121,20 +1519,78 @@ class DevToy(commands.Cog):
                 ephemeral=True,
             )
         lines = []
+        now = time.time()
         for index, row in enumerate(rows, start=1):
             cat = cat_from_row(row)
             if cat is None:
                 continue
             who = await display_name(interaction.guild, row["user_id"])
+            spec = devtoy.species_of(cat)
+            gone = " · 🕯️ gone" if devtoy.is_dead(cat, now) else ""
             lines.append(
                 f"`{index}.` {devtoy.face(cat)} **{cat.name or devtoy.DEFAULT_NAME}** — "
-                f"{who} · level {devtoy.care_level(cat)} · {cat.care_days}d streak"
+                f"{who} · {spec.label} · level {devtoy.care_level(cat)} · "
+                f"{cat.care_days}d streak · {int(cat.coins):,}🪙{gone}"
             )
         await send_card(
             interaction,
-            embed=self.embed("🐈 Cats of this server", "\n".join(lines)),
+            embed=self.embed("🐈 Pets of this server", "\n".join(lines)),
             ephemeral=True,
         )
+
+    # -- an administrator's own door ----------------------------------------- #
+    @cat.command(
+        name="revive",
+        description="Bring a pet that starved back to life — administrators only.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(member="Whose pet to bring back. Yours by default.")
+    async def cat_revive(self, interaction: discord.Interaction, member: discord.Member | None = None):
+        """The one way back from the dead, and the reason it is an administrator's.
+
+        A pet that starved stops answering to its owner: care is refused, the panel
+        is refused, and no new pet may move in. Undoing that is a *decision about
+        somebody else's thing*, so it sits behind this server's administrators — and
+        the card goes out in public rather than privately, because the member whose
+        pet it was is the one person who has to find out that it is over.
+        """
+        if not await self.allow(interaction):
+            return
+        owner = member or interaction.user
+        cat = await self._load(interaction.guild_id, owner.id)
+        name_of_owner = getattr(owner, "display_name", None) or "that member"
+        if cat is None:
+            return await send_card(
+                interaction,
+                embed=self.embed(
+                    "🐈 No pet", f"{name_of_owner} has no pet here to bring back."
+                ),
+                ephemeral=True,
+            )
+        now = time.time()
+        if not devtoy.is_dead(cat, now):
+            return await send_card(
+                interaction,
+                embed=self.embed(
+                    "🐈 Nothing to revive",
+                    f"{devtoy.pet_name(cat)} is alive and "
+                    f"{devtoy.mood_word(devtoy.drift(cat, now))} — there is nothing "
+                    "to undo.",
+                ),
+                ephemeral=True,
+            )
+        fresh = devtoy.revive(cat, now)
+        await self._save(interaction.guild_id, owner.id, fresh)
+        name = fresh.name or devtoy.DEFAULT_NAME
+        line = devtoy.pick(devtoy.REVIVE_LINES, self.rng).format(name=name)
+        body = (
+            f"{line}\n\n{devtoy.panel_body(fresh, now)}\n\n"
+            f"-# Brought back by {name_of_owner}. That is "
+            f"**{devtoy.lives_lost(fresh, now)}** "
+            f"{'life' if devtoy.lives_lost(fresh, now) == 1 else 'lives'} lost so far "
+            "— the bowl empties again from now."
+        )
+        await send_card(interaction, embed=self.embed(f"💛 {name} lives", body))
 
     # -- what the cat fetches ------------------------------------------------ #
     @cat.command(name="photo", description="A real cat photograph, fetched just now.")
@@ -1263,6 +1719,7 @@ class DevToy(commands.Cog):
         chat = await self.setting_bool(guild_id, "reactions", default=True)
         brain = await self.brain_on(guild_id)
         ping = await self.setting_bool(guild_id, "ping", default=False)
+        hunger = await self.setting_bool(guild_id, "hunger", default=True)
         home = await self.setting(guild_id, "home_channel", "") or str(bot_channels.DEV_CHAT_CHANNEL_ID)
         row = await db.devcat_ambient(guild_id)
         state = devtoy.AmbientState(
@@ -1286,6 +1743,8 @@ class DevToy(commands.Cog):
             f"💬 **Chat** — {on(chat)} · answers and reactions to what you type here\n"
             f"🧠 **Brain** — {on(brain)} · sentences it writes itself, by {source}\n"
             f"📣 **Ping** — {on(ping)} · whether those cards may mention you\n"
+            f"🍽️ **Hungry asks** — {on(hunger)} · a pet tells its owner when the "
+            "bowl is low, with the price and the time left\n"
             f"📌 **Home** — <#{home}>\n\n"
             f"-# {today}/{devtoy.NUDGE_DAILY_CAP} cards today. The panel button posts the "
             "cat's card wherever you point it."

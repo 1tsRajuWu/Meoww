@@ -570,7 +570,7 @@ async def active_effects(
 ) -> dict[str, tuple[float, float]]:
     """Active effects, dropping any that have just expired."""
     now = time.time() if now is None else now
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT effect, value, expires_ts FROM item_effects "
             "WHERE user_id=? AND guild_id=?",
@@ -600,7 +600,7 @@ async def owned_items(user_id: int, guild_id: int) -> list[Item]:
     backup) used to multiply it twice. Buying the same item twice is a legitimate
     thing to do, so the guard belongs here rather than at the call sites.
     """
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT item_name FROM inventory WHERE user_id=? AND guild_id=?",
             (user_id, guild_id),

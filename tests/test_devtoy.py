@@ -1250,14 +1250,19 @@ class TheCogIsTheVipBotOnly(unittest.TestCase):
         from utils import permissions as perms
 
         for path in (
-            "cat adopt", "cat status", "cat feed", "cat pet", "cat play", "cat rename",
-            "cat top", "cat photo", "cat fact", "cat ask", "cat bored", "cat panel",
-            "cat settings",
+            "cat adopt", "cat status", "cat feed", "cat shop", "cat pet", "cat play",
+            "cat rename", "cat top", "cat photo", "cat fact", "cat ask", "cat bored",
+            "cat revive", "cat panel", "cat settings",
         ):
             self.assertIn(path, perms.COMMAND_ACCESS)
         self.assertEqual(perms.COMMAND_ACCESS["cat settings"], perms.ADMIN)
         self.assertEqual(perms.COMMAND_ACCESS["cat panel"], perms.ADMIN)
         self.assertEqual(perms.COMMAND_ACCESS["cat bored"], perms.EVERYONE)
+        # The purse and the one door onto somebody else's pet. `/cat revive` is the
+        # administrator's because it is a decision about a thing that is not yours;
+        # reading prices is everybody's.
+        self.assertEqual(perms.COMMAND_ACCESS["cat shop"], perms.EVERYONE)
+        self.assertEqual(perms.COMMAND_ACCESS["cat revive"], perms.ADMIN)
         # The three that fetch are everyone's: a picture of a cat is not a
         # moderation act, and the one that costs a network call is bounded by the
         # server's own brain switch rather than by a permission bit.
@@ -1270,7 +1275,7 @@ class TheCogIsTheVipBotOnly(unittest.TestCase):
             keys,
             [
                 "devcat_nudges", "devcat_reactions", "devcat_ping", "devcat_brain",
-                "devcat_home_channel",
+                "devcat_home_channel", "devcat_hunger",
             ],
         )
         self.assertEqual(len(keys), len(set(keys)))

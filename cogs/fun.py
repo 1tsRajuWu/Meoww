@@ -7,7 +7,7 @@ import aiosqlite
 from utils import db, loans, gifs, flavor, style
 from utils.style import send_card, display_name, pings
 
-DB_PATH = db.DB_PATH
+DB_PATH = db.db_path()
 
 CAT_SOUNDS = [
     ("meow_1.ogg", "🐾 Short Cute Meow", "Mew!"),

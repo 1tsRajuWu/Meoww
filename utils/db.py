@@ -7,6 +7,10 @@ from utils import features, levels
 
 DB_PATH = "bot.db"
 
+def db_path() -> str:
+    """Return the current database path, which may be overridden at runtime."""
+    return DB_PATH
+
 # Module defaults now live in the feature registry (utils/features.py) so the
 # bot, the dashboard and the help menu can never disagree about which modules
 # start on. Kept as a module attribute for backwards compatibility.
@@ -1126,8 +1130,25 @@ async def setup():
             last_care_day TEXT DEFAULT '',
             care_score INTEGER DEFAULT 0,
             games INTEGER DEFAULT 0,
+            -- Which animal it is, and what the bowl has done to it since: the
+            -- instant it emptied (``starving_since``), the member's own hunger
+            -- allowance (``last_ask``/``ask_day``/``ask_count``), the lives lost
+            -- and what the pet has paid its owner back in coins.
+            species TEXT DEFAULT 'cat',
+            starving_since REAL DEFAULT 0,
+            last_ask REAL DEFAULT 0,
+            ask_day TEXT DEFAULT '',
+            ask_count INTEGER DEFAULT 0,
+            deaths INTEGER DEFAULT 0,
+            coins INTEGER DEFAULT 0,
+            death_notice REAL DEFAULT 0,
             PRIMARY KEY (guild_id, user_id)
         )''')
+        # The columns the toy gained after this table shipped. A pet adopted
+        # before there were species reads as a cat rather than as an error, and
+        # one that starved before the starvation clock existed starts *now*
+        # rather than at the epoch.
+        await ensure_columns(db, "devcat_pets", _DEVCAT_PET_ADDED)
         # One row per member per game: the best number they have posted, and how
         # many times they played it. ``best`` is the raw figure — whether lower or
         # higher wins is the game's own business (``utils/devtoy``), not the
@@ -1185,6 +1206,27 @@ async def setup():
                 )
 
         await db.commit()
+
+
+async def truncate_all_tables() -> None:
+    """Truncate all tables in the database. Used by tests to reset the database state."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Get all table names
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
+            tables = [row[0] for row in await cur.fetchall() if not row[0].startswith("sqlite_")]
+        
+        # Disable foreign key constraints temporarily
+        await db.execute("PRAGMA foreign_keys = OFF")
+        
+        # Truncate each table
+        for table in tables:
+            await db.execute(f"DELETE FROM {table}")
+        
+        # Re-enable foreign key constraints
+        await db.execute("PRAGMA foreign_keys = ON")
+        
+        await db.commit()
+
 
 async def get_setting(guild_id: int, key: str, default=None):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -2691,13 +2733,34 @@ def read_alone_time_rows_sync(guild_id) -> list[dict]:
 _DEVCAT_PET_COLUMNS: tuple[str, ...] = (
     "guild_id", "user_id", "name", "fed", "mood", "energy", "adopted_at",
     "updated_at", "last_fed", "last_pet", "last_play", "care_days",
-    "last_care_day", "care_score", "games",
+    "last_care_day", "care_score", "games", "species", "starving_since",
+    "last_ask", "ask_day", "ask_count", "deaths", "coins", "death_notice",
 )
 _DEVCAT_PET_FLOATS = frozenset({
     "fed", "mood", "energy", "adopted_at", "updated_at", "last_fed",
-    "last_pet", "last_play",
+    "last_pet", "last_play", "starving_since", "last_ask", "death_notice",
 })
-_DEVCAT_PET_INTS = frozenset({"guild_id", "user_id", "care_days", "care_score", "games"})
+_DEVCAT_PET_INTS = frozenset({
+    "guild_id", "user_id", "care_days", "care_score", "games", "ask_count",
+    "deaths", "coins",
+})
+
+#: The columns pets gained after the table shipped — species, the starvation
+#: clock, the hunger bookkeeping, the lives lost and the purse. ``CREATE TABLE IF
+#: NOT EXISTS`` never changes a table that exists, so a live database (and every
+#: cloud-restored copy of it) keeps the old shape without this, and a pet adopted
+#: before there were species has to read as a **cat** rather than as an error:
+#: ``DEFAULT 'cat'`` is that migration, one row at a time.
+_DEVCAT_PET_ADDED: dict[str, str] = {
+    "species": "TEXT DEFAULT 'cat'",
+    "starving_since": "REAL DEFAULT 0",
+    "last_ask": "REAL DEFAULT 0",
+    "ask_day": "TEXT DEFAULT ''",
+    "ask_count": "INTEGER DEFAULT 0",
+    "deaths": "INTEGER DEFAULT 0",
+    "coins": "INTEGER DEFAULT 0",
+    "death_notice": "REAL DEFAULT 0",
+}
 
 
 def _devcat_pet_row(row) -> dict:
@@ -2747,6 +2810,42 @@ async def save_devcat_pet(guild_id: int, user_id: int, fields: dict) -> None:
             + ", ".join(_DEVCAT_PET_COLUMNS)
             + ") VALUES (" + ", ".join("?" for _ in _DEVCAT_PET_COLUMNS) + ")",
             tuple(values),
+        )
+        await db.commit()
+
+
+async def devcat_pets_for_tick(guild_id: int, limit: int = 500) -> list[dict]:
+    """Every pet in one server, emptiest bowl first — the hunger and death pass.
+
+    Ordered rather than filtered, on purpose: the pass has to see the pets whose
+    owner has *not* opened a card in weeks (there is no other way to find them),
+    and the order is what makes the per-tick cap pick the hungriest ones when
+    several are shouting at once. One row per member, in the bot's own two
+    servers, so the ceiling is a guard against a pathological table rather than a
+    real limit.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT " + ", ".join(_DEVCAT_PET_COLUMNS)
+            + " FROM devcat_pets WHERE guild_id = ? "
+            "ORDER BY fed ASC, updated_at ASC, user_id ASC LIMIT ?",
+            (guild_id, max(1, int(limit))),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [_devcat_pet_row(row) for row in rows]
+
+
+async def devcat_mark_death_notice(guild_id: int, user_id: int, at: float) -> None:
+    """Remember that a member was *told* their pet is gone.
+
+    Written after the card lands, and read before: without it the tick would post
+    the same obituary every two minutes for as long as the pet stays dead, which is
+    the one card in this system nobody should ever see twice.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE devcat_pets SET death_notice = ? WHERE guild_id = ? AND user_id = ?",
+            (float(at), guild_id, user_id),
         )
         await db.commit()
 

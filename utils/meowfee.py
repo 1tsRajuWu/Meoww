@@ -136,7 +136,7 @@ async def bank_balance(guild_id: int) -> int:
     """What DaCat Bank holds for this guild, or 0 if nothing was ever collected."""
     if not guild_id:
         return 0
-    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+    async with db.aiosqlite.connect(db.db_path()) as conn:
         await conn.execute(CREATE_BANK_TABLE)
         async with conn.execute(
             f"SELECT coins FROM {BANK_TABLE} WHERE guild_id = ?", (guild_id,)

@@ -347,9 +347,13 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         """
         now = time.time()
         conn = sqlite3.connect(cs.db_path())
+        # **Named columns, never a positional list.** This fixture is about a pet
+        # existing at all: what the row holds beyond the name and its two stamps is
+        # the schema's business, and a positional ``VALUES`` makes every column the
+        # pet table ever gains a rewrite of a test about backups.
         conn.execute(
-            "INSERT OR REPLACE INTO devcat_pets VALUES "
-            "(?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, '', 0, 0)",
+            "INSERT OR REPLACE INTO devcat_pets "
+            "(guild_id, user_id, name, adopted_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             (GUILD, MEMBER, "Biscuit", now - 10, now),
         )
         conn.commit()
@@ -389,9 +393,11 @@ class RestoreFromSupabase(TempDatabaseMixin, unittest.IsolatedAsyncioTestCase):
         _make_db(cs.db_path())
         now = time.time()
         conn = sqlite3.connect(cs.db_path())
+        # Named columns: the row only has to *exist*, and the pet table's own shape
+        # is free to grow (see the note on the fixture above).
         conn.execute(
-            "INSERT OR REPLACE INTO devcat_pets VALUES "
-            "(?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, '', 0, 0)",
+            "INSERT OR REPLACE INTO devcat_pets "
+            "(guild_id, user_id, name, adopted_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             (GUILD, MEMBER, "Biscuit", now - 10, now),
         )
         conn.execute("UPDATE user_levels SET last_message_ts = ?", (now - 3600,))
@@ -1623,8 +1629,8 @@ class ASecondApplicationInTheSameBucket(TempDatabaseMixin, unittest.IsolatedAsyn
         now = time.time()
         conn = sqlite3.connect(cs.db_path())
         conn.execute(
-            "INSERT OR REPLACE INTO devcat_pets VALUES "
-            "(?, ?, ?, 0, 0, 0, ?, ?, 0, 0, 0, 0, '', 0, 0)",
+            "INSERT OR REPLACE INTO devcat_pets "
+            "(guild_id, user_id, name, adopted_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             (GUILD, MEMBER, "Biscuit", now - 60, now),
         )
         conn.commit()

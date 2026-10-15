@@ -1041,7 +1041,16 @@ class Questions(commands.Cog):
         except Exception:
             pass
 
+        def _timer_done(task: asyncio.Task) -> None:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.error(f"Question session timer error: {e}")
+
         session.task = asyncio.create_task(self._session_timer(session))
+        session.task.add_done_callback(_timer_done)
 
     @app_commands.command(
         name="questions",

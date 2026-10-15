@@ -357,6 +357,8 @@ async def _close_when_rated(bot, channel_id: int, event: asyncio.Event) -> None:
         await asyncio.wait_for(event.wait(), timeout=FEEDBACK_GRACE_SECONDS)
     except asyncio.TimeoutError:
         pass
+    except Exception as e:
+        print(f"[TICKETS] Feedback watcher error for channel {channel_id}: {e}", flush=True)
     _FEEDBACK_EVENTS.pop(channel_id, None)
     channel = bot.get_channel(channel_id)
     if channel is not None:

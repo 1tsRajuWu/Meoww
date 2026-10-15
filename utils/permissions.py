@@ -421,6 +421,15 @@ COMMAND_ACCESS: dict[str, str] = {
     "cat play": EVERYONE,
     "cat rename": EVERYONE,
     "cat top": EVERYONE,
+    # The purse. `/cat shop` only *reads* prices, so it belongs to everyone; what
+    # a bowl costs is the pet's own business and nobody needs a rank to look at it.
+    "cat shop": EVERYONE,
+    # The one door onto somebody else's pet, and therefore an administrator's: a
+    # pet that starved stops answering to its owner entirely, and undoing that is
+    # a decision about a thing that is not yours. Same tier as `/cat settings`, for
+    # the same reason — the other two commands here that change what *other*
+    # members see.
+    "cat revive": ADMIN,
     # The three that fetch something from outside: a real cat, a real fact, and
     # the cat's own answer to a question. Everyone, because a picture of a cat is
     # not a moderation act — and the one that costs a network call (``ask``) is

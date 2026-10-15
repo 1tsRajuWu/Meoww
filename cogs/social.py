@@ -8,7 +8,7 @@ from utils import db, gifs
 from cogs.economy import get_eco, update_wallet, ensure_eco, take_stake
 from utils.style import send_card, display_name, pings, VIP_BOT_ID, VIP_INVITE_URL
 
-DB_PATH = db.DB_PATH
+DB_PATH = db.db_path()
 
 # -------------------------------------------------------------
 # ANIMAL DATA (Tiers: Common, Uncommon, Rare, Epic, Mythic, Legendary)
@@ -466,7 +466,7 @@ async def _cleanup_couple_roles_on_divorce(guild: discord.Guild | None, id1: int
 
             for mid in (id1, id2):
                 try:
-                    async with _sqlite.connect(_db.DB_PATH) as conn:
+                    async with _sqlite.connect(_db.db_path()) as conn:
                         async with conn.execute(
                             "SELECT 1 FROM marriages WHERE guild_id=? AND user1_id=? LIMIT 1",
                             (guild.id, mid),

@@ -298,24 +298,32 @@ HELP_MODULES = {
         "emoji": "💎"
     },
     "devcat": {
-        "title": "🐈 Dev Cat & Solo Arcade",
+        "title": "🐾 Dev Cat & Solo Arcade",
         "desc": (
-            "One cat, in the bot's own servers. Adopt it, look after it, "
+            "One pet, in the bot's own servers. Adopt it, look after it, "
             "and keep yourself entertained when nobody else is around.\n\n"
-            "> `/cat adopt [name]` — Take a cat home (one each)\n"
-            "> `/cat status [member]` — Mood, food, energy, streak and badges\n"
-            "> `/cat feed` · `/cat pet` · `/cat play` — Look after it; each has its own clock\n"
-            "> `/cat rename` · `/cat top` — Rename it, or see whose cat is living best\n"
+            "> `/cat adopt [name] [species]` — Take a pet home (one each): cat, dog, "
+            "robot or dragon, and each one eats, costs and pays back differently\n"
+            "> `/cat status [member]` — Mood, food, energy, streak, badges and the purse\n"
+            "> `/cat feed` · `/cat pet` · `/cat play` — Look after it; **food costs "
+            "coins** and petting and playing pay a few back\n"
+            "> `/cat shop` — What a bowl costs for your pet, and what care pays\n"
+            "> `/cat rename` · `/cat top` — Rename it, or see whose pet is living best\n"
+            "> `/cat revive [member]` — Administrator only: bring back a pet that starved\n"
             "> `/cat bored` — The arcade: guess my number, paw reflex, word scramble, cat duel, "
-            "and small things to do, with your own records\n\n"
-            "The cat sends a quiet card of its own now and then, and answers when you "
-            "name it — both switchable with `/cat settings`, which is the "
-            "administrator's, as is `/cat panel`. **This system only exists in the "
-            "developer's server, inside the VIP bot**: anywhere else every command "
-            "here is refused, and it is not even loaded by the main bot."
+            "and small things to do, with your own records — and coins for finishing\n\n"
+            "**A hungry pet asks, and a starving one dies.** Feed it or lose it: the "
+            "bowl empties on its own, the pet says so when it runs low, and two days "
+            "at an empty bowl is the end — after that nothing here works again until "
+            "an administrator brings it back. The pet also sends a quiet card of its "
+            "own now and then and answers when you name it, both switchable with "
+            "`/cat settings`, which is the administrator's, as is `/cat panel`. "
+            "**This system only exists in the developer's server, inside the VIP "
+            "bot**: anywhere else every command here is refused, and it is not even "
+            "loaded by the main bot."
         ),
         "color": 0xFFD700,
-        "emoji": "🐈"
+        "emoji": "🐾"
     },
 }
 

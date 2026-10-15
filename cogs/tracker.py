@@ -24,7 +24,7 @@ from utils import db, style, permissions
 # posts and the numbers this cog prints cannot drift apart on the same data.
 from utils.digest import human_count as _fmt_count, human_voice as _fmt_voice
 
-DB_PATH = db.DB_PATH
+DB_PATH = db.db_path()
 RETENTION_DAYS = 365
 VOICE_FLUSH_INTERVAL = 120
 CLEANUP_INTERVAL = 6 * 3600

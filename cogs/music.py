@@ -31,7 +31,7 @@ from discord.ext import commands, tasks
 from utils import db
 from utils.style import display_name, send_card, VIP_BOT_ID, VIP_INVITE_URL
 
-DB_PATH = db.DB_PATH
+DB_PATH = db.db_path()
 
 SPOTIFY_LINK_RE = re.compile(
     r"https?://open\.spotify\.com/(track|album|playlist|episode|show|artist)/([A-Za-z0-9]+)"

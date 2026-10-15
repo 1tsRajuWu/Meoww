@@ -375,7 +375,7 @@ class Moderation(commands.Cog):
         # the rest of their recent record. Read-only, and capped at three so the
         # card stays a card.
         history = []
-        async with aiosqlite.connect(db.DB_PATH) as conn:
+        async with aiosqlite.connect(db.db_path()) as conn:
             async with conn.execute(
                 "SELECT case_type, reason FROM mod_cases "
                 "WHERE guild_id = ? AND user_id = ? AND case_id != ? "

@@ -86,7 +86,7 @@ def _local(db_path: str | None) -> tuple[dict[str, int], float, float, str]:
     if db_path is None:
         from utils import db as _db
 
-        db_path = _db.DB_PATH
+        db_path = _db.db_path()
     return local_table_counts(db_path)
 
 

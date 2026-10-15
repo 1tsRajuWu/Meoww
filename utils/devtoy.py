@@ -39,6 +39,22 @@ Three rules the numbers encode, each one a way a pet feature becomes a nuisance:
   line this module can say out loud is written without a mention in it — a card
   that pings is a card that wakes somebody up, which is exactly what a toy must
   not do.
+
+Two more rules belong to the pet itself, and both are about what a pet is *for*:
+
+* **A pet asks for food, and it can be lost.** Below :data:`HUNGRY_BELOW` the pet
+  says so on its own cards (its own gap and its own daily cap, on top of the
+  ambient ones), the card names the price of the cheapest bowl and **how long is
+  left**, and a pet left standing at an empty bowl for :data:`DEATH_GRACE` is
+  *gone*: care stops working, no new pet may move in, and only an administrator
+  puts it right again (``/cat revive``). The instant the bowl emptied is
+  arithmetic on the stored row rather than a timer — so a pet nobody has looked at
+  for a month reads as dead the first time anybody asks.
+* **Money is the spine of it, and it is the *server's* money.** Species cost coins
+  to adopt (:data:`SPECIES`), a bowl costs coins (:data:`FOODS`), and care pays a
+  few back — so the toy is part of the economy rather than a parallel one with its
+  own currency. Every rate and every price lives in those two tables, where it can
+  be argued about, rather than inside a message string.
 """
 from __future__ import annotations
 
@@ -115,6 +131,163 @@ def is_dev_channel(channel_id) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Species: what kind of animal it is, and what keeping one costs
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class Species:
+    """One kind of pet, and the four ways it is a different animal.
+
+    A species is a **rate**, not a coat of paint, or the choice would be
+    decoration: it moves the same three dials (``appetite``, ``mood_rate``,
+    ``rest_rate``) and the price of its food, so a dog is a commitment and a robot
+    is a bargain rather than a cat with another emoji. ``care_coins`` is what one
+    care action pays its owner back — the other half of the economy loop, and the
+    reason a member with no coins can still afford the next bowl.
+
+    ``cat`` is every multiplier at 1.0 and costs nothing to adopt, which is what
+    keeps the arithmetic the rest of this module (and its suite) already pins —
+    :data:`FED_PER_HOUR` and friends — exactly the cat's own numbers.
+    """
+
+    id: str
+    label: str
+    emoji: str
+    blurb: str
+    adopt_cost: int = 0
+    #: Multiplies the price of every bowl. A big animal eats more.
+    food_markup: float = 1.0
+    #: Multiplies :data:`FED_PER_HOUR`, :data:`MOOD_PER_HOUR` and
+    #: :data:`REST_PER_HOUR` respectively — how fast the bowl empties, how fast
+    #: the mood slips, and how fast a resting pet recovers.
+    appetite: float = 1.0
+    mood_rate: float = 1.0
+    rest_rate: float = 1.0
+    #: Coins one *care action* pays its owner. Feeding pays nothing: a bowl is
+    #: something you buy, which is what makes the pet an expense with a return
+    #: rather than a faucet.
+    care_coins: int = 3
+
+
+SPECIES: tuple[Species, ...] = (
+    Species(
+        "cat", "Cat", "😺",
+        "Cheap to keep, easy to please, and permanently in the way of the keyboard.",
+        care_coins=3,
+    ),
+    Species(
+        "dog", "Dog", "🐶",
+        "Eats almost twice as fast, forgives you every time, and follows you around.",
+        adopt_cost=500, food_markup=1.1, appetite=1.6, mood_rate=0.6, care_coins=6,
+    ),
+    Species(
+        "robot", "Robot", "🤖",
+        "Runs on the cheapest fuel there is, feels nothing, and never holds a grudge.",
+        adopt_cost=1500, food_markup=0.5, appetite=0.8, mood_rate=0.4, rest_rate=1.6,
+        care_coins=9,
+    ),
+    Species(
+        "dragon", "Dragon", "🐉",
+        "Costs a fortune to feed, sulks like a diva, and hoards coins for you.",
+        adopt_cost=5000, food_markup=2.0, appetite=0.7, mood_rate=1.2, rest_rate=1.4,
+        care_coins=25,
+    ),
+)
+SPECIES_BY_ID: dict[str, Species] = {spec.id: spec for spec in SPECIES}
+#: What a row with no species is, which is every row written before pets had one.
+DEFAULT_SPECIES = "cat"
+
+
+@dataclass(frozen=True)
+class Food:
+    """One thing that can go in the bowl, and what it costs.
+
+    ``price`` is the base figure *for a cat*; what a member actually pays is
+    :func:`feed_price`, which applies their own pet's markup — the price is a
+    property of the bowl, and the markup is a property of the animal.
+    """
+
+    id: str
+    label: str
+    price: int
+    fed: float
+    mood: float = 0.0
+    energy: float = 0.0
+    blurb: str = ""
+
+
+FOODS: tuple[Food, ...] = (
+    Food(
+        "kibble", "🥣 Kibble", 25, 45.0, 3.0,
+        blurb="The cheapest thing that stops the noise.",
+    ),
+    Food(
+        "meal", "🍖 Proper meal", 70, 80.0, 10.0,
+        blurb="What the pet would order for itself.",
+    ),
+    Food(
+        "feast", "🐟 A feast", 180, 100.0, 25.0, 15.0,
+        blurb="Somebody is being spoiled, and the whole server can tell.",
+    ),
+)
+FOODS_BY_ID: dict[str, Food] = {item.id: item for item in FOODS}
+#: The bowl the panel's own button buys and any feed that names no food gets.
+HOUSE_FOOD: Food = FOODS[0]
+#: A bowl this full is refused **before** it is paid for: nobody can see the
+#: number behind the dial, and a coin spent on a full bowl is a coin wasted.
+FEED_FULL_AT = 98.0
+#: What ``care_coins`` is multiplied by at level *n* — one coin per ten levels of
+#: care, so a pet looked after for months pays noticeably better than a new one.
+CARE_COIN_BONUS_PER_LEVEL = 1
+
+
+def species_of(cat) -> Species:
+    """The pet's species, the cat — and a :class:`Species` passes straight through.
+
+    The pass-through is not a convenience: every price and every rate in this
+    module is asked of *the animal*, and the two callers that already hold a
+    Species (a choice menu, and the shop card shown to somebody with no pet yet)
+    would otherwise need their own branch — which is how a markup ends up applied
+    twice in one place and not at all in another.
+    """
+    if isinstance(cat, Species):
+        return cat
+    key = str(getattr(cat, "species", "") or "").strip().lower()
+    return SPECIES_BY_ID.get(key) or SPECIES_BY_ID[DEFAULT_SPECIES]
+
+
+def species_for(species_id: str) -> Species:
+    """One species by its id, or the cat. The reader behind every choice menu."""
+    return SPECIES_BY_ID.get(str(species_id or "").strip().lower()) or SPECIES_BY_ID[DEFAULT_SPECIES]
+
+
+def choose_food(food_id: str = "") -> Food:
+    """The named bowl, or the house food when nothing sensible was named."""
+    return FOODS_BY_ID.get(str(food_id or "").strip().lower()) or HOUSE_FOOD
+
+
+def feed_price(cat, food: Food | None = None) -> int:
+    """What one bowl costs *this* pet, rounded to whole coins and never free."""
+    item = food if food is not None else HOUSE_FOOD
+    return max(1, int(round(item.price * species_of(cat).food_markup)))
+
+
+def care_coins(cat) -> int:
+    """What one care action pays this pet's owner: the species' rate, by level.
+
+    A Species stands in for a member with no pet yet, and reads as level one — the
+    shop card has to answer *what will this pay me* before there is anything to ask.
+    """
+    spec = species_of(cat)
+    level = 1 if isinstance(cat, Species) else care_level(cat)
+    return max(0, int(spec.care_coins)) + CARE_COIN_BONUS_PER_LEVEL * (level - 1)
+
+
+def pet_name(cat) -> str:
+    """The pet's name as every card spells it — never empty, never a bare row."""
+    return _name(cat)
+
+
+# --------------------------------------------------------------------------- #
 # The cat
 # --------------------------------------------------------------------------- #
 DIAL_MIN = 0.0
@@ -125,7 +298,9 @@ NAME_LIMIT = 24
 
 #: How fast each dial moves while nobody is looking, per hour: food runs out
 #: first (a cat that eats once a day stays full), mood next, and energy comes
-#: *back* — a cat alone is a cat asleep.
+#: *back* — a cat alone is a cat asleep. These are the **cat's** own numbers;
+#: every other species multiplies them (see :class:`Species`), so the arithmetic
+#: pinned for a cat stays exactly this.
 FED_PER_HOUR = 7.0
 MOOD_PER_HOUR = 3.0
 REST_PER_HOUR = 5.0
@@ -157,6 +332,26 @@ class Cat:
     last_care_day: str = ""
     care_score: int = 0
     games: int = 0
+    #: Which animal this is (a ``SPECIES_BY_ID`` key). Empty is a cat, which is
+    #: what every row written before pets had species reads as.
+    species: str = DEFAULT_SPECIES
+    #: The instant the bowl hit empty, or ``0`` while there is still food in it.
+    #: Written by whichever care action next touches the row, and *derived* from
+    #: ``fed``/``updated_at`` for a row nobody has touched — which is what lets a
+    #: pet nobody has looked at still be dead on time (see :func:`is_dead`).
+    starving_since: float = 0.0
+    #: The hunger bookkeeping, on the *pet's* row rather than the server's: it is
+    #: this member's pet that is asking, and this member who has to be told.
+    last_ask: float = 0.0
+    ask_day: str = ""
+    ask_count: int = 0
+    #: How many times this pet has been brought back from the dead.
+    deaths: int = 0
+    #: Coins this pet has earned its owner, for the card and the leaderboard.
+    coins: int = 0
+    #: When the "this pet is gone" card was posted. ``0`` means nobody has been
+    #: told yet; the tick posts it once and writes the moment here.
+    death_notice: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -174,7 +369,9 @@ class Action:
 
 
 ACTIONS: tuple[Action, ...] = (
-    Action("feed", "🍖 Feed", "fed", cooldown=2 * HOUR, fed=55.0, mood=6.0, score=2),
+    # What a bowl is worth lives in ``FOODS`` rather than here — it depends on
+    # what is in the bowl — so the feed action carries its clock and nothing else.
+    Action("feed", "🍖 Feed", "fed", cooldown=2 * HOUR, score=2),
     Action("pet", "🐾 Pet", "petted", cooldown=15 * MINUTE, mood=22.0, score=1),
     Action(
         "play", "🎾 Play", "played with", cooldown=30 * MINUTE,
@@ -200,6 +397,13 @@ def drift(cat: Cat, now: float) -> Cat:
     Pure and total: any clock, any row, no exception. A clock that moved backwards
     (an NTP step, a restored backup) is treated as no time passing rather than as
     negative decay, which would otherwise hand out food for free.
+
+    Two things the arithmetic carries beyond the three dials. The species' own
+    rates scale them, so a dog really does get hungrier than a cat. And
+    ``starving_since`` is settled here: while there is food in the bowl the pair
+    ``(fed, updated_at)`` is a straight line, so the instant it crosses zero is
+    arithmetic — which is what makes a pet nobody has opened in a month *already
+    dead* rather than dead the next time somebody happens to read it.
     """
     if float(cat.updated_at) <= 0:
         # A row that has never been touched starts the clock now rather than at
@@ -208,13 +412,34 @@ def drift(cat: Cat, now: float) -> Cat:
     elapsed = (float(now) - float(cat.updated_at)) / HOUR
     if elapsed <= 0:
         return cat
+    spec = species_of(cat)
     return replace(
         cat,
-        fed=_clamp(cat.fed - FED_PER_HOUR * elapsed),
-        mood=_clamp(cat.mood - MOOD_PER_HOUR * elapsed),
-        energy=_clamp(cat.energy + REST_PER_HOUR * elapsed),
+        fed=_clamp(cat.fed - FED_PER_HOUR * spec.appetite * elapsed),
+        mood=_clamp(cat.mood - MOOD_PER_HOUR * spec.mood_rate * elapsed),
+        energy=_clamp(cat.energy + REST_PER_HOUR * spec.rest_rate * elapsed),
         updated_at=float(now),
+        starving_since=starving_since(cat, now),
     )
+
+
+def starving_since(cat: Cat, now: float) -> float:
+    """The instant the bowl emptied, or ``0`` while there is still food in it.
+
+    Two cases, and the second is why the first exists. A row with food left is a
+    line — ``fed`` falls at a known rate from a known moment — so the crossing is
+    computed rather than watched, and the answer does not depend on *when* it is
+    asked. A row already standing at zero carries the instant it got there, because
+    the pair alone cannot tell *empty since Tuesday* from *empty since this morning
+    and petted since*, and the difference is somebody's pet.
+    """
+    if float(cat.fed) <= 0:
+        return float(cat.starving_since) or float(cat.updated_at) or float(now)
+    rate = FED_PER_HOUR * species_of(cat).appetite
+    if rate <= 0:
+        return 0.0
+    zero_at = float(cat.updated_at) + (float(cat.fed) / rate) * HOUR
+    return zero_at if float(now) >= zero_at else 0.0
 
 
 def cooldown_left(cat: Cat, action_id: str, now: float) -> float:
@@ -228,25 +453,60 @@ def cooldown_left(cat: Cat, action_id: str, now: float) -> float:
 
 @dataclass(frozen=True)
 class CareResult:
-    """What one care action did, or the sentence saying why it did nothing."""
+    """What one care action did, or the sentence saying why it did nothing.
+
+    ``cost`` is what the caller has to charge for it (a bowl, priced for this
+    pet), ``earn`` is what the pet pays its owner back, and ``dead`` says the
+    refusal is the *permanent* one — a pet that starved is not rate-limited, and
+    the difference is worth a field because only one of the two refusals is
+    something the member can wait out. No coins are moved here: this module owns
+    the **prices**, and the cog owns the wallet.
+    """
 
     ok: bool
     cat: Cat
     headline: str
     detail: str
     remaining: float = 0.0
+    cost: int = 0
+    earn: int = 0
+    dead: bool = False
 
 
-def care(cat: Cat, action_id: str, now: float, *, rng: random.Random | None = None) -> CareResult:
+def care(
+    cat: Cat,
+    action_id: str,
+    now: float,
+    *,
+    food: Food | None = None,
+    rng: random.Random | None = None,
+) -> CareResult:
     """Do one action to ``cat``, or refuse it — with the cat either way.
 
     Refusals return the **drifted** cat, so a call that only reads the reason does
     not also have to do the arithmetic: what comes back is what the row should say.
+
+    Feeding takes a :class:`Food` and uses **its** numbers (the house food when the
+    caller names none), reports the price in :attr:`CareResult.cost`, and refuses a
+    bowl on top of a full one so that a coin is never spent on nothing. Petting and
+    playing pay the pet's own rate back in :attr:`CareResult.earn`. The coins
+    themselves are the cog's: what the rules own is the *price*, so the card and the
+    debit cannot disagree about what a bowl cost.
     """
     action = ACTIONS_BY_ID.get(action_id)
     if action is None:
         raise ValueError(f"unknown action: {action_id!r}")
     stale = drift(cat, now)
+
+    if is_dead(stale, now):
+        # First, before the clock and before the price: a pet that starved is not
+        # on a cooldown, it is *gone*, and only an administrator undoes that.
+        return CareResult(
+            False, stale, "Gone",
+            f"{_name(stale)} is gone. Nothing here reaches them any more — an "
+            "administrator has to bring them back first (`/cat revive`).",
+            dead=True,
+        )
 
     left = cooldown_left(stale, action.id, now)
     if left > 0:
@@ -256,12 +516,24 @@ def care(cat: Cat, action_id: str, now: float, *, rng: random.Random | None = No
             remaining=left,
         )
 
+    fed_gain, mood_gain, energy_gain = action.fed, action.mood, action.energy
+    item: Food | None = None
+    if action.id == "feed":
+        item = food if food is not None else HOUSE_FOOD
+        fed_gain, mood_gain, energy_gain = item.fed, item.mood, item.energy
+        if stale.fed >= FEED_FULL_AT:
+            return CareResult(
+                False, stale, "Not hungry",
+                f"{_name(stale)} has not finished the last bowl. There is no "
+                "sense paying for another one yet.",
+            )
+
     if action.id == "play":
         if stale.energy < PLAY_MIN_ENERGY:
             return CareResult(
                 False, stale, "Too sleepy",
                 f"{_name(stale)} is napping. Let it rest for "
-                f"{humanize((PLAY_MIN_ENERGY - stale.energy) / REST_PER_HOUR * HOUR)}.",
+                f"{humanize((PLAY_MIN_ENERGY - stale.energy) / (REST_PER_HOUR * species_of(stale).rest_rate) * HOUR)}.",
             )
         if stale.fed < PLAY_MIN_FED:
             return CareResult(
@@ -271,32 +543,45 @@ def care(cat: Cat, action_id: str, now: float, *, rng: random.Random | None = No
 
     day = care_day(now)
     days, last_day = streak_after(stale.last_care_day, stale.care_days, day)
+    fed_now = _clamp(stale.fed + fed_gain)
+    earn = 0 if item is not None else care_coins(stale)
     changes: dict[str, object] = {
-        "fed": _clamp(stale.fed + action.fed),
-        "mood": _clamp(stale.mood + action.mood),
-        "energy": _clamp(stale.energy + action.energy),
+        "fed": fed_now,
+        "mood": _clamp(stale.mood + mood_gain),
+        "energy": _clamp(stale.energy + energy_gain),
         "updated_at": float(now),
         STAMP_FIELD[action.id]: float(now),
         "care_days": days,
         "last_care_day": last_day,
         "care_score": max(0, int(stale.care_score) + action.score),
         "adopted_at": stale.adopted_at or float(now),
+        # The starvation clock is cleared by **food**, not by attention: petting a
+        # starving pet puts nothing in its bowl, and the clock it is on has to
+        # keep running while somebody is being affectionate at it.
+        "starving_since": float(stale.starving_since) if fed_now <= 0 else 0.0,
+        "coins": int(stale.coins) + int(earn),
     }
     fresh = replace(stale, **changes)
     head, body = care_line(action.id, fresh, now, rng=rng)
-    return CareResult(True, fresh, head, body)
+    return CareResult(
+        True, fresh, head, body,
+        cost=feed_price(stale, item) if item is not None else 0,
+        earn=earn,
+    )
 
 
 def _name(cat: Cat) -> str:
     return cat.name or DEFAULT_NAME
 
 
-def adopt(now: float, name: str = "") -> Cat:
-    """A brand-new cat, already happy and already fed.
+def adopt(now: float, name: str = "", species: str = DEFAULT_SPECIES) -> Cat:
+    """A brand-new pet, already happy and already fed.
 
     Adopting is the first act of care, so the streak starts at one rather than at
     nothing: a card that says ``0 day(s)`` to somebody who just took a cat home is
-    the whole feature arguing with itself.
+    the whole feature arguing with itself. The species is whatever was chosen (a
+    cat when nothing was), and the empty bowl starts *full* — the clock on it is
+    the member's own business from the moment the pet moves in.
     """
     return Cat(
         name=clean_name(name),
@@ -307,6 +592,7 @@ def adopt(now: float, name: str = "") -> Cat:
         updated_at=float(now),
         care_days=1,
         last_care_day=care_day(now),
+        species=species_for(species).id,
     )
 
 
@@ -346,9 +632,21 @@ def mood_word(cat: Cat) -> str:
 
 
 def face(cat: Cat) -> str:
-    """The one glyph that says how the cat is, for a title or a button."""
+    """The one glyph that says how the pet is, for a title or a button.
+
+    A cat wears the cat's own ladder of faces — the one this module has always
+    drawn. Every other species wears *itself* while it is content, with the two
+    unhappy tells on either side of that, because a dog whose emoji is on a sad
+    card still reads as a happy dog: the point of one glyph is to be read at a
+    glance.
+    """
+    spec = species_of(cat)
     if cat.fed <= 5:
         return "🙀"
+    if spec.id != DEFAULT_SPECIES:
+        if cat.mood >= 30:
+            return spec.emoji
+        return "😿" if cat.mood >= 15 else "😾"
     if cat.mood >= 80 and cat.energy >= 40:
         return "😻"
     if cat.mood >= 55:
@@ -368,7 +666,7 @@ def bar(value: float, *, width: int = 10) -> str:
 
 
 def badges(cat: Cat, now: float) -> list[str]:
-    """The small honours a cat earns, in the order the card shows them."""
+    """The small honours a pet earns, in the order the card shows them."""
     earned: list[str] = []
     if cat.care_days >= 30:
         earned.append("🏆 30 days running")
@@ -382,21 +680,39 @@ def badges(cat: Cat, now: float) -> list[str]:
         earned.append(f"🎮 Arcade regular ({cat.games} games)")
     if cat.adopted_at and (float(now) - cat.adopted_at) >= 30 * DAY:
         earned.append("📅 A month together")
+    lost = lives_lost(cat, now)
+    if lost:
+        # Shown rather than hidden: a pet that has been brought back is a fact
+        # about the member who had to be rescued by an administrator.
+        earned.append("🕯️ Lost one life" if lost == 1 else f"🕯️ Lost {lost} lives")
     if cat.fed >= 95 and cat.mood >= 95:
         earned.append("✨ Perfectly spoiled")
     return earned
 
 
+def dials_line(cat: Cat) -> str:
+    """The three bars as one line — the panel's second row, and any card's."""
+    return (
+        f"{bar(cat.fed)} 🍖 {int(cat.fed)}%   "
+        f"{bar(cat.mood)} 💛 {int(cat.mood)}%   "
+        f"{bar(cat.energy)} ⚡ {int(cat.energy)}%"
+    )
+
+
 def status_fields(cat: Cat, now: float) -> list[tuple[str, str]]:
-    """The card's rows: name, level and the three dials."""
+    """The card's rows: the animal, its level, the three dials and the purse."""
     fresh = drift(cat, now)
+    spec = species_of(fresh)
     rows = [
-        ("Cat", f"{face(fresh)} **{_name(fresh)}** · {mood_word(fresh)}"),
+        ("Pet", f"{face(fresh)} **{_name(fresh)}** · {spec.label} · {mood_word(fresh)}"),
         ("Level", f"**{care_level(fresh)}** · {fresh.care_score} care"),
         ("🍖 Food", f"{bar(fresh.fed)} {int(fresh.fed)}%"),
         ("💛 Mood", f"{bar(fresh.mood)} {int(fresh.mood)}%"),
         ("⚡ Energy", f"{bar(fresh.energy)} {int(fresh.energy)}%"),
         ("🔥 Streak", f"{fresh.care_days} day(s)"),
+        # The purse is the pet's own side of the economy: what this animal has
+        # paid its owner back so far, and what one bowl of house food costs it.
+        ("🪙 Coins", f"**{int(fresh.coins):,}** earned · a bowl is **{feed_price(fresh)}**"),
     ]
     badges_text = badges(fresh, now)
     if badges_text:
@@ -405,13 +721,149 @@ def status_fields(cat: Cat, now: float) -> list[tuple[str, str]]:
 
 
 def panel_body(cat: Cat, now: float) -> str:
-    """The one-line face of the persistent panel."""
+    """The one-line face of the persistent panel — plus its one hint.
+
+    The hint only appears when the pet is actually hungry, and it names the price
+    rather than saying *feed me*, because the price is the reason somebody with no
+    coins does not press the button.
+    """
     fresh = drift(cat, now)
-    return (
-        f"{face(fresh)} **{_name(fresh)}** — {mood_word(fresh)}\n"
-        f"{bar(fresh.fed)} 🍖 {int(fresh.fed)}%   "
-        f"{bar(fresh.mood)} 💛 {int(fresh.mood)}%   "
-        f"{bar(fresh.energy)} ⚡ {int(fresh.energy)}%"
+    body = f"{face(fresh)} **{_name(fresh)}** — {mood_word(fresh)}\n{dials_line(fresh)}"
+    if fresh.fed <= HUNGRY_BELOW:
+        body += (
+            f"\n-# hungry — {HOUSE_FOOD.label} is {feed_price(fresh)} coins "
+            "and `/cat feed` buys one"
+        )
+    return body
+
+
+# --------------------------------------------------------------------------- #
+# Losing a pet, and getting it back
+# --------------------------------------------------------------------------- #
+#: How long a pet stands at an empty bowl before it is gone. A weekend away is
+#: survivable and a fortnight is not, which is the whole of the dial.
+DEATH_GRACE = 2 * DAY
+#: What a revived pet comes back with. Not full, not happy, and not a reward: the
+#: point of the number is that the pet is alive and the member has work to do.
+REVIVE_FED = 45.0
+REVIVE_MOOD = 55.0
+REVIVE_ENERGY = 70.0
+
+
+def died_at(cat: Cat, now: float) -> float:
+    """The instant this pet was lost, or ``0`` while it is still alive."""
+    since = float(drift(cat, now).starving_since)
+    return since + DEATH_GRACE if since > 0 else 0.0
+
+
+def is_dead(cat: Cat, now: float) -> bool:
+    """Whether the pet is gone.
+
+    **Derived, never stored.** A row nobody has opened still answers this
+    correctly, because ``drift`` computes the instant the bowl emptied out of the
+    row's own arithmetic — which is the difference between a pet that is dead and
+    a pet that will be found dead the next time somebody happens to look.
+    """
+    at = died_at(cat, now)
+    return bool(at) and float(now) >= at
+
+
+def dies_in(cat: Cat, now: float) -> float:
+    """Seconds until a starving pet is gone (``0`` when it is not starving)."""
+    at = died_at(cat, now)
+    return 0.0 if not at else max(0.0, at - float(now))
+
+
+def lives_lost(cat: Cat, now: float) -> int:
+    """How many lives this pet has lost, counting the one it may be on right now."""
+    return max(0, int(cat.deaths)) + (1 if is_dead(cat, now) else 0)
+
+
+def revive(cat: Cat, now: float) -> Cat:
+    """A lost pet, back on its feet, with the loss written on it.
+
+    The care clocks are **cleared** rather than left running: whoever just paid
+    for a life should not then be told to wait two hours before they may feed it.
+    The life is counted *here* — this is the one moment when both halves of the
+    fact (the pet died, and somebody was allowed to bring it back) are in one
+    place — and nothing else is reset, on purpose. The name, the streak, the score
+    and the records are the same pet's; a revived pet wearing none of them would
+    make dying a way to start over.
+    """
+    return replace(
+        cat,
+        fed=REVIVE_FED,
+        mood=REVIVE_MOOD,
+        energy=REVIVE_ENERGY,
+        starving_since=0.0,
+        updated_at=float(now),
+        last_fed=0.0,
+        last_pet=0.0,
+        last_play=0.0,
+        deaths=max(0, int(cat.deaths)) + 1,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The pet asks for food
+# --------------------------------------------------------------------------- #
+#: Below this the pet starts asking: on its own cards, and as the extra line the
+#: panel grows. Roughly four hours of a cat's clock — enough warning to matter and
+#: late enough that it is not nagging about a bowl that is half full.
+HUNGRY_BELOW = 30.0
+#: The hunger allowance, and it is **the pet's own** rather than the server's: a
+#: hungry pet asking is a message to one member, not a card the whole room reads,
+#: so it has its own gap, its own daily ceiling, and its own switch.
+HUNGER_MIN_GAP = 2 * HOUR
+HUNGER_DAILY_CAP = 6
+#: How many pets one tick may ask for at once. A server where every pet is hungry
+#: at the same moment posts two cards and comes back in two minutes, rather than
+#: burying the room in the same sentence a dozen times.
+HUNGER_ASKS_PER_TICK = 2
+
+
+@dataclass(frozen=True)
+class HungerDecision:
+    """Whether a pet may ask its owner for food right now, and why not when not."""
+
+    ok: bool
+    reason: str = ""
+
+
+def hunger_due(cat: Cat, now: float, *, enabled: bool = True) -> HungerDecision:
+    """Whether one pet may ask for food *right now*, with the reason when it may not.
+
+    Read from the row's own bookkeeping (``last_ask``, ``ask_day``, ``ask_count``)
+    and the drifted cat, in that split: whether it is hungry is arithmetic on the
+    clock, and whether it has already asked today is not.
+    """
+    if not enabled:
+        return HungerDecision(False, "the hungry asks are switched off")
+    fresh = drift(cat, now)
+    if is_dead(fresh, now):
+        return HungerDecision(False, "the pet is already gone")
+    if fresh.fed > HUNGRY_BELOW:
+        return HungerDecision(False, "not hungry")
+    day = care_day(now)
+    count = int(cat.ask_count) if str(cat.ask_day or "") == day else 0
+    since = float(now) - float(cat.last_ask or 0.0)
+    if float(cat.last_ask or 0.0) > 0 and since < HUNGER_MIN_GAP:
+        return HungerDecision(False, f"asked {humanize(since)} ago")
+    if count >= HUNGER_DAILY_CAP:
+        return HungerDecision(False, f"already asked {HUNGER_DAILY_CAP} times today")
+    return HungerDecision(True)
+
+
+def mark_hunger(cat: Cat, now: float) -> Cat:
+    """The row after one ask went out, with the day rollover handled."""
+    day = care_day(now)
+    count = int(cat.ask_count) if str(cat.ask_day or "") == day else 0
+    return replace(
+        cat,
+        last_ask=float(now),
+        ask_day=day,
+        ask_count=count + 1,
+        starving_since=float(drift(cat, now).starving_since),
     )
 
 
@@ -440,6 +892,107 @@ LINES_BY_ACTION: dict[str, tuple[str, ...]] = {
     "feed": FEED_LINES, "pet": PET_LINES, "play": PLAY_LINES,
 }
 
+#: The other species' own voices, and **only** theirs: these pools *replace* the
+#: cat's for the four animals that are not cats, and a species with nothing here
+#: (or an unreadable one) falls back to the cat's lines rather than to silence. A
+#: dog that "purrs" is the detail that makes the choice look like a rename.
+SPECIES_LINES: dict[str, dict[str, tuple[str, ...]]] = {
+    "dog": {
+        "feed": (
+            "{name} sits, trembling, and does not touch the bowl until you say it is fine.",
+            "{name} eats as if the last meal was a rumour, then looks up for approval.",
+            "{name} inhales it, then follows you back to the kitchen just in case.",
+        ),
+        "pet": (
+            "{name} leans their whole body against your leg and stays there.",
+            "{name} rolls over and presents the entire belly, no questions asked.",
+            "{name} thumps a tail against the floor and gazes at you like you did something.",
+        ),
+        "play": (
+            "{name} brings the ball back eleven times and never once gets tired of it.",
+            "{name} catches the toy, shakes it dead, and drops it at your feet.",
+            "{name} runs the length of the room for a toy they have seen a hundred times.",
+        ),
+    },
+    "robot": {
+        "feed": (
+            "{name} docks without a sound and drinks the whole tank in one go.",
+            "{name} hums a rising note, which is the closest thing to a purr it has.",
+            "{name} charges, then runs a lap of the room for no reason at all.",
+        ),
+        "pet": (
+            "You pat {name}. A panel lights up green. Nothing else happens.",
+            "{name} tolerates the affection for eleven seconds, then resumes standing.",
+            "{name} leans into your hand with a small mechanical whir.",
+        ),
+        "play": (
+            "{name} solves the toy, which is not what the toy was for.",
+            "{name} chases the laser perfectly, on a precomputed path.",
+            "{name} plays five rounds, records them, and asks for a sixth.",
+        ),
+    },
+    "dragon": {
+        "feed": (
+            "{name} sniffs the bowl, decides it will do, and eats like a landlord.",
+            "{name} takes it in one bite and looks expectantly at your hands.",
+            "{name} eats, then curls up on the coins, which are also food now.",
+        ),
+        "pet": (
+            "{name} permits one scratch under the chin. You may tell people about it.",
+            "{name} rumbles low enough to move the desk, and considers that affection.",
+            "{name} closes both eyes. It is not trust, it is a nap.",
+        ),
+        "play": (
+            "{name} bats the toy across the room and looks at you to go and fetch it.",
+            "{name} chases the laser with the enthusiasm of something much smaller.",
+            "{name} wins, then sits on the hoard to make the point.",
+        ),
+    },
+}
+
+#: The pet's own cards when it is hungry: the sentence that opens the ask, per
+#: species, for the same reason the care lines are split. None of them may mention
+#: anybody (asserted in the suite), because this card is sent with a ping only when
+#: the server has switched the ping on.
+HUNGER_LINES: dict[str, tuple[str, ...]] = {
+    DEFAULT_SPECIES: (
+        "{name} is sitting on the empty bowl and staring at you.",
+        "meow. that is the whole message. the bowl is empty.",
+        "{name} has been following you between rooms for an hour now.",
+        "{name} knocked the bowl twice and looked meaningfully at you both times.",
+    ),
+    "dog": (
+        "{name} is doing the slow, patient sit beside the bowl.",
+        "{name} brought you their bowl. They carried it. The message is clear.",
+        "{name} has been sighing at the door for a while now.",
+    ),
+    "robot": (
+        "{name} is flashing the low-fuel light at you every thirty seconds.",
+        "{name} has stopped moving. It says this is power saving. It is not.",
+        "{name} parked itself in front of the charger and is waiting.",
+    ),
+    "dragon": (
+        "{name} is lying on the empty bowl, hoarding it against nobody.",
+        "{name} blew a small puff of smoke at the food cupboard.",
+        "{name} has gone very quiet, which for a dragon is a complaint.",
+    ),
+}
+
+#: What the card says when a pet is actually gone.
+DEATH_LINES: tuple[str, ...] = (
+    "{name} waited by the bowl and nobody came.",
+    "The bowl was still empty the last time anybody looked, and it has been a while.",
+    "{name} stopped asking some time yesterday.",
+    "The last few cards about {name} went unread, and this is the one that matters.",
+)
+
+#: And what it says when an administrator brings one back.
+REVIVE_LINES: tuple[str, ...] = (
+    "{name} blinks, sits up, and immediately checks the bowl.",
+    "{name} is on their feet again, unimpressed and hungry.",
+    "{name} came back, which they will absolutely hold over you.",
+)
+
 #: Cards a card may not carry. Every string this module offers for a message is
 #: asserted mention-free by the suite, because a toy that pings somebody at random
 #: is the exact failure the ambient caps exist to prevent.
@@ -447,10 +1000,61 @@ NO_MENTION = ("@everyone", "@here")
 
 
 def care_line(action_id: str, cat: Cat, now: float, *, rng: random.Random | None = None) -> tuple[str, str]:
-    """``(headline, body)`` for a completed care action."""
-    pool = LINES_BY_ACTION.get(action_id, PET_LINES)
+    """``(headline, body)`` for a completed care action, in this pet's own voice."""
+    pool = SPECIES_LINES.get(species_of(cat).id, {}).get(action_id)
+    if not pool:
+        pool = LINES_BY_ACTION.get(action_id, PET_LINES)
     line = pick(pool, rng).format(name=_name(cat))
     return f"{face(cat)} {mood_word(cat).capitalize()}", line
+
+
+def hunger_text(
+    cat: Cat, now: float, *, rng: random.Random | None = None, instead: str = ""
+) -> tuple[str, str]:
+    """``(title, body)`` for the card a hungry pet sends its own owner.
+
+    Three facts on purpose: what the pet wants, what the cheapest bowl costs **for
+    this animal**, and how long is left before it is gone. A card that only said
+    *i am hungry* is a nag; the countdown is what makes it something to act on, and
+    it is the same arithmetic the death card is built from, so the two cannot
+    disagree about the deadline.
+
+    ``instead`` is a sentence the pet *thought of* rather than one written here —
+    already cleaned by ``utils/catfeed``, which is the only reason a card may carry
+    words this module did not write. The shape of the card does not change, exactly
+    as it does not for the cat's own quiet ones.
+    """
+    fresh = drift(cat, now)
+    spec = species_of(fresh)
+    line = instead or pick(
+        HUNGER_LINES.get(spec.id, HUNGER_LINES[DEFAULT_SPECIES]), rng
+    ).format(name=_name(fresh))
+    body = (
+        f"{line}\n\n{dials_line(fresh)}\n\n"
+        f"-# {HOUSE_FOOD.label} is **{feed_price(fresh, HOUSE_FOOD)}** coins for a "
+        f"{spec.label.lower()}, and `/cat feed` buys one — there is about "
+        f"**{humanize(dies_in(fresh, now))}** before {_name(fresh)} is gone."
+    )
+    return f"{face(fresh)} {_name(fresh)} is hungry", body
+
+
+def death_text(cat: Cat, now: float, *, rng: random.Random | None = None) -> tuple[str, str]:
+    """``(title, body)`` for the card that says a pet is gone.
+
+    It names the way back, because the member cannot fix this themselves: the whole
+    point of the state is that somebody else has to undo it.
+    """
+    fresh = drift(cat, now)
+    name = _name(fresh)
+    line = pick(DEATH_LINES, rng).format(name=name)
+    body = (
+        f"{line}\n\n"
+        f"**{name} is gone.** The bowl emptied and stayed empty for "
+        f"{humanize(DEATH_GRACE)}, and nobody came.\n\n"
+        f"-# An administrator can bring them back with `/cat revive` — until then "
+        f"{name} cannot be looked after, and no new pet can move in."
+    )
+    return f"🕯️ {name} is gone", body
 
 
 def pick(pool: Iterable[str], rng: random.Random | None = None) -> str:
@@ -482,6 +1086,13 @@ GAMES: tuple[Game, ...] = (
     Game("rps", "✊ Cat duel", "Best of five against me. I cheat a little.", "longest run", False, "wins"),
 )
 GAMES_BY_ID: dict[str, Game] = {game.id: game for game in GAMES}
+
+#: What a finished game pays its player, and what a new record pays on top of it.
+#: Small on purpose, and here rather than in the cog because it is a rate like
+#: every other one: the arcade is one honest way to keep a pet fed, not a printing
+#: press, and the only thing bounding it is a member's own time.
+GAME_PRIZE = 15
+RECORD_BONUS = 60
 
 #: The hub's non-game buttons: the three things that need no scoring.
 EXTRA_ACTIVITIES: tuple[str, ...] = ("challenge", "riddle", "joke")
@@ -977,6 +1588,22 @@ def caption_messages(cat: "Cat | None" = None, now: float | None = None) -> list
     """One short caption, for a photograph the cat has just been sent."""
     return brain_messages(
         "Write one short caption for a photograph of you, as the cat. No hashtags.", cat, now
+    )
+
+
+def hunger_messages(cat: Cat, now: float) -> list[dict]:
+    """The opener of a hungry pet's ask, when the pet is allowed to think one up.
+
+    Its own builder rather than a reuse of ``ambient_messages``, because this card
+    is *about* something: the pet is asking one person for a bowl, and a model that
+    was told to say something small about a quiet server would answer the wrong
+    question beautifully.
+    """
+    return brain_messages(
+        "Say one short line in which you, as the pet, ask the person who feeds you "
+        f"for food. You are a {species_of(cat).label.lower()} and your bowl is empty.",
+        cat,
+        now,
     )
 
 

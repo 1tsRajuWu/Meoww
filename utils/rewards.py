@@ -26,6 +26,7 @@ so the formulas are testable without a gateway connection.
 
 from __future__ import annotations
 
+import threading
 import hashlib
 import math
 import re
@@ -199,8 +200,16 @@ class SpamScreen:
         self._kept = max(1, int(kept))
         self._max_users = max(1, int(max_users))
         self._history: dict[tuple[int, int], deque[tuple[float, str | None]]] = {}
+        self._lock = threading.Lock()
 
     def record(
+        self, guild_id: int, user_id: int, text: str | None, now: float
+    ) -> SpamStats:
+        """Add a message to the history and return what it looks like."""
+        with self._lock:
+            return self._record(guild_id, user_id, text, now)
+
+    def _record(
         self, guild_id: int, user_id: int, text: str | None, now: float
     ) -> SpamStats:
         """Add a message to the history and return what it looks like."""

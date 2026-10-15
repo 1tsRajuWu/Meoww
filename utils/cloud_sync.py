@@ -109,10 +109,10 @@ except (TypeError, ValueError):
     SYNC_INTERVAL = 300
 
 def db_path() -> str:
-    """Return the current database path. Always reads live from ``utils.db.DB_PATH``
+    """Return the current database path. Always reads live from ``utils.db.db_path()``
     so that test helpers patching it are respected."""
     from utils import db
-    return db.DB_PATH
+    return db.db_path()
 
 
 # --------------------------------------------------------------------------- #

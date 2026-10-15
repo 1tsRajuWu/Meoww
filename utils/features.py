@@ -627,20 +627,22 @@ FEATURES: tuple[Feature, ...] = (
     Feature(
         id="devcat",
         name="Dev Cat & Solo Arcade",
-        icon="🐈",
+        icon="🐾",
         category="Premium",
         description=(
-            "One cat, the bot's own servers: adopt it, feed it, pet it and play with "
-            "it, post a panel whose buttons keep working, play four solo arcade games "
-            "with personal records, and let the cat say something on its own now and "
-            "then. It refuses every server but the bot's own, and it loads in the "
-            "VIP bot only."
+            "One pet, the bot's own servers: adopt a cat, dog, robot or dragon, feed "
+            "it (food costs coins), pet it and play with it for coins back, post a "
+            "panel whose buttons keep working, play four solo arcade games with "
+            "personal records, and let it ask for food when the bowl runs low. A pet "
+            "nobody feeds starves: care stops and no new pet moves in until an "
+            "administrator brings it back. It refuses every server but the bot's own, "
+            "and it loads in the VIP bot only."
         ),
         gate_commands=("cat",),
         commands=(
-            "/cat adopt", "/cat status", "/cat feed", "/cat pet", "/cat play",
-            "/cat rename", "/cat top", "/cat photo", "/cat fact", "/cat ask",
-            "/cat bored", "/cat panel", "/cat settings",
+            "/cat adopt", "/cat status", "/cat feed", "/cat shop", "/cat pet",
+            "/cat play", "/cat rename", "/cat top", "/cat photo", "/cat fact",
+            "/cat ask", "/cat bored", "/cat revive", "/cat panel", "/cat settings",
         ),
         cog="cogs.devtoy",
         vip_only=True,
@@ -709,6 +711,20 @@ FEATURES: tuple[Feature, ...] = (
                 ),
                 kind="text",
                 default="",
+            ),
+            Setting(
+                id="hunger",
+                label="Let pets ask for food",
+                help=(
+                    "On, a pet whose bowl has run low tells its own owner: the card "
+                    "names the price of a bowl and how long is left before the pet "
+                    "starves, at most six times a day and two hours apart. Off, "
+                    "nothing is said and the bowl simply empties — the pets still "
+                    "starve either way, and the card that says a pet is gone is "
+                    "posted whether this is on or not."
+                ),
+                kind="bool",
+                default=True,
             ),
         ),
     ),

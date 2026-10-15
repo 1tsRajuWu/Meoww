@@ -17,7 +17,7 @@ from utils.levels import (
     total_xp_for_level,
 )
 
-DB_PATH = db.DB_PATH
+DB_PATH = db.db_path()
 
 # The two voice-rate ceilings are imported rather than defined here: the
 # dashboard's own settings form writes the same row through
@@ -75,9 +75,11 @@ class Leveling(commands.Cog):
         self.bot = bot
         # In-memory chat cooldowns: (guild_id, user_id) -> timestamp (10 seconds)
         self._chat_cooldowns: dict[tuple[int, int], float] = {}
+        self._chat_cooldowns_lock = asyncio.Lock()
         # Anti-spam history (bounded fingerprints, never raw text) and the voice
         # activity clock. Both prune themselves and never touch the database.
         self._spam = rewards.SpamScreen()
+        self._spam_lock = asyncio.Lock()
         self._pulse = rewards.PulseClock()
         self._exempt_cache: dict[int, dict[str, set[int]]] = {}
 
@@ -422,7 +424,8 @@ class Leveling(commands.Cog):
 
         now = time.time()
         key = (message.guild.id, message.author.id)
-        last_time = self._chat_cooldowns.get(key, 0)
+        async with self._chat_cooldowns_lock:
+            last_time = self._chat_cooldowns.get(key, 0)
 
         # Message Length Based Rewards:
         text = (message.content or "").strip()
@@ -452,17 +455,14 @@ class Leveling(commands.Cog):
             await self._count_message(message.guild.id, message.author.id, now)
             return
 
-        self._chat_cooldowns[key] = now
-        # A cooldown only matters for a few seconds, but the dict held one entry
-        # per (guild, member) forever — a slow RAM leak on a busy server.
-        if len(self._chat_cooldowns) > 4096:
-            for stale in [k for k, ts in self._chat_cooldowns.items() if now - ts > 60]:
-                self._chat_cooldowns.pop(stale, None)
+        async with self._chat_cooldowns_lock:
+            self._chat_cooldowns[key] = now
+            # A cooldown only matters for a few seconds, but the dict held one entry
+            # per (guild, member) forever — a slow RAM leak on a busy server.
+            if len(self._chat_cooldowns) > 4096:
+                for stale in [k for k, ts in self._chat_cooldowns.items() if now - ts > 60]:
+                    self._chat_cooldowns.pop(stale, None)
 
-        # Anti-spam gate 3: the arithmetic. Reposting the same text, a sustained
-        # flood and an emoji-only "message" each cut the payout, and the effort
-        # curve decides where in the configured band the message lands. Nothing
-        # here blocks the message itself — /automod does that.
         stats = self._spam.record(
             message.guild.id, message.author.id, text if text_readable else None, now
         )

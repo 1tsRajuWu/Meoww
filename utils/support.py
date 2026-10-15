@@ -558,7 +558,7 @@ async def _insert(*, side: str, found: dict) -> dict | None:
     is a no-op rather than a duplicate line. The id is handed back so a caller
     can say what actually happened rather than what it hoped happened.
     """
-    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+    async with db.aiosqlite.connect(db.db_path()) as conn:
         await ensure_table(conn)
         cursor = await conn.execute(
             f"INSERT OR IGNORE INTO {TABLE} "
@@ -595,7 +595,7 @@ async def get(row_id: int) -> dict | None:
         wanted = int(row_id)
     except (TypeError, ValueError):
         return None
-    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+    async with db.aiosqlite.connect(db.db_path()) as conn:
         await ensure_table(conn)
         async with conn.execute(
             f"SELECT {', '.join(COLUMNS)} FROM {TABLE} WHERE id = ?", (wanted,)
@@ -620,7 +620,7 @@ async def attach_thread(row_id: int, thread_id: int) -> bool:
     wanted, thread = as_int(row_id), as_int(thread_id)
     if not wanted or not thread:
         return False
-    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+    async with db.aiosqlite.connect(db.db_path()) as conn:
         await ensure_table(conn)
         cursor = await conn.execute(
             f"UPDATE {TABLE} SET thread_id = ? WHERE id = ?", (thread, wanted)
@@ -663,7 +663,7 @@ async def recent(limit: int = SHOWN) -> list[dict]:
         wanted = max(1, min(int(limit or SHOWN), 200))
     except (TypeError, ValueError):
         wanted = SHOWN
-    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+    async with db.aiosqlite.connect(db.db_path()) as conn:
         await ensure_table(conn)
         async with conn.execute(
             f"SELECT {', '.join(COLUMNS)} FROM {TABLE} ORDER BY ts DESC, id DESC LIMIT ?",
@@ -675,7 +675,7 @@ async def recent(limit: int = SHOWN) -> list[dict]:
 
 async def count() -> int:
     """How many messages the record holds, in total."""
-    async with db.aiosqlite.connect(db.DB_PATH) as conn:
+    async with db.aiosqlite.connect(db.db_path()) as conn:
         await ensure_table(conn)
         async with conn.execute(f"SELECT COUNT(*) FROM {TABLE}") as cursor:
             row = await cursor.fetchone()

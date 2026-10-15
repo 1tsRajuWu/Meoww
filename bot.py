@@ -394,7 +394,16 @@ def _schedule_command_drain(
         except Exception as exc:
             print(f"[SYNC] Drain failed for {label or guild.name}: {exc}", flush=True)
 
-    asyncio.create_task(_drain())
+    def _drain_done(task: asyncio.Task) -> None:
+        """Log any exception from the background drain task."""
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            print(f"[SYNC] Background drain failed: {exc}", flush=True)
+
+    asyncio.create_task(_drain()).add_done_callback(_drain_done)
 
 
 async def _registered_command_payloads(bot: commands.Bot, guild=None) -> list[dict] | None:
@@ -1116,6 +1125,16 @@ async def _resync_server(bot: commands.Bot, guild) -> None:
     _resync_tasks.pop(guild.id, None)
 
 
+def _resync_done(task: asyncio.Task) -> None:
+    """Log any exception from the background resync task."""
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        print(f"[SYNC] Background resync failed: {exc}", flush=True)
+
+
 async def _kick_guild_resync(bot: commands.Bot, guild) -> bool:
     """Mark a server dirty and make sure a pass is queued. Returns immediately."""
     _resync_dirty.add(guild.id)
@@ -1123,6 +1142,7 @@ async def _kick_guild_resync(bot: commands.Bot, guild) -> bool:
     if task is not None and not task.done():
         return True
     _resync_tasks[guild.id] = asyncio.create_task(_resync_server(bot, guild))
+    _resync_tasks[guild.id].add_done_callback(_resync_done)
     return True
 
 
@@ -1355,12 +1375,15 @@ async def on_ready():
         print(f"[CHANNELS] Channel binding error: {e}", flush=True)
 
     # Not awaited: answering it honestly takes longer than a boot should stand
-    # still for — the other copy has to be given the chance to renew its claim
-    # before the check can tell it from one that has stopped
-    # (``cloud_sync.COPY_WATCH_SECONDS``) — and nothing below waits on the answer.
-    # It prints what it is doing when it starts, and a copy that is really there
-    # still reaches the operator's channels on its own.
-    asyncio.create_task(report_duplicate_instance())
+    def _report_done(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            print(f"[INSTANCE] Background duplicate check failed: {exc}", flush=True)
+
+    asyncio.create_task(report_duplicate_instance()).add_done_callback(_report_done)
 
     # Auto-announce updates to each server's own update channel on every deploy
     # with changes. Outside the quiet window this prints when the note is due and

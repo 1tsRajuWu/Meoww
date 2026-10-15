@@ -1290,7 +1290,7 @@ async def _fetch(
 async def _load_cached() -> Snapshot | None:
     """The board as it was last written to disk, if it was."""
     try:
-        async with aiosqlite.connect(db.DB_PATH) as conn:
+        async with aiosqlite.connect(db.db_path()) as conn:
             async with conn.execute(
                 "SELECT symbol, price_usd, change_pct, source, as_of FROM market_quotes"
             ) as cur:
@@ -1323,7 +1323,7 @@ async def _save(snapshot: Snapshot) -> None:
     if not snapshot.quotes:
         return
     try:
-        async with aiosqlite.connect(db.DB_PATH) as conn:
+        async with aiosqlite.connect(db.db_path()) as conn:
             cutoff = snapshot.as_of - HISTORY_RETENTION_DAYS * 24 * 3600
             for quote in snapshot.quotes.values():
                 await conn.execute(
@@ -1510,7 +1510,7 @@ def clear_trade_limits() -> None:
 # --------------------------------------------------------------------------- #
 async def holdings(user_id: int, guild_id: int) -> dict[str, Holding]:
     """Every position this member holds, dust excluded."""
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT symbol, quantity, cost_coins FROM market_holdings "
             "WHERE user_id=? AND guild_id=? AND quantity > 0",
@@ -1525,7 +1525,7 @@ async def holdings(user_id: int, guild_id: int) -> dict[str, Holding]:
 
 async def trade_history(user_id: int, guild_id: int, limit: int = 10) -> list[dict]:
     """This member's most recent fills, newest first."""
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT symbol, side, quantity, unit_price_coins, coins, realized, ts "
             "FROM market_trades WHERE user_id=? AND guild_id=? ORDER BY id DESC LIMIT ?",
@@ -1556,7 +1556,7 @@ async def observed_series(
     prices. Points are thinned by stride rather than by dropping the ends, so the
     shape of the window survives.
     """
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT ts, price_usd FROM market_history WHERE symbol=? AND ts >= ? ORDER BY ts",
             (symbol, now - seconds),
@@ -1576,7 +1576,7 @@ async def observed_series(
 
 async def realized_total(user_id: int, guild_id: int) -> dict:
     """All-time realised profit/loss from sells, plus how often it was positive."""
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT COALESCE(SUM(realized), 0), COUNT(*), "
             "COALESCE(SUM(CASE WHEN realized > 0 THEN 1 ELSE 0 END), 0) "
@@ -1591,7 +1591,7 @@ async def realized_total(user_id: int, guild_id: int) -> dict:
 
 async def sold_coins_since(user_id: int, guild_id: int, since: float) -> int:
     """Coins the market has paid this member since ``since`` (for the daily cap)."""
-    async with aiosqlite.connect(db.DB_PATH) as conn:
+    async with aiosqlite.connect(db.db_path()) as conn:
         async with conn.execute(
             "SELECT COALESCE(SUM(coins), 0) FROM market_trades "
             "WHERE user_id=? AND guild_id=? AND side='sell' AND ts >= ?",

@@ -9,7 +9,8 @@ import time
 from utils import db, loans, meowfee, shop
 from utils.style import send_card, display_names
 
-DB_PATH = db.DB_PATH
+def _db_path():
+    return __import__('utils.db', fromlist=['DB_PATH']).DB_PATH
 
 # Unlimited economy: players can earn and hold as much money as they want!
 _bot_instance: commands.Bot | None = None
@@ -21,7 +22,7 @@ async def sanitize_economy_balances(bot: commands.Bot):
 
 async def get_eco(user_id: int, guild_id: int, is_owner: bool | None = None):
     await ensure_eco(user_id, guild_id)
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with aiosqlite.connect(_db_path()) as conn:
         async with conn.execute(
             "SELECT wallet, bank, last_daily, last_weekly, last_work FROM economy WHERE user_id=? AND guild_id=?",
             (user_id, guild_id)
@@ -34,7 +35,7 @@ async def get_eco(user_id: int, guild_id: int, is_owner: bool | None = None):
     return {"wallet": row[0], "bank": row[1], "last_daily": row[2], "last_weekly": row[3], "last_work": row[4]}
 
 async def ensure_eco(user_id: int, guild_id: int):
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with aiosqlite.connect(_db_path()) as conn:
         await conn.execute(
             "INSERT OR IGNORE INTO economy (user_id, guild_id) VALUES (?, ?)",
             (user_id, guild_id)
@@ -56,7 +57,7 @@ async def update_wallet(user_id: int, guild_id: int, amount: int, is_owner: bool
     # One connection, not two: ensure_eco's INSERT OR IGNORE rides along in
     # the same transaction. This runs on every chat message and every voice
     # tick, so halving its connections halves the hot path's SQLite traffic.
-    async with aiosqlite.connect(DB_PATH) as conn:
+    async with aiosqlite.connect(_db_path()) as conn:
         await conn.execute(
             "INSERT OR IGNORE INTO economy (user_id, guild_id) VALUES (?, ?)",
             (user_id, guild_id)
@@ -171,7 +172,7 @@ async def member_level(user_id: int, guild_id: int) -> int:
     with it.
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with aiosqlite.connect(_db_path()) as conn:
             async with conn.execute(
                 "SELECT level FROM user_levels WHERE guild_id=? AND user_id=?",
                 (guild_id, user_id),
@@ -770,7 +771,7 @@ class Economy(commands.Cog):
         page = max(1, page)
         limit = 10
         offset = (page - 1) * limit
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with aiosqlite.connect(_db_path()) as conn:
             async with conn.execute(
                 "SELECT COUNT(*) FROM economy WHERE guild_id=?",
                 (interaction.guild.id,)
@@ -914,7 +915,7 @@ class Economy(commands.Cog):
             bank = max(0, bank)
 
         await ensure_eco(member.id, interaction.guild.id)
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with aiosqlite.connect(_db_path()) as conn:
             if bank is not None:
                 await conn.execute("UPDATE economy SET wallet=?, bank=? WHERE user_id=? AND guild_id=?",
                                    (wallet, bank, member.id, interaction.guild.id))
@@ -941,7 +942,7 @@ class Economy(commands.Cog):
         if not await check_is_owner(interaction):
             return await _deny_admin(interaction, "reset balances (Server Owner only)")
 
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with aiosqlite.connect(_db_path()) as conn:
             if reset_all:
                 await conn.execute("UPDATE economy SET wallet=0, bank=0 WHERE guild_id=?", (interaction.guild.id,))
                 await conn.commit()
@@ -995,7 +996,7 @@ class Economy(commands.Cog):
                     ephemeral=True
                 )
         await ensure_eco(member.id, interaction.guild.id)
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with aiosqlite.connect(_db_path()) as conn:
             await conn.execute(
                 "UPDATE economy SET bank = bank + ? WHERE user_id=? AND guild_id=?",
                 (amount, member.id, interaction.guild.id)
@@ -1191,7 +1192,7 @@ class Economy(commands.Cog):
 
         target = member or interaction.user
         items = []
-        async with aiosqlite.connect(DB_PATH) as conn:
+        async with aiosqlite.connect(_db_path()) as conn:
             async with conn.execute("SELECT item_name FROM inventory WHERE user_id=? AND guild_id=?",
                                    (target.id, interaction.guild.id)) as cur:
                 async for row in cur:
@@ -1353,7 +1354,7 @@ class Economy(commands.Cog):
                 db.run_atomic,
                 lambda cur: _charge_late_fee(cur, user_id, guild_id, now),
             )
-            async with aiosqlite.connect(DB_PATH) as conn:
+            async with aiosqlite.connect(_db_path()) as conn:
                 async with conn.execute(
                     "SELECT amount, repay_amount, due_ts, plan, status FROM loans WHERE user_id=? AND guild_id=?",
                     (user_id, guild_id)
