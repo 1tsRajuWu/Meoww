@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "include": [
+    "/",
+    "/index.html",
+    "/systems",
+    "/systems.html",
+    "/start",
+    "/start.html",
+    "/pricing",
+    "/pricing.html",
+    "/premium",
+    "/premium.html",
+    "/privacy",
+    "/privacy.html",
+    "/terms",
+    "/terms.html",
+    "/ai",
+    "/ai.html",
+    "/support",
+    "/donate",
+    "/health"
+  ],
+  "exclude": ["/static/*"]
+}

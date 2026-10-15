@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="DaCat">
+  <!-- The same badge at 32px, with the geometry respaced for the size rather
+       than scaled: at this size the counter of a scaled-down `D` closes up, so
+       the letter is drawn wider and its bowl is shallower. -->
+  <path fill-rule="evenodd" clip-rule="evenodd"
+        d="M0 8a8 8 0 0 1 8-8h16a8 8 0 0 1 8 8v16a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z
+           M10 8h7c5 0 9 3.5 9 8s-4 8-9 8h-7z
+           M13.5 11.5v9h3.5c2.5 0 5-2 5-4.5s-2.5-4.5-5-4.5z"
+        fill="#ff5d3a" />
+</svg>
